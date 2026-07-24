@@ -1,0 +1,30 @@
+# Build output
+target/
+
+# IDE / editor
+.idea/
+.obsidian/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+
+# Pironi traces & runtime
+.pironi/
+*.jsonl
+
+# Project context (personal, not public)
+CLAUDE.md
+
+# Temp/test files
+weather-sofia.txt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Java
+*.class
+*.jar
+!target/*.jar

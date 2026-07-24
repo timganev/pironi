@@ -1,0 +1,76 @@
+package dev.pironi.safety;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.pironi.tool.Tool;
+import dev.pironi.tool.ToolResult;
+import org.junit.jupiter.api.Test;
+
+import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.io.StringReader;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+class ConsoleApprovalPolicyTest {
+    private final JsonNode arguments = new ObjectMapper().createObjectNode();
+
+    @Test
+    void deniesMutationOnEofOrUnknownAnswer() {
+        assertEquals(ApprovalDecision.DENY, policy("").decide(tool(true), arguments));
+        assertEquals(ApprovalDecision.DENY, policy("maybe\n").decide(tool(true), arguments));
+    }
+
+    @Test
+    void acceptsEnglishAndBulgarianApproval() {
+        assertEquals(ApprovalDecision.ALLOW, policy("y\n").decide(tool(true), arguments));
+        assertEquals(ApprovalDecision.ALLOW, policy("yes\n").decide(tool(true), arguments));
+        assertEquals(ApprovalDecision.ALLOW, policy("д\n").decide(tool(true), arguments));
+        assertEquals(ApprovalDecision.ALLOW, policy("да\n").decide(tool(true), arguments));
+    }
+
+    @Test
+    void readOnlyDeniesMutationButAllowsReads() {
+        ConsoleApprovalPolicy policy = new ConsoleApprovalPolicy(
+                ApprovalMode.READ_ONLY,
+                new BufferedReader(new StringReader("")),
+                new PrintStream(new ByteArrayOutputStream())
+        );
+
+        assertEquals(ApprovalDecision.DENY, policy.decide(tool(true), arguments));
+        assertEquals(ApprovalDecision.ALLOW, policy.decide(tool(false), arguments));
+    }
+
+    @Test
+    void modeCanBeChangedDuringTheSession() {
+        ConsoleApprovalPolicy policy = new ConsoleApprovalPolicy(
+                ApprovalMode.READ_ONLY,
+                new BufferedReader(new StringReader("")),
+                new PrintStream(new ByteArrayOutputStream())
+        );
+
+        policy.updateMode(ApprovalMode.AUTO);
+
+        assertEquals(ApprovalMode.AUTO, policy.mode());
+        assertEquals(ApprovalDecision.ALLOW, policy.decide(tool(true), arguments));
+    }
+
+    private ConsoleApprovalPolicy policy(String input) {
+        return new ConsoleApprovalPolicy(
+                ApprovalMode.ASK,
+                new BufferedReader(new StringReader(input)),
+                new PrintStream(new ByteArrayOutputStream())
+        );
+    }
+
+    private Tool tool(boolean mutating) {
+        return new Tool() {
+            public String name() { return "test"; }
+            public String description() { return "test"; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return mutating; }
+            public ToolResult execute(JsonNode ignored) { return ToolResult.success(""); }
+        };
+    }
+}
