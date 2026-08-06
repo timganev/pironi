@@ -27,7 +27,8 @@ final class LastSessionStore {
             "pironi-home",
             "personal-context",
             "status",
-            "verify-command"
+            "verify-command",
+            "deny-tools"
     );
 
     private final Path path;
@@ -73,6 +74,12 @@ final class LastSessionStore {
         properties.setProperty("status", cliName(options.statusMode()));
         if (options.verifyCommand() != null && !options.verifyCommand().isBlank()) {
             properties.setProperty("verify-command", options.verifyCommand());
+        }
+        if (!options.denyTools().isEmpty()) {
+            properties.setProperty(
+                    "deny-tools",
+                    options.denyTools().stream().sorted().collect(java.util.stream.Collectors.joining(","))
+            );
         }
 
         Files.createDirectories(path.getParent());

@@ -3,6 +3,7 @@ package dev.pironi.model;
 import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 public final class SwitchableModelClient implements ModelClient {
     private volatile String model;
@@ -16,6 +17,12 @@ public final class SwitchableModelClient implements ModelClient {
     public ModelResponse chat(List<ChatMessage> messages)
             throws IOException, InterruptedException {
         return delegate.chat(messages);
+    }
+
+    @Override
+    public ModelResponse chatStreaming(List<ChatMessage> messages, Consumer<String> contentChunk)
+            throws IOException, InterruptedException {
+        return delegate.chatStreaming(messages, contentChunk);
     }
 
     public String model() {

@@ -1,6 +1,7 @@
 package dev.pironi.status;
 
 import dev.pironi.model.ChatMessage;
+import dev.pironi.model.ModelResponse;
 import org.jline.terminal.Terminal;
 import org.jline.utils.AttributedString;
 import org.jline.utils.AttributedStringBuilder;
@@ -11,6 +12,7 @@ import java.io.PrintStream;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class TerminalStatusReporter implements StatusReporter {
@@ -27,6 +29,7 @@ public final class TerminalStatusReporter implements StatusReporter {
     private final Status terminalStatus;
     private final Object outputLock = new Object();
     private volatile int lastContextPercent;
+    private volatile double lastEvalTokensPerSecond;
     private boolean closed;
 
     public TerminalStatusReporter(
@@ -68,7 +71,7 @@ public final class TerminalStatusReporter implements StatusReporter {
             int frame = 0;
             while (running.get()) {
                 long seconds = Duration.ofNanos(System.nanoTime() - started).toSeconds();
-                render(formatLine(
+                render(withEvalRate(formatLine(
                         SPINNER[frame++ % SPINNER.length],
                         model,
                         workspace,
@@ -76,7 +79,7 @@ public final class TerminalStatusReporter implements StatusReporter {
                         seconds,
                         turn,
                         maxTurns
-                ));
+                )));
                 try {
                     Thread.sleep(1_000);
                 } catch (InterruptedException ignored) {
@@ -94,21 +97,29 @@ public final class TerminalStatusReporter implements StatusReporter {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-            render("● " + model + " │ " + workspace + " │ ctx ~"
-                    + formatContextPercent(lastContextPercent) + " │ processing");
+            render(withEvalRate("● " + model + " │ " + workspace + " │ ctx ~"
+                    + formatContextPercent(lastContextPercent) + " │ processing"));
         };
     }
 
     @Override
     public void tool(String toolName) {
-        render("⚙ " + model + " │ " + workspace + " │ ctx ~"
-                + formatContextPercent(lastContextPercent) + " │ tool " + toolName);
+        render(withEvalRate("⚙ " + model + " │ " + workspace + " │ ctx ~"
+                + formatContextPercent(lastContextPercent) + " │ tool " + toolName));
     }
 
     @Override
     public void idle() {
-        render("● " + model + " │ " + workspace + " │ ctx ~"
-                + formatContextPercent(lastContextPercent) + " │ ready");
+        render(withEvalRate("● " + model + " │ " + workspace + " │ ctx ~"
+                + formatContextPercent(lastContextPercent) + " │ ready"));
+    }
+
+    @Override
+    public void modelResponse(ModelResponse response) {
+        if (response.outputTokens() > 0 && response.evalDurationNanos() > 0) {
+            lastEvalTokensPerSecond = response.outputTokens() * 1_000_000_000.0
+                    / response.evalDurationNanos();
+        }
     }
 
     @Override
@@ -116,6 +127,7 @@ public final class TerminalStatusReporter implements StatusReporter {
         this.model = model;
         this.contextSize = contextSize;
         lastContextPercent = 0;
+        lastEvalTokensPerSecond = 0;
         idle();
     }
 
@@ -149,6 +161,14 @@ public final class TerminalStatusReporter implements StatusReporter {
 
     static String formatContextPercent(int contextPercent) {
         return contextPercent == 0 ? "<1%" : contextPercent + "%";
+    }
+
+    private String withEvalRate(String line) {
+        double rate = lastEvalTokensPerSecond;
+        if (rate <= 0) {
+            return line;
+        }
+        return line + String.format(Locale.ROOT, " │ %.2f tok/s", rate);
     }
 
     private void render(String line) {

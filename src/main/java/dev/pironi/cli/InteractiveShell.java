@@ -120,7 +120,7 @@ public final class InteractiveShell {
     public int run(String initialTask) throws IOException, InterruptedException {
         if (initialTask != null && !initialTask.isBlank()) {
             AgentResult result = runner.run(initialTask);
-            println(result.output());
+            if (!result.streamed()) println(result.output());
             conversationHistory.add("User: " + initialTask);
             conversationHistory.add("Pironi: " + result.output());
         }
@@ -152,7 +152,7 @@ public final class InteractiveShell {
 
             String fullTask = context.isEmpty() ? line : context + "Current request:\n" + line;
             AgentResult result = runner.run(fullTask);
-            println(result.output());
+            if (!result.streamed()) println(result.output());
             conversationHistory.add("User: " + line);
             conversationHistory.add("Pironi: " + result.output());
 

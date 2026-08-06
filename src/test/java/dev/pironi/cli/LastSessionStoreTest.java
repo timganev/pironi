@@ -26,6 +26,7 @@ class LastSessionStoreTest {
                         "--workspace", temporaryDirectory.toString(),
                         "--approval", "ask",
                         "--context", "12345",
+                        "--deny-tools", "read_file,list_files",
                         "--task", "do not persist me"
                 },
                 Map.of("DEEPSEEK_API_KEY", "secret"),
@@ -48,6 +49,7 @@ class LastSessionStoreTest {
         assertEquals(original.workspace(), restored.workspace());
         assertEquals(original.approvalMode(), restored.approvalMode());
         assertEquals(original.contextSize(), restored.contextSize());
+        assertEquals(original.denyTools(), restored.denyTools());
         assertTrue(restored.interactive());
         assertEquals(null, restored.task());
         assertEquals("new-secret", restored.apiKey());

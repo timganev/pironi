@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.function.Consumer;
 
 public final class AgentLoop {
     private static final int MAX_HISTORY = 40;
@@ -33,6 +34,7 @@ public final class AgentLoop {
     private final VerificationGate verificationGate;
     private final int maxTurns;
     private final int maxProtocolErrors;
+    private final Consumer<String> liveOutput;
 
     public AgentLoop(
             ModelClient modelClient,
@@ -47,6 +49,25 @@ public final class AgentLoop {
             int maxTurns,
             int maxProtocolErrors
     ) {
+        this(modelClient, decisionParser, objectMapper, toolRegistry, approvalPolicy,
+                traceWriter, agentContext, statusReporter, verificationGate, maxTurns,
+                maxProtocolErrors, null);
+    }
+
+    public AgentLoop(
+            ModelClient modelClient,
+            DecisionParser decisionParser,
+            ObjectMapper objectMapper,
+            ToolRegistry toolRegistry,
+            ApprovalPolicy approvalPolicy,
+            TraceWriter traceWriter,
+            AgentContext agentContext,
+            StatusReporter statusReporter,
+            VerificationGate verificationGate,
+            int maxTurns,
+            int maxProtocolErrors,
+            Consumer<String> liveOutput
+    ) {
         this.modelClient = modelClient;
         this.decisionParser = decisionParser;
         this.objectMapper = objectMapper;
@@ -58,6 +79,7 @@ public final class AgentLoop {
         this.verificationGate = verificationGate;
         this.maxTurns = maxTurns;
         this.maxProtocolErrors = maxProtocolErrors;
+        this.liveOutput = liveOutput;
     }
 
     public AgentResult run(String task) throws IOException, InterruptedException {
@@ -70,9 +92,18 @@ public final class AgentLoop {
         for (int turn = 1; turn <= maxTurns; turn++) {
             truncateHistory(messages);
             ModelResponse response;
+            FinalAnswerStreamer answerStreamer = liveOutput == null
+                    ? null
+                    : new FinalAnswerStreamer(chunk -> {
+                        statusReporter.idle();
+                        liveOutput.accept(chunk);
+                    });
             try (var ignored = statusReporter.thinking(turn, List.copyOf(messages))) {
-                response = modelClient.chat(List.copyOf(messages));
+                response = answerStreamer == null
+                        ? modelClient.chat(List.copyOf(messages))
+                        : modelClient.chatStreaming(List.copyOf(messages), answerStreamer::accept);
             }
+            statusReporter.modelResponse(response);
             traceWriter.modelResponse(turn, response);
             messages.add(ChatMessage.assistant(response.content()));
 
@@ -117,7 +148,12 @@ public final class AgentLoop {
                     continue;
                 }
                 traceWriter.completed(turn, decision.finalAnswer());
-                return new AgentResult(true, decision.finalAnswer(), turn);
+                statusReporter.idle();
+                boolean streamed = answerStreamer != null && answerStreamer.emitted();
+                if (streamed) {
+                    liveOutput.accept(System.lineSeparator());
+                }
+                return new AgentResult(true, decision.finalAnswer(), turn, streamed);
             }
 
             // No tool calls and no final answer — should be caught by DecisionParser

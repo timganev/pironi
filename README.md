@@ -169,6 +169,52 @@ java -jar target/pironi-0.1.0-SNAPSHOT.jar \
   --task "Inspect the project and report the most important build problem."
 ```
 
+### Empirically tuned large-context Ollama run
+
+The following profile was tuned on 2026-07-28/29 for log-heavy automation
+with `qwen3.6:35b-a3b`:
+
+```bash
+java -jar /path/to/pironi/target/pironi-0.1.0-SNAPSHOT.jar \
+  --workspace "$repo_root" \
+  --model qwen3.6:35b-a3b \
+  --context 131072 \
+  --max-output-tokens 16384 \
+  --max-turns 30 \
+  --approval auto \
+  --deny-tools read_file,list_files \
+  --no-interactive \
+  --status never \
+  --personal-context deny \
+  --trace "$trace" \
+  --task "$(cat "$prompt_file")"
+```
+
+`--context 131072` is the critical setting: measured prompts peaked around
+82–84k tokens and a single large tool-output pull was about 8k. The profile
+also disables interactive input, status rendering and personal instructions,
+and permits unattended mutating tool calls. Use `--approval auto` only in a
+workspace where that risk is acceptable.
+
+`--deny-tools` removes the named tools from the registry and model prompt.
+Unknown names fail startup, and the setting is stored in the last-session
+profile. It is not a general shell sandbox: an enabled `run_command` can still
+read workspace files. Deny `run_command` too when shell access is not required.
+
+A wrapper may expose these defaults:
+
+```bash
+PIRONI_MODEL=qwen3.6:35b-a3b
+PIRONI_CONTEXT=131072
+PIRONI_MAX_TURNS=30
+PIRONI_MAX_OUTPUT_TOKENS=16384
+```
+
+The measured 131k profile needs OpenJDK 25, Maven 3.9+, Ollama with
+`qwen3.6:35b-a3b`, and roughly 21–24 GB of free GPU memory. The associated log
+wrapper additionally needs `jq`, `tools/allure-digest`, `tools/kibana-logs`,
+and Kibana credentials in `~/.config/kibana_ui_cred`.
+
 ## OpenAI-compatible APIs
 
 Pironi reads API keys from environment variables. It does not accept a key as
@@ -282,6 +328,7 @@ Sending personal context to a cloud provider requires the explicit
 --pironi-home PATH
 --personal-context auto|allow|deny
 --status auto|always|never
+--deny-tools NAME,NAME
 ```
 
 The default trace is `WORKSPACE/.pironi/trace.jsonl`. A trace can contain
@@ -304,6 +351,11 @@ above the status row. After a task, the row remains visible as `ready`.
 `ctx ~7%` is an estimate based on message size because tokenization differs by
 model. During tool execution the same line shows the tool name.
 
+After each Ollama turn the status line also retains the measured generation
+rate from `eval_count / eval_duration`, for example `│ 19.99 tok/s`. It updates
+when the next response completes and resets after a model change. Providers
+without eval timing metadata do not show a rate.
+
 Normal output and the ANSI status frame share one `PrintStream`; every frame is
 written as one operation to prevent status fragments from being interleaved
 inside model output in IDE terminals.
@@ -316,10 +368,17 @@ Status uses `stderr`; the final answer remains clean on `stdout`.
 On `/exit`, Pironi clears the reserved row and restores the normal terminal
 scroll region.
 
+Ollama responses use NDJSON streaming. In interactive mode Pironi incrementally
+extracts and prints only the JSON protocol's `finalAnswer`; `thought` and raw
+protocol JSON stay hidden. Tool turns continue to use the status line, and the
+completed answer is retained for validation, tracing and conversation memory
+without being printed a second time.
+
 ## Current tool set
 
 - `list_files`
 - `read_file`
+- `write_file`
 - `apply_patch`
 - `rollback_checkpoint`
 - `run_command`
@@ -330,6 +389,8 @@ and writes atomically. Before a final answer after a mutation, Pironi
 automatically runs the configured verification command or detects Maven/Gradle.
 `list_files` omits common generated/private directories such as `.git`,
 `.pironi`, `.idea`, `target`, `build`, `.gradle`, and `node_modules`.
+`--deny-tools` removes exact tool names from this set and rejects unknown names
+at startup. It does not restrict filesystem access through `run_command`.
 `run_command` still requires mutation approval, but does not trigger a second
 automatic build after a successful command. Source changes must use
 `apply_patch`, which does trigger automatic verification.

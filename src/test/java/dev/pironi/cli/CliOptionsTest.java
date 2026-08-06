@@ -22,7 +22,7 @@ class CliOptionsTest {
     void bareOptionsUseInitialLocalModel() {
         CliOptions options = CliOptions.parse(new String[0], Map.of());
 
-        assertEquals("qwen3.6:35b-mlx", options.model());
+        assertEquals("qwen3.6:35b-a3b", options.model());
         assertTrue(options.interactive());
     }
 
@@ -39,6 +39,7 @@ class CliOptionsTest {
         assertEquals(ApprovalMode.READ_ONLY, options.approvalMode());
         assertEquals(StatusMode.ALWAYS, options.statusMode());
     }
+
 
     @Test
     void noInteractiveRequiresTask() {

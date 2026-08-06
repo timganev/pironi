@@ -40,6 +40,7 @@ public final class JsonlTraceWriter implements TraceWriter {
         event.put("promptTokens", response.promptTokens());
         event.put("outputTokens", response.outputTokens());
         event.put("durationNanos", response.durationNanos());
+        event.put("evalDurationNanos", response.evalDurationNanos());
         write(event);
     }
 

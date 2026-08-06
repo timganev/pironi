@@ -35,8 +35,11 @@ import java.io.InputStreamReader;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 public final class PironiMain {
     private PironiMain() {
@@ -115,9 +118,7 @@ public final class PironiMain {
                 new RollbackCheckpointTool(checkpoints),
                 new RunCommandTool(workspace, Duration.ofSeconds(90), 32_000)
         );
-        ToolRegistry tools = new ToolRegistry(availableTools.stream()
-                .filter(tool -> !options.denyTools().contains(tool.name()))
-                .toList());
+        ToolRegistry tools = configuredTools(availableTools, options.denyTools());
 
         boolean statusEnabled = options.statusMode() == StatusMode.ALWAYS
                 || (options.statusMode() == StatusMode.AUTO && System.console() != null);
@@ -186,7 +187,11 @@ public final class PironiMain {
                             Duration.ofSeconds(300)
                     ),
                     options.maxTurns(),
-                    4
+                    4,
+                    interactive ? chunk -> {
+                        System.out.print(chunk);
+                        System.out.flush();
+                    } : null
             );
 
             if (interactive) {
@@ -255,11 +260,11 @@ public final class PironiMain {
                                 );
                             }
 
+
                             @Override
                             public List<String> availableModels() {
                                 var models = new java.util.LinkedHashSet<String>();
                                 models.add(modelClient.model());
-                                models.add("qwen3.6:35b-mlx");
                                 models.add("deepseek-v4-flash");
                                 models.add("qwen3.6:35b-a3b");
                                 models.add("gemma4:e4b");
@@ -267,15 +272,15 @@ public final class PironiMain {
                             }
                         };
                 InteractiveShell.ShellCommands shellC = new DefaultShellCommands(sessions, compressor, skills);
-                int exitCode = new InteractiveShell(
+                InteractiveShell shell = new InteractiveShell(
                         terminal,
                         System.out,
                         loop::run,
                         modelCommands,
                         shellC,
                         status::idle
-                )
-                        .run(options.task());
+                );
+                int exitCode = shell.run(options.task());
                 System.out.println("Trace: " + options.tracePath().toAbsolutePath().normalize());
                 return exitCode;
             }
@@ -327,6 +332,29 @@ public final class PironiMain {
         );
     }
 
+    static ToolRegistry configuredTools(List<Tool> availableTools, Set<String> deniedTools) {
+        Set<String> knownNames = availableTools.stream()
+                .map(Tool::name)
+                .collect(Collectors.toUnmodifiableSet());
+        List<String> unknownNames = deniedTools.stream()
+                .filter(name -> !knownNames.contains(name))
+                .sorted()
+                .toList();
+        if (!unknownNames.isEmpty()) {
+            String known = knownNames.stream()
+                    .sorted(Comparator.naturalOrder())
+                    .collect(Collectors.joining(","));
+            throw new IllegalArgumentException(
+                    "Unknown tool name(s) in --deny-tools: "
+                            + String.join(",", unknownNames)
+                            + ". Known tools: " + known
+            );
+        }
+        return new ToolRegistry(availableTools.stream()
+                .filter(tool -> !deniedTools.contains(tool.name()))
+                .toList());
+    }
+
     private static String runtimeSessionDescription(CliOptions options) {
         return """
                 These values describe the running process. Do not inspect source or config files
@@ -355,7 +383,7 @@ public final class PironiMain {
                 Pironi - small Java 25 coding agent harness
 
                 Required:
-                  --model MODEL                                 default: last used; initially qwen3.6:35b-mlx
+                  --model MODEL                                 default: last used; initially qwen3.6:35b-a3b
 
                 Provider:
                   --provider ollama|deepseek|openrouter|openai-compatible
@@ -377,7 +405,7 @@ public final class PironiMain {
                   --personal-context auto|allow|deny            auto: Ollama only
                   --status auto|always|never                    default: always
                   --verify-command COMMAND                     auto-detect Maven/Gradle
-                  --deny-tools NAME,NAME                        block tools by name (e.g. read_file,list_files)
+                  --deny-tools NAME,NAME                        remove named tools; unknown names fail startup
 
                 Examples:
                   java -jar pironi.jar

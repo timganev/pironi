@@ -1,6 +1,7 @@
 package dev.pironi.status;
 
 import dev.pironi.model.ChatMessage;
+import dev.pironi.model.ModelResponse;
 import org.junit.jupiter.api.Test;
 import org.jline.terminal.Size;
 import org.jline.terminal.impl.DumbTerminal;
@@ -56,12 +57,16 @@ class TerminalStatusReporterTest {
         );
 
         reporter.tool("read_file");
+        reporter.modelResponse(new ModelResponse(
+                "ok", 10, 20, 2_000_000_000L, 1_000_000_000L
+        ));
         reporter.idle();
         reporter.close();
 
         String output = bytes.toString(StandardCharsets.UTF_8);
         assertTrue(output.contains("tool read_file"));
         assertTrue(output.contains("│ ready"));
+        assertTrue(output.contains("│ 20.00 tok/s"));
         assertTrue(output.endsWith("\u001B[r\u001B[2J\u001B[H"));
     }
 

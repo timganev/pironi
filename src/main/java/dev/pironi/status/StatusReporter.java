@@ -1,6 +1,7 @@
 package dev.pironi.status;
 
 import dev.pironi.model.ChatMessage;
+import dev.pironi.model.ModelResponse;
 
 import java.util.List;
 
@@ -10,6 +11,9 @@ public interface StatusReporter extends AutoCloseable {
     void tool(String toolName);
 
     void idle();
+
+    default void modelResponse(ModelResponse response) {
+    }
 
     default void configurationChanged(String model, int contextSize) {
     }

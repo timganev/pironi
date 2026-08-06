@@ -12,6 +12,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
 
 public final class OllamaClient implements ModelClient {
     private final HttpClient httpClient;
@@ -60,9 +62,17 @@ public final class OllamaClient implements ModelClient {
 
     @Override
     public ModelResponse chat(List<ChatMessage> messages) throws IOException, InterruptedException {
+        return chatStreaming(messages, ignored -> { });
+    }
+
+    @Override
+    public ModelResponse chatStreaming(
+            List<ChatMessage> messages,
+            Consumer<String> contentChunk
+    ) throws IOException, InterruptedException {
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("model", model);
-        payload.put("stream", false);
+        payload.put("stream", true);
         payload.put("format", "json");
         payload.put("think", false);
         payload.put("keep_alive", "10m");
@@ -84,22 +94,50 @@ public final class OllamaClient implements ModelClient {
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                 .build();
 
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<Stream<String>> response = httpClient.send(
+                request,
+                HttpResponse.BodyHandlers.ofLines()
+        );
         if (response.statusCode() / 100 != 2) {
-            throw new IOException("Ollama returned HTTP " + response.statusCode() + ": " + response.body());
+            try (Stream<String> lines = response.body()) {
+                throw new IOException(
+                        "Ollama returned HTTP " + response.statusCode() + ": "
+                                + lines.limit(20).reduce("", (left, right) -> left + right)
+                );
+            }
         }
 
-        JsonNode body = objectMapper.readTree(response.body());
-        JsonNode message = body.path("message");
-        if (!message.isObject()) {
-            throw new IOException("Ollama response has no message object");
+        StringBuilder content = new StringBuilder();
+        long promptTokens = 0;
+        long outputTokens = 0;
+        long durationNanos = 0;
+        long evalDurationNanos = 0;
+        try (Stream<String> lines = response.body()) {
+            for (String line : (Iterable<String>) lines::iterator) {
+                if (line.isBlank()) {
+                    continue;
+                }
+                JsonNode body = objectMapper.readTree(line);
+                String chunk = body.path("message").path("content").asText("");
+                if (!chunk.isEmpty()) {
+                    content.append(chunk);
+                    contentChunk.accept(chunk);
+                }
+                if (body.path("done").asBoolean(false)) {
+                    promptTokens = body.path("prompt_eval_count").asLong(0);
+                    outputTokens = body.path("eval_count").asLong(0);
+                    durationNanos = body.path("total_duration").asLong(0);
+                    evalDurationNanos = body.path("eval_duration").asLong(0);
+                }
+            }
         }
 
         return new ModelResponse(
-                message.path("content").asText(""),
-                body.path("prompt_eval_count").asLong(0),
-                body.path("eval_count").asLong(0),
-                body.path("total_duration").asLong(0)
+                content.toString(),
+                promptTokens,
+                outputTokens,
+                durationNanos,
+                evalDurationNanos
         );
     }
 }

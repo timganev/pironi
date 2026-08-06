@@ -147,7 +147,7 @@ record CliOptions(
             } else if (provider == ProviderType.OPENROUTER) {
                 model = "openrouter/auto";
             } else if (provider == ProviderType.OLLAMA) {
-                model = "qwen3.6:35b-mlx";
+                model = "qwen3.6:35b-a3b";
             } else {
                 throw new IllegalArgumentException("Missing required option --model");
             }

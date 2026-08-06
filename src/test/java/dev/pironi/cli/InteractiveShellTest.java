@@ -17,6 +17,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class InteractiveShellTest {
     @Test
+    void doesNotPrintStreamedAnswerTwice() throws Exception {
+        BufferedReader input = new BufferedReader(new StringReader("hello\n/exit\n"));
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        InteractiveShell shell = new InteractiveShell(
+                input,
+                new PrintStream(bytes, true, StandardCharsets.UTF_8),
+                task -> new AgentResult(true, "streamed answer", 1, true)
+        );
+
+        shell.run(null);
+
+        assertTrue(!bytes.toString(StandardCharsets.UTF_8).contains("streamed answer"));
+    }
+
+    @Test
     void completedExitCommandAllowsTrailingWhitespace() throws Exception {
         BufferedReader input = new BufferedReader(new StringReader("/exit \n"));
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
@@ -197,4 +212,5 @@ class InteractiveShellTest {
         assertTrue(output.contains("Approval mode switched to auto."));
         assertTrue(output.contains("Current approval: auto"));
     }
+
 }
