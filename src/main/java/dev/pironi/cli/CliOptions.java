@@ -9,6 +9,7 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -30,6 +31,7 @@ record CliOptions(
         PersonalContextMode personalContextMode,
         StatusMode statusMode,
         String verifyCommand,
+        Set<String> denyTools,
         boolean interactive,
         boolean noTui
 ) {
@@ -55,6 +57,7 @@ record CliOptions(
                 personalContextMode,
                 statusMode,
                 verifyCommand,
+                denyTools,
                 interactive,
                 false
         );
@@ -86,6 +89,7 @@ record CliOptions(
                 personalContextMode,
                 statusMode,
                 verifyCommand,
+                denyTools,
                 interactive,
                 false
         );
@@ -110,6 +114,7 @@ record CliOptions(
                 personalContextMode,
                 statusMode,
                 verifyCommand,
+                denyTools,
                 interactive,
                 false
         );
@@ -142,7 +147,7 @@ record CliOptions(
             } else if (provider == ProviderType.OPENROUTER) {
                 model = "openrouter/auto";
             } else if (provider == ProviderType.OLLAMA) {
-                model = "qwen3.6:35b-a3b";
+                model = "qwen3.6:35b-mlx";
             } else {
                 throw new IllegalArgumentException("Missing required option --model");
             }
@@ -204,9 +209,24 @@ record CliOptions(
                 PersonalContextMode.parse(values.getOrDefault("personal-context", "auto")),
                 StatusMode.parse(values.getOrDefault("status", "always")),
                 values.get("verify-command"),
+                parseDenyTools(values.get("deny-tools")),
                 interactive,
                 false
         );
+    }
+
+    private static Set<String> parseDenyTools(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return Set.of();
+        }
+        Set<String> names = new HashSet<>();
+        for (String name : raw.split(",")) {
+            String trimmed = name.trim();
+            if (!trimmed.isEmpty()) {
+                names.add(trimmed);
+            }
+        }
+        return Set.copyOf(names);
     }
 
     private static Map<String, String> parsePairs(String[] args) {

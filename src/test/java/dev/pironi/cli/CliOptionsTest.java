@@ -8,6 +8,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -21,7 +22,7 @@ class CliOptionsTest {
     void bareOptionsUseInitialLocalModel() {
         CliOptions options = CliOptions.parse(new String[0], Map.of());
 
-        assertEquals("qwen3.6:35b-a3b", options.model());
+        assertEquals("qwen3.6:35b-mlx", options.model());
         assertTrue(options.interactive());
     }
 
@@ -63,6 +64,29 @@ class CliOptionsTest {
 
         assertEquals(false, options.interactive());
         assertEquals("inspect", options.task());
+    }
+
+    @Test
+    void denyToolsDefaultsToEmpty() {
+        CliOptions options = CliOptions.parse(
+                new String[]{"--model", "qwen3.6:35b-a3b"},
+                Map.of()
+        );
+
+        assertEquals(Set.of(), options.denyTools());
+    }
+
+    @Test
+    void denyToolsParsesCommaSeparatedNames() {
+        CliOptions options = CliOptions.parse(
+                new String[]{
+                        "--model", "qwen3.6:35b-a3b",
+                        "--deny-tools", "read_file, list_files"
+                },
+                Map.of()
+        );
+
+        assertEquals(Set.of("read_file", "list_files"), options.denyTools());
     }
 
     @Test

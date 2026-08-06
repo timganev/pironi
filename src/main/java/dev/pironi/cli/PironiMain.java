@@ -15,7 +15,9 @@ import dev.pironi.tool.ListFilesTool;
 import dev.pironi.tool.ReadFileTool;
 import dev.pironi.tool.RunCommandTool;
 import dev.pironi.tool.RollbackCheckpointTool;
+import dev.pironi.tool.Tool;
 import dev.pironi.tool.ToolRegistry;
+import dev.pironi.tool.WriteFileTool;
 import dev.pironi.trace.JsonlTraceWriter;
 import dev.pironi.status.NoOpStatusReporter;
 import dev.pironi.status.StatusReporter;
@@ -105,13 +107,17 @@ public final class PironiMain {
         );
         AtomicReference<CliOptions> currentOptions = new AtomicReference<>(options);
 
-        ToolRegistry tools = new ToolRegistry(List.of(
+        List<Tool> availableTools = List.of(
                 new ListFilesTool(workspace, 500),
                 new ReadFileTool(workspace, 32_000),
+                new WriteFileTool(workspace),
                 new ApplyPatchTool(workspace, checkpoints),
                 new RollbackCheckpointTool(checkpoints),
                 new RunCommandTool(workspace, Duration.ofSeconds(90), 32_000)
-        ));
+        );
+        ToolRegistry tools = new ToolRegistry(availableTools.stream()
+                .filter(tool -> !options.denyTools().contains(tool.name()))
+                .toList());
 
         boolean statusEnabled = options.statusMode() == StatusMode.ALWAYS
                 || (options.statusMode() == StatusMode.AUTO && System.console() != null);
@@ -180,7 +186,7 @@ public final class PironiMain {
                             Duration.ofSeconds(300)
                     ),
                     options.maxTurns(),
-                    2
+                    4
             );
 
             if (interactive) {
@@ -253,6 +259,7 @@ public final class PironiMain {
                             public List<String> availableModels() {
                                 var models = new java.util.LinkedHashSet<String>();
                                 models.add(modelClient.model());
+                                models.add("qwen3.6:35b-mlx");
                                 models.add("deepseek-v4-flash");
                                 models.add("qwen3.6:35b-a3b");
                                 models.add("gemma4:e4b");
@@ -348,7 +355,7 @@ public final class PironiMain {
                 Pironi - small Java 25 coding agent harness
 
                 Required:
-                  --model MODEL                                 default: last used; initially qwen3.6:35b-a3b
+                  --model MODEL                                 default: last used; initially qwen3.6:35b-mlx
 
                 Provider:
                   --provider ollama|deepseek|openrouter|openai-compatible
@@ -370,6 +377,7 @@ public final class PironiMain {
                   --personal-context auto|allow|deny            auto: Ollama only
                   --status auto|always|never                    default: always
                   --verify-command COMMAND                     auto-detect Maven/Gradle
+                  --deny-tools NAME,NAME                        block tools by name (e.g. read_file,list_files)
 
                 Examples:
                   java -jar pironi.jar
