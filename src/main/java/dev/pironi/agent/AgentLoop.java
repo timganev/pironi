@@ -94,14 +94,28 @@ public final class AgentLoop {
             ModelResponse response;
             FinalAnswerStreamer answerStreamer = liveOutput == null
                     ? null
-                    : new FinalAnswerStreamer(chunk -> {
-                        statusReporter.idle();
-                        liveOutput.accept(chunk);
+                    : new FinalAnswerStreamer(new Consumer<>() {
+                        private boolean started;
+
+                        @Override
+                        public void accept(String chunk) {
+                            if (!started) {
+                                statusReporter.outputStarted();
+                                started = true;
+                            }
+                            liveOutput.accept(chunk);
+                        }
                     });
             try (var ignored = statusReporter.thinking(turn, List.copyOf(messages))) {
                 response = answerStreamer == null
                         ? modelClient.chat(List.copyOf(messages))
                         : modelClient.chatStreaming(List.copyOf(messages), answerStreamer::accept);
+            }
+            boolean streamedThisTurn = answerStreamer != null && answerStreamer.emitted();
+            if (streamedThisTurn) {
+                liveOutput.accept(System.lineSeparator());
+                statusReporter.outputFinished();
+                statusReporter.idle();
             }
             statusReporter.modelResponse(response);
             traceWriter.modelResponse(turn, response);
@@ -149,11 +163,7 @@ public final class AgentLoop {
                 }
                 traceWriter.completed(turn, decision.finalAnswer());
                 statusReporter.idle();
-                boolean streamed = answerStreamer != null && answerStreamer.emitted();
-                if (streamed) {
-                    liveOutput.accept(System.lineSeparator());
-                }
-                return new AgentResult(true, decision.finalAnswer(), turn, streamed);
+                return new AgentResult(true, decision.finalAnswer(), turn, streamedThisTurn);
             }
 
             // No tool calls and no final answer — should be caught by DecisionParser

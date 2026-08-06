@@ -10,13 +10,23 @@ import java.util.Locale;
 
 public final class ConsoleApprovalPolicy implements ApprovalPolicy {
     private volatile ApprovalMode mode;
-    private final BufferedReader input;
-    private final PrintStream output;
+    private volatile Interaction interaction;
 
     public ConsoleApprovalPolicy(ApprovalMode mode, BufferedReader input, PrintStream output) {
         this.mode = mode;
-        this.input = input;
-        this.output = output;
+        this.interaction = new Interaction() {
+            @Override
+            public String request(String toolName, String preview) throws IOException {
+                output.printf("Allow tool '%s'?%n%s%n[y/N] ", toolName, preview);
+                output.flush();
+                return input.readLine();
+            }
+
+            @Override
+            public void result(String message) {
+                output.println(message);
+            }
+        };
     }
 
     public ApprovalMode mode() {
@@ -25,6 +35,10 @@ public final class ConsoleApprovalPolicy implements ApprovalPolicy {
 
     public void updateMode(ApprovalMode mode) {
         this.mode = java.util.Objects.requireNonNull(mode, "mode");
+    }
+
+    public void updateInteraction(Interaction interaction) {
+        this.interaction = java.util.Objects.requireNonNull(interaction, "interaction");
     }
 
     @Override
@@ -40,38 +54,41 @@ public final class ConsoleApprovalPolicy implements ApprovalPolicy {
     }
 
     private ApprovalDecision prompt(Tool tool, JsonNode arguments) {
-        output.printf(
-                "Allow tool '%s'?%n%s%n[y/N] ",
-                tool.name(),
-                tool.approvalPreview(arguments)
-        );
-        output.flush();
         try {
-            String answer = input.readLine();
+            Interaction currentInteraction = interaction;
+            String answer = currentInteraction.request(
+                    tool.name(), tool.approvalPreview(arguments)
+            );
             if (answer == null) {
                 if (System.console() == null) {
-                    output.println(
+                    currentInteraction.result(
                             "Denied: --approval ask requires an interactive terminal. "
                                     + "Use --approval auto or --approval read-only."
                     );
                 } else {
-                    output.println("Denied: approval input reached EOF.");
+                    currentInteraction.result("Denied: approval input reached EOF.");
                 }
                 return ApprovalDecision.DENY;
             }
             return switch (answer.strip().toLowerCase(Locale.ROOT)) {
                 case "y", "yes", "д", "да" -> {
-                    output.println("Approved.");
+                    currentInteraction.result("Approved.");
                     yield ApprovalDecision.ALLOW;
                 }
                 default -> {
-                    output.println("Denied.");
+                    currentInteraction.result("Denied.");
                     yield ApprovalDecision.DENY;
                 }
             };
         } catch (IOException e) {
-            output.println("Denied: cannot read approval input: " + e.getMessage());
+            interaction.result("Denied: cannot read approval input: " + e.getMessage());
             return ApprovalDecision.DENY;
         }
+    }
+
+    public interface Interaction {
+        String request(String toolName, String preview) throws IOException;
+
+        void result(String message);
     }
 }

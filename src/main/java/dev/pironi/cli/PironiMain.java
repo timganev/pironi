@@ -109,6 +109,9 @@ public final class PironiMain {
                 provider.createClient()
         );
         AtomicReference<CliOptions> currentOptions = new AtomicReference<>(options);
+        ProviderModelCatalog modelCatalog = new ProviderModelCatalog(
+                java.net.http.HttpClient.newHttpClient(), objectMapper
+        );
 
         List<Tool> availableTools = List.of(
                 new ListFilesTool(workspace, 500),
@@ -172,6 +175,21 @@ public final class PironiMain {
                     input,
                     System.out
             );
+            java.util.function.Consumer<String> liveOutput = null;
+            if (interactive) {
+                Terminal outputTerminal = terminal;
+                liveOutput = chunk -> {
+                    synchronized (outputTerminal) {
+                        outputTerminal.writer().print(new org.jline.utils.AttributedString(
+                                chunk,
+                                org.jline.utils.AttributedStyle.DEFAULT.foreground(
+                                        org.jline.utils.AttributedStyle.GREEN
+                                )
+                        ).toAnsi(outputTerminal));
+                        outputTerminal.flush();
+                    }
+                };
+            }
             AgentLoop loop = new AgentLoop(
                     modelClient,
                     new DecisionParser(objectMapper),
@@ -188,10 +206,7 @@ public final class PironiMain {
                     ),
                     options.maxTurns(),
                     4,
-                    interactive ? chunk -> {
-                        System.out.print(chunk);
-                        System.out.flush();
-                    } : null
+                    liveOutput
             );
 
             if (interactive) {
@@ -240,6 +255,28 @@ public final class PironiMain {
                             }
 
                             @Override
+                            public void switchModel(String provider, String model)
+                                    throws java.io.IOException {
+                                switchTo(switchedOptions(
+                                        currentOptions.get(), provider, model, System.getenv(),
+                                        Path.of(System.getProperty("user.home"), ".hermes", ".env")
+                                ));
+                            }
+
+                            private void switchTo(CliOptions updated) throws java.io.IOException {
+                                ProviderConfig updatedProvider = new ProviderConfig(
+                                        updated.provider(), updated.baseUri(), updated.model(),
+                                        updated.apiKey(), updated.modelTimeout(), updated.contextSize(),
+                                        updated.maxOutputTokens()
+                                );
+                                modelClient.switchTo(updated.model(), updatedProvider.createClient());
+                                currentOptions.set(updated);
+                                lastSession.save(updated);
+                                agentContext.updateRuntimeSession(runtimeSessionDescription(updated));
+                                status.configurationChanged(updated.model(), updated.contextSize());
+                            }
+
+                            @Override
                             public String currentApproval() {
                                 return approvalPolicy.mode()
                                         .name().toLowerCase().replace('_', '-');
@@ -270,6 +307,44 @@ public final class PironiMain {
                                 models.add("gemma4:e4b");
                                 return List.copyOf(models);
                             }
+
+                            @Override
+                            public List<InteractiveShell.ProviderChoice> availableProviders() {
+                                List<InteractiveShell.ProviderChoice> providers = new java.util.ArrayList<>();
+                                providers.add(new InteractiveShell.ProviderChoice("ollama", "Ollama"));
+                                providers.add(new InteractiveShell.ProviderChoice("deepseek", "DeepSeek"));
+                                providers.add(new InteractiveShell.ProviderChoice("openrouter", "OpenRouter"));
+                                if (currentOptions.get().provider()
+                                        == dev.pironi.model.ProviderType.OPENAI_COMPATIBLE) {
+                                    providers.add(new InteractiveShell.ProviderChoice(
+                                            "openai-compatible", "OpenAI-compatible"
+                                    ));
+                                }
+                                return List.copyOf(providers);
+                            }
+
+                            @Override
+                            public List<String> availableModels(String provider)
+                                    throws java.io.IOException {
+                                CliOptions current = currentOptions.get();
+                                String seedModel = switch (provider) {
+                                    case "ollama" -> current.provider()
+                                            == dev.pironi.model.ProviderType.OLLAMA
+                                            ? current.model() : "qwen3.6:35b-a3b";
+                                    case "deepseek" -> current.provider()
+                                            == dev.pironi.model.ProviderType.DEEPSEEK
+                                            ? current.model() : "deepseek-v4-flash";
+                                    case "openrouter" -> current.provider()
+                                            == dev.pironi.model.ProviderType.OPENROUTER
+                                            ? current.model() : "openrouter/auto";
+                                    default -> current.model();
+                                };
+                                CliOptions catalogOptions = switchedOptions(
+                                        current, provider, seedModel, System.getenv(),
+                                        Path.of(System.getProperty("user.home"), ".hermes", ".env")
+                                );
+                                return modelCatalog.models(catalogOptions);
+                            }
                         };
                 InteractiveShell.ShellCommands shellC = new DefaultShellCommands(sessions, compressor, skills);
                 InteractiveShell shell = new InteractiveShell(
@@ -280,6 +355,10 @@ public final class PironiMain {
                         shellC,
                         status::idle
                 );
+                approvalPolicy.updateInteraction(shell.approvalInteraction(
+                        status::outputStarted,
+                        status::outputFinished
+                ));
                 int exitCode = shell.run(options.task());
                 System.out.println("Trace: " + options.tracePath().toAbsolutePath().normalize());
                 return exitCode;
@@ -299,37 +378,61 @@ public final class PironiMain {
             java.util.Map<String, String> environment,
             Path hermesEnvironmentFile
     ) {
-        if (previous.provider() != dev.pironi.model.ProviderType.DEEPSEEK) {
-            return previous.withModel(model);
+        String provider = inferProvider(previous, model);
+        return switchedOptions(previous, provider, model, environment, hermesEnvironmentFile);
+    }
+
+    static CliOptions switchedOptions(
+            CliOptions previous,
+            String provider,
+            String model,
+            java.util.Map<String, String> environment,
+            Path hermesEnvironmentFile
+    ) {
+        dev.pironi.model.ProviderType target = dev.pironi.model.ProviderType.parse(provider);
+        if (target == previous.provider()) return previous.withModel(model);
+
+        if (target == dev.pironi.model.ProviderType.OLLAMA) {
+            return previous.withProviderModel(
+                    target, URI.create("http://127.0.0.1:11434"), model,
+                    null, "OPENAI_API_KEY", 131_072
+            );
         }
-        if (model.equals("deepseek-v4-pro") || model.equals("deepseek-v4-flash")) {
-            return previous.withModel(model);
-        }
-        if (!model.contains("/")) {
+
+        String keyEnvironment = target == dev.pironi.model.ProviderType.DEEPSEEK
+                ? "DEEPSEEK_API_KEY" : "OPENROUTER_API_KEY";
+        if (target == dev.pironi.model.ProviderType.OPENAI_COMPATIBLE) {
             throw new IllegalArgumentException(
-                    "DeepSeek supports deepseek-v4-pro or deepseek-v4-flash. "
-                            + "Use an OpenRouter vendor/model slug for other models."
+                    "OpenAI-compatible provider requires startup --base-url and --api-key-env"
             );
         }
 
         String key = ApiKeyResolver.resolve(
                 environment,
-                "OPENROUTER_API_KEY",
+                keyEnvironment,
                 hermesEnvironmentFile
         );
         if (key == null || key.isBlank()) {
             throw new IllegalArgumentException(
-                    "Missing API key in environment variable OPENROUTER_API_KEY"
+                    "Missing API key in environment variable " + keyEnvironment
             );
         }
         return previous.withProviderModel(
-                dev.pironi.model.ProviderType.OPENROUTER,
-                URI.create("https://openrouter.ai/api/v1"),
+                target,
+                target == dev.pironi.model.ProviderType.DEEPSEEK
+                        ? URI.create("https://api.deepseek.com")
+                        : URI.create("https://openrouter.ai/api/v1"),
                 model,
                 key,
-                "OPENROUTER_API_KEY",
-                200_000
+                keyEnvironment,
+                target == dev.pironi.model.ProviderType.DEEPSEEK ? 1_000_000 : 200_000
         );
+    }
+
+    private static String inferProvider(CliOptions previous, String model) {
+        if (model.startsWith("deepseek-") && !model.contains("/")) return "deepseek";
+        if (model.contains("/")) return "openrouter";
+        return previous.provider().name().toLowerCase().replace('_', '-');
     }
 
     static ToolRegistry configuredTools(List<Tool> availableTools, Set<String> deniedTools) {

@@ -1,20 +1,25 @@
 package dev.pironi.cli;
 
 import dev.pironi.agent.AgentResult;
+import dev.pironi.safety.ConsoleApprovalPolicy;
 import org.jline.keymap.KeyMap;
 import org.jline.reader.Candidate;
 import org.jline.reader.EndOfFileException;
 import org.jline.reader.LineReader;
 import org.jline.reader.LineReaderBuilder;
+import org.jline.reader.Highlighter;
 import org.jline.reader.Reference;
 import org.jline.reader.UserInterruptException;
 import org.jline.terminal.Terminal;
+import org.jline.utils.AttributedString;
+import org.jline.utils.AttributedStyle;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 
 public final class InteractiveShell {
     private static final String PROMPT = "› ";
@@ -27,6 +32,7 @@ public final class InteractiveShell {
     private final ModelCommands modelCommands;
     private final ShellCommands shellCommands;
     private final Runnable promptRendered;
+    private final ModelPicker modelPicker;
 
     private final List<String> conversationHistory = new ArrayList<>();
 
@@ -46,6 +52,7 @@ public final class InteractiveShell {
         this.modelCommands = modelCommands;
         this.shellCommands = shellCommands;
         this.promptRendered = promptRendered;
+        this.modelPicker = new ModelPicker(terminal, lineReader, output);
     }
 
     InteractiveShell(
@@ -63,6 +70,7 @@ public final class InteractiveShell {
         this.modelCommands = modelCommands;
         this.shellCommands = null;
         this.promptRendered = promptRendered;
+        this.modelPicker = new ModelPicker(input, output);
     }
 
     InteractiveShell(
@@ -98,9 +106,21 @@ public final class InteractiveShell {
         String currentProvider();
         String currentModel();
         void switchModel(String model) throws IOException;
+        default void switchModel(String provider, String model) throws IOException {
+            switchModel(model);
+        }
         default String currentApproval() { return "ask"; }
         default void switchApproval(String approval) throws IOException {}
         default List<String> availableModels() { return List.of(currentModel()); }
+        default List<ProviderChoice> availableProviders() {
+            return List.of(new ProviderChoice(currentProvider(), currentProvider()));
+        }
+        default List<String> availableModels(String provider) throws IOException {
+            return availableModels();
+        }
+    }
+
+    public record ProviderChoice(String slug, String label) {
     }
 
     public interface ShellCommands {
@@ -171,11 +191,22 @@ public final class InteractiveShell {
 
         switch (cmd) {
             case "/model" -> {
-                if (arg.isEmpty()) {
-                    println("Current model: " + modelCommands.currentModel());
-                } else {
-                    modelCommands.switchModel(arg);
-                    println("Model switched to " + arg + ".");
+                try {
+                    if (arg.isEmpty()) {
+                        ModelPicker.Selection selection = modelPicker.choose(modelCommands);
+                        if (selection != null) {
+                            modelCommands.switchModel(selection.provider(), selection.model());
+                            conversationHistory.clear();
+                            println("Model switched to " + selection.model()
+                                    + " on " + selection.provider() + ".");
+                        }
+                    } else {
+                        modelCommands.switchModel(arg);
+                        conversationHistory.clear();
+                        println("Model switched to " + arg + ".");
+                    }
+                } catch (IllegalArgumentException | IOException e) {
+                    println("Model selection failed: " + e.getMessage());
                 }
             }
             case "/provider" -> {
@@ -276,6 +307,38 @@ public final class InteractiveShell {
         }
     }
 
+    ConsoleApprovalPolicy.Interaction approvalInteraction(
+            Runnable outputStarted,
+            Runnable outputFinished
+    ) {
+        return new ConsoleApprovalPolicy.Interaction() {
+            @Override
+            public String request(String toolName, String preview) throws IOException {
+                outputStarted.run();
+                try {
+                    println("Allow tool '" + toolName + "'?");
+                    println(preview);
+                    if (lineReader != null) {
+                        return lineReader.readLine("[y/N] ");
+                    }
+                    output.print("[y/N] ");
+                    output.flush();
+                    return fallbackInput.readLine();
+                } catch (UserInterruptException | EndOfFileException ignored) {
+                    return null;
+                } finally {
+                    outputFinished.run();
+                    promptRendered.run();
+                }
+            }
+
+            @Override
+            public void result(String message) {
+                println(message);
+            }
+        };
+    }
+
     private record Command(String name, String description) {}
 
     private static List<Command> commands() {
@@ -304,6 +367,23 @@ public final class InteractiveShell {
         LineReader reader = LineReaderBuilder.builder()
                 .terminal(terminal)
                 .appName("pironi")
+                .highlighter(new Highlighter() {
+                    @Override
+                    public AttributedString highlight(LineReader ignored, String buffer) {
+                        return new AttributedString(
+                                buffer,
+                                AttributedStyle.DEFAULT.foreground(AttributedStyle.CYAN)
+                        );
+                    }
+
+                    @Override
+                    public void setErrorPattern(Pattern errorPattern) {
+                    }
+
+                    @Override
+                    public void setErrorIndex(int errorIndex) {
+                    }
+                })
                 .completer((ignored, line, candidates) -> {
                     if (line.wordIndex() != 0 || !line.word().startsWith("/")) {
                         return;

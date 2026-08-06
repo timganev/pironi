@@ -1,6 +1,7 @@
 package dev.pironi.cli;
 
 import dev.pironi.agent.AgentResult;
+import dev.pironi.safety.ConsoleApprovalPolicy;
 import org.junit.jupiter.api.Test;
 
 import java.io.BufferedReader;
@@ -11,11 +12,39 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class InteractiveShellTest {
+    @Test
+    void approvalInteractionUsesShellInputAndBalancesStatusLifecycle() throws Exception {
+        BufferedReader input = new BufferedReader(new StringReader("y\n"));
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        InteractiveShell shell = new InteractiveShell(
+                input,
+                new PrintStream(bytes, true, StandardCharsets.UTF_8),
+                task -> new AgentResult(true, "unused", 1)
+        );
+        AtomicInteger starts = new AtomicInteger();
+        AtomicInteger finishes = new AtomicInteger();
+        ConsoleApprovalPolicy.Interaction interaction = shell.approvalInteraction(
+                starts::incrementAndGet, finishes::incrementAndGet
+        );
+
+        String answer = interaction.request("run_command", "safe preview");
+        interaction.result("Approved.");
+
+        assertEquals("y", answer);
+        assertEquals(1, starts.get());
+        assertEquals(1, finishes.get());
+        String output = bytes.toString(StandardCharsets.UTF_8);
+        assertTrue(output.contains("Allow tool 'run_command'?"));
+        assertTrue(output.contains("safe preview"));
+        assertTrue(output.contains("Approved."));
+    }
+
     @Test
     void doesNotPrintStreamedAnswerTwice() throws Exception {
         BufferedReader input = new BufferedReader(new StringReader("hello\n/exit\n"));
@@ -98,7 +127,7 @@ class InteractiveShellTest {
     @Test
     void slashShowsMenuAndModelCanBeChanged() throws Exception {
         BufferedReader input = new BufferedReader(new StringReader(
-                "/model qwen3-coder-next:q4_K_M\n/model\n/exit\n"
+                "/model qwen3-coder-next:q4_K_M\n/exit\n"
         ));
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         AtomicReference<String> model = new AtomicReference<>("qwen3.6:35b-a3b");
@@ -130,9 +159,45 @@ class InteractiveShellTest {
         // /model qwen3-coder-next:q4_K_M should switch model
         assertTrue(output.contains("Model switched to qwen3-coder-next:q4_K_M."),
                 "Should switch model");
-        // /model (bare) should show current model
-        assertTrue(output.contains("Current model: qwen3-coder-next:q4_K_M"),
-                "Should show current model");
+    }
+
+    @Test
+    void bareModelCommandSelectsProviderAndModel() throws Exception {
+        BufferedReader input = new BufferedReader(new StringReader(
+                "/model\n2\n1\n/exit\n"
+        ));
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        AtomicReference<String> selection = new AtomicReference<>();
+        InteractiveShell shell = new InteractiveShell(
+                input,
+                new PrintStream(bytes, true, StandardCharsets.UTF_8),
+                task -> new AgentResult(true, "unused", 1),
+                new InteractiveShell.ModelCommands() {
+                    @Override public String currentProvider() { return "ollama"; }
+                    @Override public String currentModel() { return "local"; }
+                    @Override public void switchModel(String model) {}
+                    @Override public void switchModel(String provider, String model) {
+                        selection.set(provider + ":" + model);
+                    }
+                    @Override public List<InteractiveShell.ProviderChoice> availableProviders() {
+                        return List.of(
+                                new InteractiveShell.ProviderChoice("ollama", "Ollama"),
+                                new InteractiveShell.ProviderChoice("deepseek", "DeepSeek")
+                        );
+                    }
+                    @Override public List<String> availableModels(String provider) {
+                        return provider.equals("deepseek")
+                                ? List.of("deepseek-v4-flash") : List.of("local");
+                    }
+                }
+        );
+
+        shell.run(null);
+
+        assertEquals("deepseek:deepseek-v4-flash", selection.get());
+        assertTrue(bytes.toString(StandardCharsets.UTF_8).contains(
+                "Model switched to deepseek-v4-flash on deepseek."
+        ));
     }
 
     @Test

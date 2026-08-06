@@ -63,9 +63,13 @@ public final class TestKeysRunner {
                                 keys("mo"),
                                 keys("\\t"),
                                 keys("\\r"),
+                                keys("\u001B[B"),
+                                keys("\u001B[A"),
+                                keys("\u001B"),
+                                waitFor(200),
                                 keys("/exit\\r")
                         ),
-                        List.of("Current model: test-model", "Session closed."),
+                        List.of("Model Picker", "Session closed."),
                         List.of("Unknown command:"),
                         List.of()
                 ),
@@ -88,7 +92,7 @@ public final class TestKeysRunner {
                                 keys("/exit\\r")
                         ),
                         List.of("Session closed."),
-                        List.of("Unknown command:"),
+                        List.of("Unknown command:", "OK/exit"),
                         List.of("Здравей, Пирони!")
                 ),
                 new Scenario(
@@ -98,7 +102,7 @@ public final class TestKeysRunner {
                                 keys("/exit\\r")
                         ),
                         List.of("Session closed."),
-                        List.of("Unknown command:"),
+                        List.of("Unknown command:", "OK/exit"),
                         List.of("abd")
                 )
         );
@@ -184,7 +188,14 @@ public final class TestKeysRunner {
                 terminalOutput,
                 task -> {
                     submittedTasks.add(task);
-                    return new AgentResult(true, "OK", 1);
+                    status.outputStarted();
+                    synchronized (terminal) {
+                        terminal.writer().println("OK");
+                        terminal.flush();
+                    }
+                    status.outputFinished();
+                    status.idle();
+                    return new AgentResult(true, "OK", 1, true);
                 },
                 testModelCommands(),
                 testShellCommands(),

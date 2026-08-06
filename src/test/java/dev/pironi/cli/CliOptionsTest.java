@@ -175,21 +175,21 @@ class CliOptionsTest {
     }
 
     @Test
-    void deepSeekRejectsUnknownNonRouterModelBeforeApiCall() {
+    void deepSeekAllowsModelsOutsideAStaticAllowlist() {
         CliOptions deepSeek = CliOptions.parse(
                 new String[]{"--provider", "deepseek"},
                 Map.of("DEEPSEEK_API_KEY", "deepseek-key"),
                 temporaryDirectory.resolve("missing.env")
         );
 
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> PironiMain.switchedOptions(
-                        deepSeek,
-                        "unknown-model",
-                        Map.of(),
-                        temporaryDirectory.resolve("missing.env")
-                )
+        CliOptions switched = PironiMain.switchedOptions(
+                deepSeek,
+                "deepseek-future-model",
+                Map.of(),
+                temporaryDirectory.resolve("missing.env")
         );
+
+        assertEquals("deepseek-future-model", switched.model());
+        assertEquals(dev.pironi.model.ProviderType.DEEPSEEK, switched.provider());
     }
 }

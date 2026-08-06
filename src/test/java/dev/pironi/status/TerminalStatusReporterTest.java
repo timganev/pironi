@@ -71,6 +71,24 @@ class TerminalStatusReporterTest {
     }
 
     @Test
+    void marksCloudEndToEndRateAsApproximate() {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        TerminalStatusReporter reporter = new TerminalStatusReporter(
+                "cloud-model",
+                Path.of("/workspace/project"),
+                8_192,
+                8,
+                new PrintStream(bytes, true, StandardCharsets.UTF_8)
+        );
+
+        reporter.modelResponse(new ModelResponse("ok", 10, 30, 2_000_000_000L));
+        reporter.idle();
+        reporter.close();
+
+        assertTrue(bytes.toString(StandardCharsets.UTF_8).contains("│ ~15.00 tok/s"));
+    }
+
+    @Test
     void usesJLineStatusAsTheSingleReservedTerminalRow() throws Exception {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         try (var terminal = new DumbTerminal(

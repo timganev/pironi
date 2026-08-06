@@ -15,6 +15,12 @@ public interface StatusReporter extends AutoCloseable {
     default void modelResponse(ModelResponse response) {
     }
 
+    default void outputStarted() {
+    }
+
+    default void outputFinished() {
+    }
+
     default void configurationChanged(String model, int contextSize) {
     }
 

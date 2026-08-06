@@ -7,6 +7,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Set;
+import java.util.Map;
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -37,6 +39,22 @@ class PironiMainTest {
                         + "Known tools: list_files,read_file",
                 error.getMessage()
         );
+    }
+
+    @Test
+    void directDeepSeekModelSwitchAlsoSwitchesProvider() {
+        CliOptions previous = CliOptions.parse(new String[0], Map.of());
+
+        CliOptions switched = PironiMain.switchedOptions(
+                previous,
+                "deepseek-v4-flash",
+                Map.of("DEEPSEEK_API_KEY", "secret"),
+                Path.of("/missing")
+        );
+
+        assertEquals(dev.pironi.model.ProviderType.DEEPSEEK, switched.provider());
+        assertEquals("deepseek-v4-flash", switched.model());
+        assertEquals("https://api.deepseek.com", switched.baseUri().toString());
     }
 
     private static Tool tool(String name) {

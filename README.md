@@ -121,11 +121,12 @@ The local defaults are:
 - status: `always`;
 - interactive mode enabled.
 
-At the `›` prompt, enter `/` to show the command menu. `/model` shows
-the active model and `/model MODEL` switches immediately within the current
-provider. When the current provider is DeepSeek, a vendor/model slug such as
-`anthropic/claude-sonnet-4` switches the complete profile to OpenRouter;
-unsupported non-router names are rejected before an API call. A model switch
+At the `›` prompt, enter `/` to show the command menu. `/model` opens a
+two-stage provider/model picker with arrow-key navigation, Enter to select,
+Back, Cancel and Esc. Ollama models come from the local `/api/tags` endpoint,
+DeepSeek and OpenRouter use their live `/models` catalogs. `/model MODEL`
+remains a shortcut and automatically switches the
+provider for recognized DeepSeek IDs and OpenRouter vendor/model slugs. A model switch
 clears the bounded conversation history and is saved as part of the
 last-session profile. `/help`, `/context`, `/clear`, and `/exit` are also
 available.
@@ -354,7 +355,8 @@ model. During tool execution the same line shows the tool name.
 After each Ollama turn the status line also retains the measured generation
 rate from `eval_count / eval_duration`, for example `│ 19.99 tok/s`. It updates
 when the next response completes and resets after a model change. Providers
-without eval timing metadata do not show a rate.
+without eval timing metadata use `completion_tokens / request duration` and
+mark the end-to-end estimate with `~`, for example `│ ~12.40 tok/s`.
 
 Normal output and the ANSI status frame share one `PrintStream`; every frame is
 written as one operation to prevent status fragments from being interleaved
@@ -373,6 +375,10 @@ extracts and prints only the JSON protocol's `finalAnswer`; `thought` and raw
 protocol JSON stay hidden. Tool turns continue to use the status line, and the
 completed answer is retained for validation, tracing and conversation memory
 without being printed a second time.
+
+Interactive conversation colors distinguish speakers: user input is cyan and
+streamed agent answers are green. Status, memory and approval messages retain
+their neutral UI colors. JLine generates the terminal-specific escape sequences.
 
 ## Current tool set
 

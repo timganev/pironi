@@ -30,6 +30,7 @@ public final class TerminalStatusReporter implements StatusReporter {
     private final Object outputLock = new Object();
     private volatile int lastContextPercent;
     private volatile double lastEvalTokensPerSecond;
+    private volatile boolean lastEvalRateApproximate;
     private boolean closed;
 
     public TerminalStatusReporter(
@@ -119,6 +120,33 @@ public final class TerminalStatusReporter implements StatusReporter {
         if (response.outputTokens() > 0 && response.evalDurationNanos() > 0) {
             lastEvalTokensPerSecond = response.outputTokens() * 1_000_000_000.0
                     / response.evalDurationNanos();
+            lastEvalRateApproximate = false;
+        } else if (response.outputTokens() > 0 && response.durationNanos() > 0) {
+            lastEvalTokensPerSecond = response.outputTokens() * 1_000_000_000.0
+                    / response.durationNanos();
+            lastEvalRateApproximate = true;
+        }
+    }
+
+    @Override
+    public void outputStarted() {
+        if (useJLine()) {
+            synchronized (terminal) {
+                if (closed) return;
+                terminalStatus.suspend();
+                terminal.flush();
+            }
+        }
+    }
+
+    @Override
+    public void outputFinished() {
+        if (useJLine()) {
+            synchronized (terminal) {
+                if (closed) return;
+                terminalStatus.restore();
+                terminal.flush();
+            }
         }
     }
 
@@ -128,6 +156,7 @@ public final class TerminalStatusReporter implements StatusReporter {
         this.contextSize = contextSize;
         lastContextPercent = 0;
         lastEvalTokensPerSecond = 0;
+        lastEvalRateApproximate = false;
         idle();
     }
 
@@ -168,7 +197,11 @@ public final class TerminalStatusReporter implements StatusReporter {
         if (rate <= 0) {
             return line;
         }
-        return line + String.format(Locale.ROOT, " │ %.2f tok/s", rate);
+        return line + String.format(
+                Locale.ROOT,
+                lastEvalRateApproximate ? " │ ~%.2f tok/s" : " │ %.2f tok/s",
+                rate
+        );
     }
 
     private void render(String line) {
