@@ -28,8 +28,16 @@ public final class FindFilesTool implements Tool {
                 .map(path -> path.toAbsolutePath().normalize())
                 .toList();
         this.hiddenPaths = hiddenPaths.stream()
-                .map(path -> path.toAbsolutePath().normalize())
+                .map(FindFilesTool::canonicalize)
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    private static Path canonicalize(Path path) {
+        try {
+            return path.toRealPath();
+        } catch (IOException e) {
+            return path.toAbsolutePath().normalize();
+        }
     }
 
     @Override public String name() { return "find_files"; }

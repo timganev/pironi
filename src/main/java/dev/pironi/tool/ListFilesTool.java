@@ -26,8 +26,16 @@ public final class ListFilesTool implements Tool {
         this.workspace = workspace;
         this.maxEntries = maxEntries;
         this.hiddenPaths = hiddenPaths.stream()
-                .map(path -> path.toAbsolutePath().normalize())
+                .map(ListFilesTool::canonicalize)
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    private static Path canonicalize(Path path) {
+        try {
+            return path.toRealPath();
+        } catch (IOException e) {
+            return path.toAbsolutePath().normalize();
+        }
     }
 
     @Override
@@ -63,7 +71,7 @@ public final class ListFilesTool implements Tool {
                 String output = files
                         .filter(Files::isRegularFile)
                         .filter(file -> !isIgnored(workspace.root().relativize(file)))
-                        .filter(file -> !hiddenPaths.contains(file.toAbsolutePath().normalize()))
+                        .filter(file -> !hiddenPaths.contains(canonicalize(file)))
                         .sorted(Comparator.naturalOrder())
                         .limit(maxEntries)
                         .map(workspace.root()::relativize)

@@ -35,8 +35,16 @@ public final class ReadFileTool implements Tool {
         readRoots.stream().map(ReadFileTool::absoluteNormalized).forEach(roots::add);
         this.allowedRoots = List.copyOf(roots);
         this.hiddenPaths = hiddenPaths.stream()
-                .map(ReadFileTool::absoluteNormalized)
+                .map(ReadFileTool::canonicalize)
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    private static Path canonicalize(Path path) {
+        try {
+            return path.toRealPath();
+        } catch (IOException e) {
+            return path.toAbsolutePath().normalize();
+        }
     }
 
     @Override
