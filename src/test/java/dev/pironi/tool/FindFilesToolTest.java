@@ -41,7 +41,8 @@ class FindFilesToolTest {
         ToolResult result = tool.execute(new ObjectMapper().createObjectNode()
                 .put("root", root.toString()).put("name", "*"));
 
-        assertTrue(result.output().contains(visible.toString()));
-        assertFalse(result.output().contains(hidden.toString()));
+        assertTrue(result.success(), result.output());
+        assertTrue(result.output().contains(visible.toRealPath().toString()));
+        assertFalse(result.output().contains(hidden.toRealPath().toString()));
     }
 }

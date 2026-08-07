@@ -25,7 +25,7 @@ public final class FindFilesTool implements Tool {
     public FindFilesTool(List<Path> allowedRoots, Set<Path> hiddenPaths) {
         if (allowedRoots.isEmpty()) throw new IllegalArgumentException("At least one search root is required");
         this.allowedRoots = allowedRoots.stream()
-                .map(path -> path.toAbsolutePath().normalize())
+                .map(FindFilesTool::canonicalize)
                 .toList();
         this.hiddenPaths = hiddenPaths.stream()
                 .map(FindFilesTool::canonicalize)
@@ -86,7 +86,7 @@ public final class FindFilesTool implements Tool {
 
     private Path selectedRoot(String requested) {
         if (requested.isBlank()) return allowedRoots.getFirst();
-        Path normalized = Path.of(requested).toAbsolutePath().normalize();
+        Path normalized = canonicalize(Path.of(requested));
         return allowedRoots.stream().filter(normalized::equals).findFirst().orElseThrow(
                 () -> new IllegalArgumentException("Search root is not allowed: " + requested)
         );
