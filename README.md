@@ -297,13 +297,20 @@ Pironi loads only the content before the marker. The rest remains available to
 people and other agents as project history without consuming every Ollama
 context window.
 
-Copy the example files if personal context is useful:
+The example files (`SOUL.example.md`, `USER.example.md`) are structured,
+placeholder-based templates of what a personal setup can look like. Copy them
+only as a starting point and fill in the `[PLACEHOLDERS]` with your own values:
 
 ```bash
 mkdir -p ~/.pironi
 cp SOUL.example.md ~/.pironi/SOUL.md
 cp USER.example.md ~/.pironi/USER.md
 ```
+
+The example templates are tracked in the public repo, so treat them as
+**sample formats, not a place for personal data**. Keep any real identity,
+names, machines, employers, or projects out of them. Personal context lives
+only in your local `~/.pironi/SOUL.md` and `~/.pironi/USER.md`.
 
 The default `--personal-context auto` behavior is deliberately different by
 provider:
