@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+set -eu
+
+PIRONI_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "$PIRONI_DIR/runtime/bin/java" -jar "$PIRONI_DIR/pironi.jar" "$@"
+

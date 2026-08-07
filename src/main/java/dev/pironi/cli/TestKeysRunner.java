@@ -146,6 +146,20 @@ public final class TestKeysRunner {
                         List.of("New session started:", "Session closed."),
                         List.of("Unknown command:"),
                         List.of("old request", "clean request")
+                ),
+                new Scenario(
+                        "capabilities command is available from slash menu",
+                        List.of(keys("/capabilities\\r"), keys("/exit\\r")),
+                        List.of("[capabilities]", "Session closed."),
+                        List.of("Unknown command:"),
+                        List.of()
+                ),
+                new Scenario(
+                        "doctor command is available from slash menu",
+                        List.of(keys("/doctor\\r"), keys("/exit\\r")),
+                        List.of("[doctor]", "Session closed."),
+                        List.of("Unknown command:"),
+                        List.of()
                 )
         );
 
@@ -328,6 +342,8 @@ public final class TestKeysRunner {
     private static InteractiveShell.ShellCommands testShellCommands() {
         return new InteractiveShell.ShellCommands() {
             @Override public String newSession() { return "New session started: test-session"; }
+            @Override public String capabilities() { return "[capabilities]"; }
+            @Override public String doctor() { return "[doctor]"; }
             @Override public String listSessions() { return "[sessions]"; }
             @Override public String resumeSession(String id) {
                 return "Session scheduled for resume: 3 messages";

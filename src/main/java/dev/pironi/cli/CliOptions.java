@@ -35,8 +35,19 @@ record CliOptions(
         boolean interactive,
         boolean noTui
 ) {
-    private static final Path DEFAULT_WORKSPACE = Path.of("/home/tim/repos/pironi");
+    private static final Path DEFAULT_WORKSPACE = Path.of(
+            System.getProperty("user.dir", ".")
+    ).toAbsolutePath().normalize();
     private static final Set<String> BOOLEAN_FLAGS = Set.of("interactive", "no-interactive", "no-tui");
+    private static final Set<String> VALUE_OPTIONS = Set.of(
+            "provider", "base-url", "api-key-env", "model", "workspace", "task",
+            "approval", "activity", "max-turns", "context", "max-output-tokens",
+            "timeout-seconds", "trace", "pironi-home", "personal-context", "status",
+            "verify-command", "deny-tools"
+    );
+    private static final Set<String> KNOWN_OPTIONS = java.util.stream.Stream.concat(
+            BOOLEAN_FLAGS.stream(), VALUE_OPTIONS.stream()
+    ).collect(java.util.stream.Collectors.toUnmodifiableSet());
 
     CliOptions withModel(String newModel) {
         return new CliOptions(
@@ -254,6 +265,9 @@ record CliOptions(
                 throw new IllegalArgumentException("Unexpected argument: " + argument);
             }
             String key = argument.substring(2);
+            if (!KNOWN_OPTIONS.contains(key)) {
+                throw new IllegalArgumentException(unknownOptionMessage(key));
+            }
             if (BOOLEAN_FLAGS.contains(key)) {
                 if (values.put(key, "true") != null) {
                     throw new IllegalArgumentException("Duplicate option: --" + key);
@@ -268,6 +282,31 @@ record CliOptions(
             }
         }
         return values;
+    }
+
+    private static String unknownOptionMessage(String key) {
+        String suggestion = KNOWN_OPTIONS.stream()
+                .min(java.util.Comparator.comparingInt(candidate -> editDistance(key, candidate)))
+                .filter(candidate -> editDistance(key, candidate) <= 3)
+                .map(candidate -> ". Did you mean --" + candidate + "?")
+                .orElse("");
+        return "Unknown option: --" + key + suggestion;
+    }
+
+    private static int editDistance(String left, String right) {
+        int[] previous = new int[right.length() + 1];
+        for (int j = 0; j <= right.length(); j++) previous[j] = j;
+        for (int i = 1; i <= left.length(); i++) {
+            int[] current = new int[right.length() + 1];
+            current[0] = i;
+            for (int j = 1; j <= right.length(); j++) {
+                int replace = previous[j - 1]
+                        + (left.charAt(i - 1) == right.charAt(j - 1) ? 0 : 1);
+                current[j] = Math.min(Math.min(previous[j] + 1, current[j - 1] + 1), replace);
+            }
+            previous = current;
+        }
+        return previous[right.length()];
     }
 
     private static boolean interactive(Map<String, String> values) {

@@ -27,7 +27,7 @@ class CliOptionsTest {
     }
 
     @Test
-    void interactiveDefaultsMatchLocalPironiWorkspace() {
+    void interactiveDefaultsToCurrentWorkingDirectory() {
         CliOptions options = CliOptions.parse(
                 new String[]{"--model", "qwen3.6:35b-a3b"},
                 Map.of()
@@ -35,7 +35,8 @@ class CliOptionsTest {
 
         assertTrue(options.interactive());
         assertEquals(null, options.task());
-        assertEquals(Path.of("/home/tim/repos/pironi"), options.workspace());
+        assertEquals(Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize(),
+                options.workspace());
         assertEquals(ApprovalMode.READ_ONLY, options.approvalMode());
         assertEquals(StatusMode.ALWAYS, options.statusMode());
     }
@@ -68,6 +69,32 @@ class CliOptionsTest {
         );
 
         assertTrue(error.getMessage().contains("Unknown activity mode"));
+    }
+
+    @Test
+    void rejectsUnknownOptionsAndSuggestsTheClosestKnownOption() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> CliOptions.parse(
+                        new String[]{"--model", "qwen3.6:35b-a3b", "--activty", "auto"},
+                        Map.of()
+                )
+        );
+
+        assertEquals("Unknown option: --activty. Did you mean --activity?", error.getMessage());
+    }
+
+    @Test
+    void rejectsUnknownBooleanLookingFlagsBeforeTreatingThemAsValues() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> CliOptions.parse(
+                        new String[]{"--model", "qwen3.6:35b-a3b", "--mystery"},
+                        Map.of()
+                )
+        );
+
+        assertTrue(error.getMessage().startsWith("Unknown option: --mystery"));
     }
 
 

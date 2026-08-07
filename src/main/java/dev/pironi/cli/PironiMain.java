@@ -5,6 +5,7 @@ import dev.pironi.agent.AgentLoop;
 import dev.pironi.agent.AgentResult;
 import dev.pironi.agent.ContextFileLoader;
 import dev.pironi.agent.DecisionParser;
+import dev.pironi.agent.CapabilityReport;
 import dev.pironi.model.ProviderConfig;
 import dev.pironi.model.SwitchableModelClient;
 import dev.pironi.safety.ConsoleApprovalPolicy;
@@ -12,6 +13,7 @@ import dev.pironi.safety.CheckpointManager;
 import dev.pironi.safety.Workspace;
 import dev.pironi.tool.ApplyPatchTool;
 import dev.pironi.tool.ListFilesTool;
+import dev.pironi.tool.HttpGetTool;
 import dev.pironi.tool.ReadFileTool;
 import dev.pironi.tool.RunCommandTool;
 import dev.pironi.tool.RollbackCheckpointTool;
@@ -124,6 +126,7 @@ public final class PironiMain {
                 new WriteFileTool(workspace),
                 new ApplyPatchTool(workspace, checkpoints),
                 new RollbackCheckpointTool(checkpoints),
+                new HttpGetTool(),
                 new RunCommandTool(workspace, Duration.ofSeconds(90), 32_000)
         );
         ToolRegistry tools = configuredTools(availableTools, options.denyTools());
@@ -175,6 +178,10 @@ public final class PironiMain {
                     options.pironiHome()
             );
             agentContext.updateRuntimeSession(runtimeSessionDescription(options));
+            CapabilityReport capabilityReport = new CapabilityReport(tools, agentContext);
+            RuntimeDoctor runtimeDoctor = new RuntimeDoctor(
+                    options.workspace(), options.pironiHome(), capabilityReport
+            );
             ConsoleApprovalPolicy approvalPolicy = new ConsoleApprovalPolicy(
                     options.approvalMode(),
                     input,
@@ -353,7 +360,7 @@ public final class PironiMain {
                             }
                         };
                 InteractiveShell.ShellCommands shellC = new DefaultShellCommands(
-                        sessions, compressor, skills, memory
+                        sessions, compressor, skills, memory, capabilityReport, runtimeDoctor
                 );
                 InteractiveShell shell = new InteractiveShell(
                         terminal,
@@ -502,7 +509,7 @@ public final class PironiMain {
                   --api-key-env NAME                            provider-specific default
 
                 Agent:
-                  --workspace PATH                              default: /home/tim/repos/pironi
+                  --workspace PATH                              default: current directory
                   --approval ask|auto|read-only                 default: read-only
                   --activity auto                              allow tool activity without prompts;
                                                                overrides --approval

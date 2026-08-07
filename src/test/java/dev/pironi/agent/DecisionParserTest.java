@@ -46,6 +46,15 @@ class DecisionParserTest {
     }
 
     @Test
+    void identifiesUnexpectedEndOfInputAsTruncation() {
+        ProtocolException error = assertThrows(
+                ProtocolException.class,
+                () -> parser.parse("{\"thought\":\"cut off\"")
+        );
+        assertTrue(error.getMessage().startsWith("Truncated JSON:"));
+    }
+
+    @Test
     void rejectsResponseWithoutActionOrAnswer() {
         assertThrows(
                 ProtocolException.class,

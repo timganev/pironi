@@ -30,7 +30,7 @@ class OpenAiCompatibleClientTest {
             requestBody.set(objectMapper.readTree(exchange.getRequestBody()));
             byte[] response = """
                     {
-                      "choices":[{"message":{"role":"assistant","content":"{\\"finalAnswer\\":\\"ok\\"}"}}],
+                      "choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"{\\"finalAnswer\\":\\"ok\\"}"}}],
                       "usage":{"prompt_tokens":11,"completion_tokens":7}
                     }
                     """.getBytes(StandardCharsets.UTF_8);
@@ -60,10 +60,19 @@ class OpenAiCompatibleClientTest {
             assertEquals("{\"finalAnswer\":\"ok\"}", response.content());
             assertEquals(11, response.promptTokens());
             assertEquals(7, response.outputTokens());
+            assertEquals("stop", response.finishReason());
+            assertEquals("json_schema", response.responseFormat());
+            assertEquals(false, response.truncated());
             assertEquals("Bearer test-key", authorization.get());
             assertEquals("test-model", requestBody.get().path("model").asText());
             assertEquals(123, requestBody.get().path("max_tokens").asInt());
-            assertEquals("json_object", requestBody.get().path("response_format").path("type").asText());
+            assertEquals("json_schema", requestBody.get().path("response_format").path("type").asText());
+            assertEquals(
+                    "pironi_agent_response",
+                    requestBody.get().path("response_format").path("json_schema").path("name").asText()
+            );
+            assertTrue(requestBody.get().path("response_format").path("json_schema")
+                    .path("schema").path("required").isArray());
             assertTrue(requestBody.get().path("messages").isArray());
         } finally {
             server.stop(0);
@@ -157,7 +166,7 @@ class OpenAiCompatibleClientTest {
             );
             assertEquals("high", requestBody.get().path("reasoning_effort").asText());
             assertEquals(
-                    "json_object",
+                    "json_schema",
                     requestBody.get().path("response_format").path("type").asText()
             );
         } finally {
@@ -210,6 +219,55 @@ class OpenAiCompatibleClientTest {
                     "{\"toolCalls\":[],\"finalAnswer\":\"recovered\"}",
                     response.content()
             );
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void fallsBackToJsonObjectWhenProviderRejectsJsonSchemaAndCachesDecision() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        List<String> formats = new java.util.concurrent.CopyOnWriteArrayList<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/chat/completions", exchange -> {
+            JsonNode request = objectMapper.readTree(exchange.getRequestBody());
+            String format = request.path("response_format").path("type").asText();
+            formats.add(format);
+            requests.incrementAndGet();
+            String body;
+            int status;
+            if (format.equals("json_schema")) {
+                status = 400;
+                body = "{\"error\":\"response_format json_schema is unsupported\"}";
+            } else {
+                status = 200;
+                body = "{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"content\":\"{\\\"thought\\\":\\\"\\\",\\\"toolCalls\\\":[],\\\"finalAnswer\\\":\\\"ok\\\"}\"}}]}";
+            }
+            byte[] response = body.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(status, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+
+        try {
+            URI endpoint = URI.create(
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/chat/completions"
+            );
+            OpenAiCompatibleClient client = new OpenAiCompatibleClient(
+                    HttpClient.newHttpClient(), objectMapper, endpoint, "model", "key",
+                    Duration.ofSeconds(5), 512
+            );
+
+            ModelResponse first = client.chat(List.of(ChatMessage.user("one")));
+            ModelResponse second = client.chat(List.of(ChatMessage.user("two")));
+            assertEquals("ok", objectMapper.readTree(first.content()).path("finalAnswer").asText());
+            assertEquals("ok", objectMapper.readTree(second.content()).path("finalAnswer").asText());
+            assertEquals("json_object", first.responseFormat());
+            assertEquals("json_object", second.responseFormat());
+
+            assertEquals(3, requests.get());
+            assertEquals(List.of("json_schema", "json_object", "json_object"), formats);
         } finally {
             server.stop(0);
         }

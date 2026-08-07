@@ -1,8 +1,10 @@
 package dev.pironi.verification;
 
 import dev.pironi.safety.Workspace;
+import dev.pironi.tool.PlatformShell;
 
 import java.io.IOException;
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,7 +26,7 @@ public final class ProjectVerificationGate implements VerificationGate {
     public ProjectVerificationGate(Workspace workspace, String overrideCommand, Duration timeout) {
         this.workspace = workspace;
         this.command = overrideCommand == null || overrideCommand.isBlank()
-                ? detectCommand(workspace).orElse("")
+                ? detectCommand(workspace, System.getProperty("os.name", "")).orElse("")
                 : overrideCommand;
         this.timeout = timeout;
     }
@@ -46,9 +48,7 @@ public final class ProjectVerificationGate implements VerificationGate {
         }
 
         try {
-            ProcessBuilder processBuilder = new ProcessBuilder(
-                    "/bin/bash", "-o", "pipefail", "-c", command
-            )
+            ProcessBuilder processBuilder = new ProcessBuilder(PlatformShell.command(command))
                     .directory(workspace.root().toFile())
                     .redirectErrorStream(true);
             useCurrentJavaRuntime(processBuilder.environment());
@@ -102,14 +102,24 @@ public final class ProjectVerificationGate implements VerificationGate {
         environment.put("JAVA_HOME", javaHome);
         String javaBin = Path.of(javaHome, "bin").toString();
         String path = environment.getOrDefault("PATH", "");
-        environment.put("PATH", path.isBlank() ? javaBin : javaBin + ":" + path);
+        environment.put("PATH", path.isBlank() ? javaBin : javaBin + File.pathSeparator + path);
     }
 
-    private static Optional<String> detectCommand(Workspace workspace) {
+    static Optional<String> detectCommand(Workspace workspace, String osName) {
+        boolean windows = osName.toLowerCase().contains("win");
+        if (Files.isRegularFile(workspace.root().resolve("mvnw.cmd")) && windows) {
+            return Optional.of("mvnw.cmd test");
+        }
+        if (Files.isRegularFile(workspace.root().resolve("mvnw")) && !windows) {
+            return Optional.of("./mvnw test");
+        }
         if (Files.isRegularFile(workspace.root().resolve("pom.xml"))) {
             return Optional.of("mvn test");
         }
-        if (Files.isRegularFile(workspace.root().resolve("gradlew"))) {
+        if (Files.isRegularFile(workspace.root().resolve("gradlew.bat")) && windows) {
+            return Optional.of("gradlew.bat test");
+        }
+        if (Files.isRegularFile(workspace.root().resolve("gradlew")) && !windows) {
             return Optional.of("./gradlew test");
         }
         if (Files.isRegularFile(workspace.root().resolve("build.gradle"))

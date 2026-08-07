@@ -49,4 +49,16 @@ class ProjectVerificationGateTest {
         assertFalse(gate.required());
         assertFalse(gate.verifyIfRequired().attempted());
     }
+
+    @Test
+    void selectsPlatformSpecificBuildWrappers() throws Exception {
+        Files.writeString(workspaceRoot.resolve("mvnw"), "");
+        Files.writeString(workspaceRoot.resolve("mvnw.cmd"), "");
+        Workspace workspace = new Workspace(workspaceRoot);
+
+        assertEquals("./mvnw test",
+                ProjectVerificationGate.detectCommand(workspace, "Linux").orElseThrow());
+        assertEquals("mvnw.cmd test",
+                ProjectVerificationGate.detectCommand(workspace, "Windows 11").orElseThrow());
+    }
 }

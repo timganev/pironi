@@ -40,7 +40,11 @@ public final class DecisionParser {
             }
             return new AgentDecision(thought, calls, finalAnswer);
         } catch (JsonProcessingException e) {
-            throw new ProtocolException("Malformed JSON: " + e.getOriginalMessage(), e);
+            String message = e.getOriginalMessage();
+            String category = message != null && (
+                    message.contains("end-of-input") || message.contains("Unexpected EOF")
+            ) ? "Truncated JSON: " : "Malformed JSON: ";
+            throw new ProtocolException(category + message, e);
         }
     }
 

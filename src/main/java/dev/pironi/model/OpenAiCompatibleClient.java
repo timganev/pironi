@@ -12,6 +12,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 
 public final class OpenAiCompatibleClient implements ModelClient {
     private final HttpClient httpClient;
@@ -22,6 +23,7 @@ public final class OpenAiCompatibleClient implements ModelClient {
     private final Duration timeout;
     private final int maxOutputTokens;
     private final boolean deepSeekThinking;
+    private volatile boolean jsonSchemaSupported = true;
 
     public OpenAiCompatibleClient(
             URI baseUri,
@@ -109,12 +111,68 @@ public final class OpenAiCompatibleClient implements ModelClient {
 
     @Override
     public ModelResponse chat(List<ChatMessage> messages) throws IOException, InterruptedException {
+        int maxAttempts = deepSeekThinking ? 3 : 1;
+        long totalDurationNanos = 0;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            TimedResponse timed = send(messages, jsonSchemaSupported);
+            totalDurationNanos += timed.durationNanos();
+            HttpResponse<String> response = timed.response();
+            if (schemaUnsupported(response)) {
+                jsonSchemaSupported = false;
+                timed = send(messages, false);
+                totalDurationNanos += timed.durationNanos();
+                response = timed.response();
+            }
+
+            if (response.statusCode() / 100 != 2) {
+                throw new IOException(
+                        "Provider returned HTTP " + response.statusCode() + ": "
+                                + safeError(response.body())
+                );
+            }
+
+            JsonNode body = objectMapper.readTree(response.body());
+            JsonNode choice = body.path("choices").path(0);
+            String finishReason = choice.path("finish_reason").asText("unknown");
+            JsonNode message = choice.path("message");
+            if (!message.isObject()) {
+                throw new IOException("Provider response has no choices[0].message object");
+            }
+            String content = responseContent(message.get("content"));
+            if (content.isBlank() && attempt < maxAttempts) {
+                continue;
+            }
+            if (content.isBlank()) {
+                throw new IOException(
+                        "Provider returned empty assistant content after " + maxAttempts + " attempts"
+                );
+            }
+            JsonNode usage = body.path("usage");
+            return new ModelResponse(
+                    content,
+                    usage.path("prompt_tokens").asLong(0),
+                    usage.path("completion_tokens").asLong(0),
+                    totalDurationNanos,
+                    0,
+                    finishReason,
+                    jsonSchemaSupported ? "json_schema" : "json_object"
+            );
+        }
+        throw new IOException("Provider response retry loop ended unexpectedly");
+    }
+
+    private TimedResponse send(List<ChatMessage> messages, boolean jsonSchema)
+            throws IOException, InterruptedException {
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("model", model);
         payload.put("stream", false);
         payload.put("temperature", 0);
         payload.put("max_tokens", maxOutputTokens);
-        payload.putObject("response_format").put("type", "json_object");
+        if (jsonSchema) {
+            payload.set("response_format", AgentResponseSchema.openAiResponseFormat(objectMapper));
+        } else {
+            payload.putObject("response_format").put("type", "json_object");
+        }
         if (deepSeekThinking) {
             payload.putObject("thinking").put("type", "enabled");
             payload.put("reasoning_effort", "high");
@@ -139,44 +197,18 @@ public final class OpenAiCompatibleClient implements ModelClient {
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                 .build();
         long started = System.nanoTime();
-        int maxAttempts = deepSeekThinking ? 3 : 1;
-        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-            HttpResponse<String> response = httpClient.send(
-                    request,
-                    HttpResponse.BodyHandlers.ofString()
-            );
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        return new TimedResponse(response, System.nanoTime() - started);
+    }
 
-            if (response.statusCode() / 100 != 2) {
-                throw new IOException(
-                        "Provider returned HTTP " + response.statusCode() + ": "
-                                + safeError(response.body())
-                );
-            }
+    private record TimedResponse(HttpResponse<String> response, long durationNanos) {
+    }
 
-            JsonNode body = objectMapper.readTree(response.body());
-            JsonNode choice = body.path("choices").path(0);
-            JsonNode message = choice.path("message");
-            if (!message.isObject()) {
-                throw new IOException("Provider response has no choices[0].message object");
-            }
-            String content = responseContent(message.get("content"));
-            if (content.isBlank() && attempt < maxAttempts) {
-                continue;
-            }
-            if (content.isBlank()) {
-                throw new IOException(
-                        "Provider returned empty assistant content after " + maxAttempts + " attempts"
-                );
-            }
-            JsonNode usage = body.path("usage");
-            return new ModelResponse(
-                    content,
-                    usage.path("prompt_tokens").asLong(0),
-                    usage.path("completion_tokens").asLong(0),
-                    System.nanoTime() - started
-            );
-        }
-        throw new IOException("Provider response retry loop ended unexpectedly");
+    private static boolean schemaUnsupported(HttpResponse<String> response) {
+        if (response.statusCode() != 400 && response.statusCode() != 422) return false;
+        String body = response.body() == null ? "" : response.body().toLowerCase(Locale.ROOT);
+        return body.contains("json_schema") || body.contains("response_format")
+                || body.contains("structured output");
     }
 
     private static String responseContent(JsonNode content) throws IOException {

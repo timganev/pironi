@@ -16,14 +16,16 @@ Choose the setup that matches the machine:
 
 | Platform                       | Recommended package                          |              Admin rights | Java/Maven required         | Start command              |
 | ------------------------------ | -------------------------------------------- | ------------------------: | --------------------------- | -------------------------- |
-| Windows 11, locked-down laptop | `pironi-windows-x64-portable.zip`            |                        No | Neither; Java 25 is bundled | `pironi.bat ...`           |
-| macOS                          | Standalone JAR                               | Yes for Java installation | Java 25; no Maven           | `java -jar pironi.jar ...` |
-| Linux, full access             | Standalone JAR + system-wide Temurin runtime |                       Yes | Java 25; no Maven           | `pironi ...`               |
+| Windows 11, locked-down laptop | Windows x64 portable ZIP                     |                        No | Neither; Java 25 is bundled | `pironi.bat ...`           |
+| macOS                          | macOS portable archive or standalone JAR     |                        No | None for portable archive   | `./pironi ...`             |
+| Linux, full access             | Linux portable archive or standalone JAR     |                        No | None for portable archive   | `./pironi ...`             |
 | Development machine            | Source checkout                              |          Depends on setup | JDK 25 and Maven 3.9+       | `mvn clean verify`         |
 
-The standalone JAR is about 3.8 MB but needs Java 25. The Windows portable ZIP
-is larger because it contains its own Java runtime. Maven is needed only when
-building or testing Pironi from source.
+The standalone JAR needs Java 25. Portable archives are larger because they
+contain a trimmed Java 25 runtime. Maven is needed only when building or
+testing Pironi from source. Starting with the next tagged release, CI produces
+`windows-x64.zip`, `linux-x64.tar.gz`, and `macos-arm64.tar.gz` bundles with
+SHA-256 checksum files.
 
 ### Windows 11 without admin rights
 
@@ -266,6 +268,36 @@ The shaded executable JAR is written to:
 target/pironi-0.1.0-SNAPSHOT.jar
 ```
 
+Every push and pull request runs a clean Java 25 build on Ubuntu, Windows and
+macOS. The Linux job also runs the PTY-based interactive terminal regression.
+The workflows are in `.github/workflows/ci.yml` and
+`.github/workflows/release.yml`.
+
+### Build a portable bundle locally
+
+After `mvn clean package`, create a Linux or macOS bundle with the active JDK:
+
+```bash
+scripts/package-unix.sh \
+  target/pironi-0.1.0-SNAPSHOT.jar build/release dev linux-x64
+```
+
+On Windows PowerShell:
+
+```powershell
+scripts/package-windows.ps1 `
+  -Jar target/pironi-0.1.0-SNAPSHOT.jar `
+  -Output build/release `
+  -Version dev `
+  -Platform windows-x64
+```
+
+Both scripts use `jlink`, include `pironi.jar`, the platform launcher and a
+trimmed Java runtime, then write an archive and `.sha256` checksum. Pushing a
+tag such as `v0.2.0` builds all three bundles and attaches them to the GitHub
+release. The release workflow can also be run manually without publishing a
+GitHub release.
+
 ## Ollama
 
 Start Ollama and make sure the model is available:
@@ -285,7 +317,7 @@ java -jar target/pironi-0.1.0-SNAPSHOT.jar \
 
 The local defaults are:
 
-- workspace: `/home/tim/repos/pironi`;
+- workspace: the current working directory;
 - approval: `read-only`;
 - status: `always`;
 - interactive mode enabled.
@@ -298,7 +330,8 @@ remains a shortcut and automatically switches the
 provider for recognized DeepSeek IDs and OpenRouter vendor/model slugs. A model switch
 clears the bounded conversation history and is saved as part of the
 last-session profile. `/help`, `/context`, `/clear`, and `/exit` are also
-available.
+available. `/capabilities` shows the authoritative live tool/platform report,
+while `/doctor` checks Java, workspace permissions, shell and network access.
 
 `/approval` shows the live approval policy. Change it without restarting:
 
@@ -417,9 +450,11 @@ variables and never stores the key in its config or trace. Provider model
 names, behavior, and pricing can change; verify the current provider
 documentation before using the paid API.
 
-JSON mode can occasionally return empty assistant content. Pironi retries
-only the model request up to two additional times; completed tools are not
-executed again.
+Pironi requests the same strict JSON Schema from Ollama and OpenAI-compatible
+providers. If an OpenAI-compatible endpoint explicitly rejects `json_schema`,
+Pironi retries once with `json_object` and remembers that decision for the
+remaining process lifetime. DeepSeek empty-content responses are retried up to
+two additional times; completed tools are not executed again.
 
 OpenRouter is another dedicated profile over the generic client:
 
@@ -525,6 +560,7 @@ Sending personal context to a cloud provider requires the explicit
 The default trace is `WORKSPACE/.pironi/trace.jsonl`. A trace can contain
 prompts, model responses, tool arguments, and tool output. Treat it as
 potentially sensitive and do not commit it.
+Unknown CLI options fail startup and close misspellings include a suggestion.
 
 ## Live status
 
@@ -577,6 +613,7 @@ their neutral UI colors. JLine generates the terminal-specific escape sequences.
 - `write_file`
 - `apply_patch`
 - `rollback_checkpoint`
+- `http_get`
 - `run_command`
 
 All file paths are restricted to the selected workspace. `apply_patch` requires
@@ -594,6 +631,23 @@ Commands and automatic verification inherit the Java runtime that launched
 Pironi: `JAVA_HOME` is set from the active JVM and its `bin` directory is
 prepended to `PATH`. Starting Pironi with Java 25 therefore also makes Maven
 use Java 25, even when the parent shell still defaults to Java 17.
+Shell commands use Bash on Linux/macOS and `cmd.exe` on Windows. Wrapper-based
+verification selects `mvnw`/`gradlew` on Unix and their `.cmd`/`.bat`
+counterparts on Windows.
+
+`http_get` retrieves bounded current information directly through Java and
+does not depend on curl or a shell. It accepts HTTPS only, does not follow
+redirects, rejects credentials and local/private/link-local destinations, and
+caps response bodies at 64 KiB. The generated Runtime capabilities section
+tells the model which tools, shell and network path are actually available.
+
+Provider finish reasons and the effective `json_schema`/`json_object` response
+format are written to the JSONL trace. `length`/`max_tokens`
+responses and unexpected end-of-input JSON are classified as truncation and
+receive a targeted repair request for a shorter complete JSON object.
+The provider response schema requires exactly `thought`, `toolCalls`, and
+`finalAnswer`, rejects unknown envelope/tool-call fields, and is shared by the
+Ollama and OpenAI-compatible clients.
 
 For Ollama, Pironi currently sends `think: false`, uses the requested context
 window and caps generation with `--max-output-tokens`.

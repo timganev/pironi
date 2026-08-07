@@ -28,7 +28,7 @@ class OllamaClientTest {
             requestBody.set(objectMapper.readTree(exchange.getRequestBody()));
             byte[] response = """
                     {"message":{"role":"assistant","content":"{\\\"finalAnswer\\\":"},"done":false}
-                    {"message":{"role":"assistant","content":"\\\"ok\\\"}"},"done":true,"prompt_eval_count":12,"eval_count":8,"total_duration":99,"eval_duration":50}
+                    {"message":{"role":"assistant","content":"\\\"ok\\\"}"},"done":true,"done_reason":"stop","prompt_eval_count":12,"eval_count":8,"total_duration":99,"eval_duration":50}
                     """.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, response.length);
             exchange.getResponseBody().write(response);
@@ -59,8 +59,12 @@ class OllamaClientTest {
             assertEquals(8, response.outputTokens());
             assertEquals(99, response.durationNanos());
             assertEquals(50, response.evalDurationNanos());
+            assertEquals("stop", response.finishReason());
+            assertEquals("json_schema", response.responseFormat());
             assertEquals(true, requestBody.get().path("stream").asBoolean());
             assertFalse(requestBody.get().path("think").asBoolean());
+            assertEquals("object", requestBody.get().path("format").path("type").asText());
+            assertEquals(false, requestBody.get().path("format").path("additionalProperties").asBoolean());
             assertEquals(8_192, requestBody.get().path("options").path("num_ctx").asInt());
             assertEquals(512, requestBody.get().path("options").path("num_predict").asInt());
         } finally {

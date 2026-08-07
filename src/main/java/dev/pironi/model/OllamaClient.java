@@ -73,7 +73,7 @@ public final class OllamaClient implements ModelClient {
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("model", model);
         payload.put("stream", true);
-        payload.put("format", "json");
+        payload.set("format", AgentResponseSchema.schema(objectMapper));
         payload.put("think", false);
         payload.put("keep_alive", "10m");
         payload.putObject("options")
@@ -112,6 +112,7 @@ public final class OllamaClient implements ModelClient {
         long outputTokens = 0;
         long durationNanos = 0;
         long evalDurationNanos = 0;
+        String finishReason = "unknown";
         try (Stream<String> lines = response.body()) {
             for (String line : (Iterable<String>) lines::iterator) {
                 if (line.isBlank()) {
@@ -128,6 +129,7 @@ public final class OllamaClient implements ModelClient {
                     outputTokens = body.path("eval_count").asLong(0);
                     durationNanos = body.path("total_duration").asLong(0);
                     evalDurationNanos = body.path("eval_duration").asLong(0);
+                    finishReason = body.path("done_reason").asText("stop");
                 }
             }
         }
@@ -137,7 +139,9 @@ public final class OllamaClient implements ModelClient {
                 promptTokens,
                 outputTokens,
                 durationNanos,
-                evalDurationNanos
+                evalDurationNanos,
+                finishReason,
+                "json_schema"
         );
     }
 }

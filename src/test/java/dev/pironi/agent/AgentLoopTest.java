@@ -6,6 +6,8 @@ import dev.pironi.model.ChatMessage;
 import dev.pironi.model.ModelClient;
 import dev.pironi.model.ModelResponse;
 import dev.pironi.safety.ApprovalDecision;
+import dev.pironi.safety.Workspace;
+import dev.pironi.tool.RunCommandTool;
 import dev.pironi.tool.Tool;
 import dev.pironi.tool.ToolRegistry;
 import dev.pironi.tool.ToolResult;
@@ -19,6 +21,8 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.nio.file.Path;
+import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -40,6 +44,28 @@ class AgentLoopTest {
         assertTrue(result.success());
         assertEquals(2, result.turns());
         assertTrue(model.requests.get(1).getLast().content().contains("violated"));
+    }
+
+    @Test
+    void repairsProviderReportedTruncationWithTargetedGuidance() throws Exception {
+        List<List<ChatMessage>> requests = new ArrayList<>();
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        ModelClient model = messages -> {
+            requests.add(List.copyOf(messages));
+            if (calls.getAndIncrement() == 0) {
+                return new ModelResponse("{\"thought\":\"cut", 10, 20, 1, 0, "length");
+            }
+            return new ModelResponse(
+                    "{\"thought\":\"short\",\"toolCalls\":[],\"finalAnswer\":\"done\"}",
+                    10, 10, 1, 0, "stop"
+            );
+        };
+
+        AgentResult result = loop(model, List.of()).run("test");
+
+        assertTrue(result.success());
+        assertTrue(requests.get(1).getLast().content().contains("shorter complete JSON"));
+        assertTrue(requests.get(1).getLast().content().contains("finish reason: length"));
     }
 
     @Test
@@ -174,6 +200,24 @@ class AgentLoopTest {
         assertTrue(model.requests.get(1).getFirst().content().contains(
                 "without listing or reading project files"
         ));
+    }
+
+    @Test
+    void advertisesRuntimeNetworkAccessInsteadOfAssumingItIsUnavailable() throws Exception {
+        Tool command = new RunCommandTool(
+                new Workspace(Path.of(".")), Duration.ofSeconds(1), 1_000
+        );
+        RecordingModelClient model = new RecordingModelClient(
+                "{\"thought\":\"done\",\"toolCalls\":[],\"finalAnswer\":\"done\"}"
+        );
+
+        AgentResult result = loop(model, List.of(command)).run("current weather");
+
+        assertTrue(result.success());
+        String systemPrompt = model.requests.getFirst().getFirst().content();
+        assertTrue(systemPrompt.contains("Runtime capabilities (authoritative)"));
+        assertTrue(systemPrompt.contains("network: inherited through run_command"));
+        assertTrue(systemPrompt.contains("run_command: Run a shell command"));
     }
 
     @Test

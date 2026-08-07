@@ -1,0 +1,70 @@
+name: Portable release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release label, for example v0.2.0-test
+        required: true
+        default: dev
+
+permissions:
+  contents: write
+
+jobs:
+  portable:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+          - os: windows-latest
+            platform: windows-x64
+          - os: macos-latest
+            platform: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      - name: Build and test
+        run: mvn --batch-mode --no-transfer-progress clean verify
+      - name: Select release label
+        id: version
+        shell: bash
+        run: echo "value=${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}" >> "$GITHUB_OUTPUT"
+      - name: Package Linux or macOS bundle
+        if: runner.os != 'Windows'
+        run: scripts/package-unix.sh target/pironi-0.1.0-SNAPSHOT.jar build/release "${{ steps.version.outputs.value }}" "${{ matrix.platform }}"
+      - name: Package Windows bundle
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: scripts/package-windows.ps1 -Jar target/pironi-0.1.0-SNAPSHOT.jar -Output build/release -Version "${{ steps.version.outputs.value }}" -Platform "${{ matrix.platform }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pironi-${{ steps.version.outputs.value }}-${{ matrix.platform }}
+          path: |
+            build/release/*.tar.gz
+            build/release/*.zip
+            build/release/*.sha256
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: portable
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

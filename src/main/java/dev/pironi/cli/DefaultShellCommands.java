@@ -4,6 +4,7 @@ import dev.pironi.session.ContextCompressor;
 import dev.pironi.session.SessionStore;
 import dev.pironi.session.SkillStore;
 import dev.pironi.session.PersistentAgentMemory;
+import dev.pironi.agent.CapabilityReport;
 
 import java.io.IOException;
 
@@ -15,13 +16,17 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
     private final ContextCompressor compressor;
     private final SkillStore skills;
     private final PersistentAgentMemory memory;
+    private final CapabilityReport capabilities;
+    private final RuntimeDoctor doctor;
 
     DefaultShellCommands(SessionStore sessions, ContextCompressor compressor, SkillStore skills,
-            PersistentAgentMemory memory) {
+            PersistentAgentMemory memory, CapabilityReport capabilities, RuntimeDoctor doctor) {
         this.sessions = sessions;
         this.compressor = compressor;
         this.skills = skills;
         this.memory = memory;
+        this.capabilities = capabilities;
+        this.doctor = doctor;
     }
 
     @Override public String listSessions() {
@@ -47,6 +52,14 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
 
     @Override public String newSession() {
         return memory.startNewSession();
+    }
+
+    @Override public String capabilities() {
+        return capabilities.render();
+    }
+
+    @Override public String doctor() {
+        return doctor.run();
     }
 
     @Override public String resumeSession(String id) {

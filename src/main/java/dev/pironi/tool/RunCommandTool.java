@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import dev.pironi.safety.Workspace;
 
 import java.io.IOException;
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -30,7 +31,9 @@ public final class RunCommandTool implements Tool {
 
     @Override
     public String description() {
-        return "Run a shell command with the workspace as current directory.";
+        return "Run a shell command with the workspace as current directory. "
+                + "The command inherits the Pironi process environment and network access, "
+                + "so tools such as curl may retrieve current external information.";
     }
 
     @Override
@@ -59,9 +62,7 @@ public final class RunCommandTool implements Tool {
                     300
             );
 
-            ProcessBuilder processBuilder = new ProcessBuilder(
-                    "/bin/bash", "-o", "pipefail", "-c", command
-            )
+            ProcessBuilder processBuilder = new ProcessBuilder(PlatformShell.command(command))
                     .directory(workspace.root().toFile())
                     .redirectErrorStream(true);
             useCurrentJavaRuntime(processBuilder.environment());
@@ -105,6 +106,6 @@ public final class RunCommandTool implements Tool {
         environment.put("JAVA_HOME", javaHome);
         String javaBin = Path.of(javaHome, "bin").toString();
         String path = environment.getOrDefault("PATH", "");
-        environment.put("PATH", path.isBlank() ? javaBin : javaBin + ":" + path);
+        environment.put("PATH", path.isBlank() ? javaBin : javaBin + File.pathSeparator + path);
     }
 }

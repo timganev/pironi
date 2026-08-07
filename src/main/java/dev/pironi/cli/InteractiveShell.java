@@ -125,6 +125,8 @@ public final class InteractiveShell {
 
     public interface ShellCommands {
         default String newSession() { return "New sessions not available."; }
+        default String capabilities() { return "Capabilities not available."; }
+        default String doctor() { return "Diagnostics not available."; }
         String listSessions();
         String resumeSession(String id);
         String deleteSession(String id);
@@ -221,6 +223,14 @@ public final class InteractiveShell {
                     println("Approval mode switched to " + arg + ".");
                 }
             }
+            case "/help" -> {
+                StringBuilder help = new StringBuilder("Commands:");
+                for (Command command : commands()) {
+                    help.append(System.lineSeparator()).append("  ")
+                            .append(command.name()).append(" — ").append(command.description());
+                }
+                println(help.toString());
+            }
             case "/clear" -> {
                 conversationHistory.clear();
                 println("Conversation memory: 0/4 exchanges");
@@ -244,6 +254,14 @@ public final class InteractiveShell {
                     }
                     println(result);
                 } else println("Sessions not available.");
+            }
+            case "/capabilities" -> {
+                if (shellCommands != null) println(shellCommands.capabilities());
+                else println("Capabilities not available.");
+            }
+            case "/doctor" -> {
+                if (shellCommands != null) println(shellCommands.doctor());
+                else println("Diagnostics not available.");
             }
             case "/sessions" -> {
                 if (shellCommands != null) println(shellCommands.listSessions());
@@ -362,9 +380,12 @@ public final class InteractiveShell {
                 new Command("/model", "Switch or show the current model"),
                 new Command("/provider", "Show the current provider"),
                 new Command("/approval", "Show or change approval mode (ask|auto|read-only)"),
+                new Command("/help", "Show all slash commands"),
                 new Command("/clear", "Clear conversation memory"),
                 new Command("/context", "Show current conversation context"),
                 new Command("/new", "Start a clean session"),
+                new Command("/capabilities", "Show live runtime capabilities"),
+                new Command("/doctor", "Check Java, workspace, shell and network"),
                 new Command("/sessions", "List saved sessions"),
                 new Command("/resume", "Resume a saved session by ID"),
                 new Command("/delete-session", "Delete a saved session"),
@@ -422,7 +443,7 @@ public final class InteractiveShell {
                 .option(LineReader.Option.LIST_ROWS_FIRST, true)
                 .option(LineReader.Option.HISTORY_IGNORE_DUPS, true)
                 .option(LineReader.Option.DISABLE_EVENT_EXPANSION, true)
-                .variable(LineReader.LIST_MAX, 20)
+                .variable(LineReader.LIST_MAX, 100)
                 .build();
 
         String slashMenuWidget = "pironi-slash-menu";

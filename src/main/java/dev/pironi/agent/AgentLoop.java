@@ -36,6 +36,7 @@ public final class AgentLoop {
     private final int maxProtocolErrors;
     private final Consumer<String> liveOutput;
     private final AgentMemory memory;
+    private final CapabilityReport capabilities;
 
     public AgentLoop(
             ModelClient modelClient,
@@ -102,6 +103,7 @@ public final class AgentLoop {
         this.maxProtocolErrors = maxProtocolErrors;
         this.liveOutput = liveOutput;
         this.memory = memory == null ? AgentMemory.none() : memory;
+        this.capabilities = new CapabilityReport(toolRegistry, agentContext);
     }
 
     public AgentResult run(String task) throws IOException, InterruptedException {
@@ -156,6 +158,12 @@ public final class AgentLoop {
 
             AgentDecision decision;
             try {
+                if (response.truncated()) {
+                    throw new ProtocolException(
+                            "Provider truncated the response (finish reason: "
+                                    + response.finishReason() + ")"
+                    );
+                }
                 decision = decisionParser.parse(response.content());
                 protocolErrors = 0;
             } catch (ProtocolException e) {
@@ -312,6 +320,9 @@ public final class AgentLoop {
                 Use tools to inspect and modify the project. Never claim success without verification.
                 The Current runtime session section is authoritative for live configuration.
                 Answer runtime configuration questions from it without listing or reading project files.
+                Use the Runtime capabilities section as authoritative. For requests requiring current
+                external information, use an available network-capable tool before claiming that internet
+                or API access is unavailable. Report the actual tool failure if access does not work.
 
                 Available tools:
                 %s
@@ -337,6 +348,7 @@ public final class AgentLoop {
                 "Current runtime session (authoritative)",
                 agentContext.runtimeSession()
         );
+        appendContext(prompt, "Runtime capabilities (authoritative)", capabilities.render());
         appendContext(prompt, "Identity from SOUL.md", agentContext.soul());
         appendContext(prompt, "User profile from USER.md", agentContext.userProfile());
         appendContext(prompt, "Project instructions from CLAUDE.md", agentContext.projectInstructions());
@@ -384,12 +396,18 @@ public final class AgentLoop {
     }
 
     private static String protocolRepairMessage(ProtocolException error) {
+        String guidance = error.getMessage().startsWith("Provider truncated")
+                || error.getMessage().startsWith("Truncated JSON:")
+                ? "The response was truncated. Return a shorter complete JSON object. "
+                        + "Keep thought brief and split work across tool turns when needed."
+                : "Correct the schema or JSON syntax.";
         return """
                 Your previous response violated the Pironi response protocol:
                 %s
 
+                %s
                 Return only a valid JSON object with thought, toolCalls, and finalAnswer.
                 Do not use markdown fences or native provider tool calls.
-                """.formatted(error.getMessage());
+                """.formatted(error.getMessage(), guidance);
     }
 }
