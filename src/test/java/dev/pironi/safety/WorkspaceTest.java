@@ -23,6 +23,15 @@ class WorkspaceTest {
     }
 
     @Test
+    void createsExplicitMissingWorkspaceDirectory() throws Exception {
+        Path root = temporaryDirectory.resolve("Documents").resolve("project");
+
+        Workspace workspace = new Workspace(root);
+
+        assertEquals(root.toRealPath(), workspace.root());
+    }
+
+    @Test
     void rejectsAbsoluteAndTraversalPaths() throws Exception {
         Path root = Files.createDirectory(temporaryDirectory.resolve("workspace"));
         Workspace workspace = new Workspace(root);

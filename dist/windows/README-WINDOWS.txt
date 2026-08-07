@@ -18,7 +18,10 @@ PIRONI PORTABLE FOR WINDOWS 11
 
 Можеш да подадеш друга workspace папка с:
 
-   --workspace C:\Users\ТВОЕТО-ИМЕ\Documents\project
+   --workspace "C:\Users\ТВОЕТО-ИМЕ\Documents\project"
+
+Pironi създава последната workspace папка, ако още не съществува. Кавичките са
+задължителни, когато пътят съдържа интервали.
 
 Не мести pironi.bat, pironi.jar или runtime поотделно. Те трябва да останат
 заедно в разархивираната папка.

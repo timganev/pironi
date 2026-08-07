@@ -8,7 +8,11 @@ public final class Workspace {
     private final Path root;
 
     public Workspace(Path root) throws IOException {
-        this.root = root.toRealPath();
+        Path normalized = root.toAbsolutePath().normalize();
+        if (!Files.exists(normalized)) {
+            Files.createDirectories(normalized);
+        }
+        this.root = normalized.toRealPath();
         if (!Files.isDirectory(this.root)) {
             throw new IllegalArgumentException("workspace must be a directory: " + root);
         }

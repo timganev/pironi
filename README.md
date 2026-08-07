@@ -62,7 +62,9 @@ modified. For safety, it does not expose `run_command` with the default
 
 Always provide a Windows `--workspace` on the first start. Later invocations
 without arguments can restore the saved non-secret profile. Pironi stores its
-settings and sessions below `%USERPROFILE%\.pironi`.
+settings and sessions below `%USERPROFILE%\.pironi`. If the final workspace
+directory does not exist yet, Pironi creates it; keep the path in quotes because
+Windows user and project directories may contain spaces.
 
 #### Windows alternative: an existing unpacked JDK 25
 

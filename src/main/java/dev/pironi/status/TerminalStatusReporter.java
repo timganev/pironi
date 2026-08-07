@@ -7,6 +7,7 @@ import org.jline.utils.AttributedString;
 import org.jline.utils.AttributedStringBuilder;
 import org.jline.utils.AttributedStyle;
 import org.jline.utils.Status;
+import org.jline.utils.InfoCmp;
 
 import java.io.PrintStream;
 import java.nio.file.Path;
@@ -207,7 +208,7 @@ public final class TerminalStatusReporter implements StatusReporter {
     private void render(String line) {
         if (useJLine()) {
             renderViaJLine(line);
-        } else if (terminal != null) {
+        } else if (terminal != null && "dumb".equals(terminal.getType())) {
             renderViaDumbTerminal(line);
         } else {
             renderViaRaw(line);
@@ -215,8 +216,9 @@ public final class TerminalStatusReporter implements StatusReporter {
     }
 
     private boolean useJLine() {
-        if (terminal == null) return false;
-        return !"dumb".equals(terminal.getType())
+        return terminal != null
+                && terminalStatus != null
+                && !"dumb".equals(terminal.getType())
                 && terminal.getSize().getRows() > 0;
     }
 
@@ -265,7 +267,7 @@ public final class TerminalStatusReporter implements StatusReporter {
     }
 
     private static Status createStatus(Terminal terminal) {
-        if (terminal == null || "dumb".equals(terminal.getType())) {
+        if (!supportsJLineStatus(terminal)) {
             return null;
         }
         synchronized (terminal) {
@@ -273,6 +275,19 @@ public final class TerminalStatusReporter implements StatusReporter {
             terminal.flush();
             return Status.getStatus(terminal);
         }
+    }
+
+    static boolean supportsJLineStatus(Terminal terminal) {
+        if (terminal == null || "dumb".equals(terminal.getType())) return false;
+        var size = terminal.getSize();
+        if (size.getRows() <= 0 || size.getRows() >= 1_000
+                || size.getColumns() <= 0 || size.getColumns() >= 1_000) {
+            return false;
+        }
+        return terminal.getStringCapability(InfoCmp.Capability.change_scroll_region) != null
+                && terminal.getStringCapability(InfoCmp.Capability.save_cursor) != null
+                && terminal.getStringCapability(InfoCmp.Capability.restore_cursor) != null
+                && terminal.getStringCapability(InfoCmp.Capability.cursor_address) != null;
     }
 
     private static AttributedString styledStatus(String line) {

@@ -116,4 +116,31 @@ class TerminalStatusReporterTest {
             reporter.close();
         }
     }
+
+    @Test
+    void fallsBackWithoutCallingStatusResizeWhenTerminalCapabilitiesAreMissing() throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (var terminal = new DumbTerminal(
+                "windows-fallback-test",
+                "windows-unsupported",
+                new ByteArrayInputStream(new byte[0]),
+                bytes,
+                StandardCharsets.UTF_8
+        )) {
+            terminal.setSize(new Size(120, 30));
+            TerminalStatusReporter reporter = new TerminalStatusReporter(
+                    "model",
+                    Path.of("C:/Users/test/Documents/project"),
+                    8_192,
+                    8,
+                    new PrintStream(bytes, true, StandardCharsets.UTF_8),
+                    terminal
+            );
+
+            assertTrue(!TerminalStatusReporter.supportsJLineStatus(terminal));
+            reporter.idle();
+            reporter.close();
+            assertTrue(bytes.toString(StandardCharsets.UTF_8).contains("ready"));
+        }
+    }
 }
