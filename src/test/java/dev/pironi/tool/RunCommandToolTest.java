@@ -24,7 +24,9 @@ class RunCommandToolTest {
         );
 
         boolean windows = isWindows();
-        String command = windows ? "exit /b 7" : "false | tail -1";
+        // The workspace lexical guard intentionally treats /b as an absolute-path token.
+        // This cmd process is already isolated by /c, so plain `exit 7` is sufficient.
+        String command = windows ? "exit 7" : "false | tail -1";
         ToolResult result = tool.execute(
                 new ObjectMapper().createObjectNode().put("command", command)
         );
