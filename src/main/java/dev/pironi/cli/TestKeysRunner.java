@@ -134,6 +134,18 @@ public final class TestKeysRunner {
                         List.of("Session scheduled for resume:", "Session closed."),
                         List.of("Unknown command:"),
                         List.of("old request", "continued request")
+                ),
+                new Scenario(
+                        "new command starts with clean conversation history",
+                        List.of(
+                                keys("old request\\r"),
+                                keys("/new\\r"),
+                                keys("clean request\\r"),
+                                keys("/exit\\r")
+                        ),
+                        List.of("New session started:", "Session closed."),
+                        List.of("Unknown command:"),
+                        List.of("old request", "clean request")
                 )
         );
 
@@ -315,6 +327,7 @@ public final class TestKeysRunner {
 
     private static InteractiveShell.ShellCommands testShellCommands() {
         return new InteractiveShell.ShellCommands() {
+            @Override public String newSession() { return "New session started: test-session"; }
             @Override public String listSessions() { return "[sessions]"; }
             @Override public String resumeSession(String id) {
                 return "Session scheduled for resume: 3 messages";

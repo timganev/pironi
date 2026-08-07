@@ -42,5 +42,8 @@ class ContextCompressorTest {
         compressor.addTokens(100, 0);
         compressor.setEnabled(false);
         assertFalse(compressor.shouldCompress());
+        compressor.reset();
+        assertEquals(0, compressor.usedTokens());
+        assertEquals("", compressor.lastSummary());
     }
 }

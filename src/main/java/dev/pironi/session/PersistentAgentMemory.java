@@ -144,6 +144,20 @@ public final class PersistentAgentMemory implements AgentMemory {
 
     public synchronized void requestCompression() { compressionRequested = true; }
 
+    public synchronized String startNewSession() {
+        if (sessions.currentMeta() != null) sessions.updateStatus("closed");
+        var session = sessions.startSession(model, workspace, contextLimit, maxTurns);
+        sessions.saveMeta();
+        compressor.reset();
+        pendingResume = List.of();
+        activeSkill = "";
+        activeSkillContent = "";
+        lastTask = "";
+        lastAnswer = "";
+        compressionRequested = false;
+        return "New session started: " + session.id();
+    }
+
     public synchronized String activateSkill(String name) {
         if (name == null || name.isBlank() || name.equalsIgnoreCase("off")) {
             activeSkill = "";

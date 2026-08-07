@@ -45,6 +45,10 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
         }
     }
 
+    @Override public String newSession() {
+        return memory.startNewSession();
+    }
+
     @Override public String resumeSession(String id) {
         return memory.resume(id);
     }

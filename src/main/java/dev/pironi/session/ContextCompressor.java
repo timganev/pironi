@@ -41,6 +41,12 @@ public final class ContextCompressor {
     public void setThreshold(double t) { this.threshold = Math.clamp(t, 0.20, 0.95); }
     public void setEnabled(boolean e) { this.enabled = e; }
 
+    public void reset() {
+        runningPromptTokens = 0;
+        runningOutputTokens = 0;
+        lastSummary = "";
+    }
+
     public boolean shouldCompress() {
         return enabled && usedTokens() > (long) (contextLimit * threshold);
     }

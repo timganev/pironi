@@ -50,6 +50,31 @@ class PersistentAgentMemoryTest {
         assertEquals("Active skill cleared.", memory.activateSkill("off"));
     }
 
+    @Test void newSessionGetsANewIdAndClearsSessionState() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        SessionStore sessions = new SessionStore(temporaryDirectory, mapper);
+        SkillStore skills = new SkillStore(temporaryDirectory);
+        skills.save("review", "---\ndescription: Review\n---\nCheck carefully");
+        ContextCompressor compressor = new ContextCompressor(10_000, mapper);
+        PersistentAgentMemory memory = new PersistentAgentMemory(
+                sessions, compressor, skills, mapper, "model",
+                Path.of("/workspace/project"), 10_000, 8
+        );
+        memory.begin("old");
+        String oldId = sessions.currentMeta().id();
+        memory.activateSkill("review");
+        compressor.addTokens(100, 20);
+
+        String result = memory.startNewSession();
+
+        assertTrue(result.startsWith("New session started:"));
+        assertNotEquals(oldId, sessions.currentMeta().id());
+        assertEquals(0, compressor.usedTokens());
+        assertFalse(memory.promptContext().contains("Active skill"));
+        assertEquals("closed", sessions.listSessions().stream()
+                .filter(session -> session.id().equals(oldId)).findFirst().orElseThrow().status());
+    }
+
     private PersistentAgentMemory memory(
             SessionStore sessions, SkillStore skills, ObjectMapper mapper
     ) {

@@ -124,6 +124,7 @@ public final class InteractiveShell {
     }
 
     public interface ShellCommands {
+        default String newSession() { return "New sessions not available."; }
         String listSessions();
         String resumeSession(String id);
         String deleteSession(String id);
@@ -234,6 +235,15 @@ public final class InteractiveShell {
                         println("  " + h);
                     }
                 }
+            }
+            case "/new" -> {
+                if (shellCommands != null) {
+                    String result = shellCommands.newSession();
+                    if (result.startsWith("New session started:")) {
+                        conversationHistory.clear();
+                    }
+                    println(result);
+                } else println("Sessions not available.");
             }
             case "/sessions" -> {
                 if (shellCommands != null) println(shellCommands.listSessions());
@@ -354,6 +364,7 @@ public final class InteractiveShell {
                 new Command("/approval", "Show or change approval mode (ask|auto|read-only)"),
                 new Command("/clear", "Clear conversation memory"),
                 new Command("/context", "Show current conversation context"),
+                new Command("/new", "Start a clean session"),
                 new Command("/sessions", "List saved sessions"),
                 new Command("/resume", "Resume a saved session by ID"),
                 new Command("/delete-session", "Delete a saved session"),

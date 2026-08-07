@@ -280,6 +280,8 @@ Interactive sessions are persisted under `~/.pironi/sessions`. `/sessions`
 lists them, `/resume [ID]` schedules a saved checkpoint for the next request,
 and `/compress now` schedules semantic compression for the next request.
 Model-reported prompt and output token counts drive the compression threshold.
+`/new` closes the current session and starts a clean one without restarting
+Pironi or changing the selected model.
 
 Skills live under `~/.pironi/skills/NAME/SKILL.md`. `/skill NAME` activates a
 skill for subsequent agent prompts, `/skill off` clears it, and
