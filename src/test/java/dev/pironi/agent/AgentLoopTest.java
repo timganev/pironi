@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.io.IOException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -44,6 +45,7 @@ class AgentLoopTest {
         assertTrue(result.success());
         assertEquals(2, result.turns());
         assertTrue(model.requests.get(1).getLast().content().contains("violated"));
+        assertTrue(model.requests.get(1).getLast().content().contains("valid json object"));
     }
 
     @Test
@@ -276,6 +278,48 @@ class AgentLoopTest {
         assertEquals("compact summary", memory.summary);
     }
 
+    @Test
+    void checkpointsAndMarksMemoryFailedWhenProviderThrows() {
+        RecordingMemory memory = new RecordingMemory();
+        ModelClient model = messages -> { throw new IOException("provider offline"); };
+
+        try {
+            loop(model, List.of(), new NoOpVerificationGate(), memory).run("goal");
+        } catch (IOException expected) {
+            assertEquals("provider offline", expected.getMessage());
+        } catch (InterruptedException unexpected) {
+            throw new AssertionError(unexpected);
+        }
+
+        assertEquals(1, memory.checkpoints);
+        assertEquals(Boolean.FALSE, memory.finished);
+    }
+
+    @Test
+    void compressionUsesPlainTextModelPath() throws Exception {
+        RecordingMemory memory = new RecordingMemory();
+        memory.compress = true;
+        java.util.concurrent.atomic.AtomicBoolean plainCalled = new java.util.concurrent.atomic.AtomicBoolean();
+        ModelClient model = new ModelClient() {
+            @Override public ModelResponse chat(List<ChatMessage> messages) {
+                return new ModelResponse(
+                        "{\"thought\":\"done\",\"toolCalls\":[],\"finalAnswer\":\"ok\"}",
+                        0, 0, 0
+                );
+            }
+            @Override public ModelResponse chatText(List<ChatMessage> messages) {
+                plainCalled.set(true);
+                return new ModelResponse("plain summary", 0, 0, 0);
+            }
+        };
+
+        AgentResult result = loop(model, List.of(), new NoOpVerificationGate(), memory).run("goal");
+
+        assertTrue(result.success());
+        assertTrue(plainCalled.get());
+        assertEquals("plain summary", memory.summary);
+    }
+
     private AgentLoop loop(ModelClient model, List<Tool> tools) {
         return loop(model, tools, new NoOpVerificationGate());
     }
@@ -319,6 +363,7 @@ class AgentLoopTest {
         private String answer = "";
         private String summary = "";
         private boolean compress;
+        private Boolean finished;
 
         @Override public void record(ChatMessage message, long prompt, long output) {
             messages.add(message);
@@ -337,6 +382,7 @@ class AgentLoopTest {
         @Override public void checkpoint(List<ChatMessage> messages, String task) { checkpoints++; }
         @Override public String promptContext() { return "active test skill"; }
         @Override public void completed(String task, String value) { answer = value; }
+        @Override public void finished(boolean success) { finished = success; }
     }
 
     private static final class RecordingVerificationGate implements VerificationGate {

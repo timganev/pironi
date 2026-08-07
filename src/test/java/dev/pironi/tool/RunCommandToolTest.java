@@ -16,19 +16,21 @@ class RunCommandToolTest {
     Path workspaceRoot;
 
     @Test
-    void pipelinePreservesFailureWithPipefail() throws Exception {
+    void reportsCommandFailureOnEveryPlatformAndPipefailOnUnix() throws Exception {
         RunCommandTool tool = new RunCommandTool(
                 new Workspace(workspaceRoot),
                 Duration.ofSeconds(2),
                 1_000
         );
 
-        ToolResult result = tool.execute(new ObjectMapper().readTree("""
-                {"command":"false | tail -1"}
-                """));
+        boolean windows = isWindows();
+        String command = windows ? "exit /b 7" : "false | tail -1";
+        ToolResult result = tool.execute(
+                new ObjectMapper().createObjectNode().put("command", command)
+        );
 
         assertFalse(result.success());
-        assertTrue(result.output().startsWith("exitCode=1"));
+        assertTrue(result.output().startsWith(windows ? "exitCode=7" : "exitCode=1"));
         assertFalse(tool.requiresVerification());
     }
 
@@ -40,13 +42,25 @@ class RunCommandToolTest {
                 2_000
         );
 
-        ToolResult result = tool.execute(new ObjectMapper().readTree("""
-                {"command":"printf 'JAVA_HOME=%s\\n' \\"$JAVA_HOME\\"; command -v java"}
-                """));
+        boolean windows = isWindows();
+        String command = windows
+                ? "echo JAVA_HOME=%JAVA_HOME% & where java"
+                : "printf 'JAVA_HOME=%s\\n' \"$JAVA_HOME\"; command -v java";
+        ToolResult result = tool.execute(
+                new ObjectMapper().createObjectNode().put("command", command)
+        );
 
         String javaHome = System.getProperty("java.home");
+        String executable = windows ? "java.exe" : "java";
         assertTrue(result.success());
         assertTrue(result.output().contains("JAVA_HOME=" + javaHome));
-        assertTrue(result.output().contains(Path.of(javaHome, "bin", "java").toString()));
+        assertTrue(result.output().toLowerCase().contains(
+                Path.of(javaHome, "bin", executable).toString().toLowerCase()
+        ));
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT)
+                .contains("win");
     }
 }

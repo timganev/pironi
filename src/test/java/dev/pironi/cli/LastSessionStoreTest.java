@@ -50,6 +50,9 @@ class LastSessionStoreTest {
         assertEquals(original.approvalMode(), restored.approvalMode());
         assertEquals(original.contextSize(), restored.contextSize());
         assertEquals(original.denyTools(), restored.denyTools());
+        assertEquals(original.allowTools(), restored.allowTools());
+        assertEquals(original.shellScope(), restored.shellScope());
+        assertEquals(original.searchRoots(), restored.searchRoots());
         assertTrue(restored.interactive());
         assertEquals(null, restored.task());
         assertEquals("new-secret", restored.apiKey());

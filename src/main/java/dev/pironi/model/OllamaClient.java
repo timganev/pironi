@@ -62,7 +62,12 @@ public final class OllamaClient implements ModelClient {
 
     @Override
     public ModelResponse chat(List<ChatMessage> messages) throws IOException, InterruptedException {
-        return chatStreaming(messages, ignored -> { });
+        return chatStreaming(messages, ignored -> { }, true);
+    }
+
+    @Override
+    public ModelResponse chatText(List<ChatMessage> messages) throws IOException, InterruptedException {
+        return chatStreaming(messages, ignored -> { }, false);
     }
 
     @Override
@@ -70,10 +75,18 @@ public final class OllamaClient implements ModelClient {
             List<ChatMessage> messages,
             Consumer<String> contentChunk
     ) throws IOException, InterruptedException {
+        return chatStreaming(messages, contentChunk, true);
+    }
+
+    private ModelResponse chatStreaming(
+            List<ChatMessage> messages,
+            Consumer<String> contentChunk,
+            boolean structured
+    ) throws IOException, InterruptedException {
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("model", model);
         payload.put("stream", true);
-        payload.set("format", AgentResponseSchema.schema(objectMapper));
+        if (structured) payload.set("format", AgentResponseSchema.schema(objectMapper));
         payload.put("think", false);
         payload.put("keep_alive", "10m");
         payload.putObject("options")
@@ -141,7 +154,10 @@ public final class OllamaClient implements ModelClient {
                 durationNanos,
                 evalDurationNanos,
                 finishReason,
-                "json_schema"
+                structured ? "json_schema" : "text",
+                1,
+                "",
+                ""
         );
     }
 }

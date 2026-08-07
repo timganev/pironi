@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class OpenAiCompatibleClientTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -166,7 +167,7 @@ class OpenAiCompatibleClientTest {
             );
             assertEquals("high", requestBody.get().path("reasoning_effort").asText());
             assertEquals(
-                    "json_schema",
+                    "json_object",
                     requestBody.get().path("response_format").path("type").asText()
             );
         } finally {
@@ -238,7 +239,7 @@ class OpenAiCompatibleClientTest {
             int status;
             if (format.equals("json_schema")) {
                 status = 400;
-                body = "{\"error\":\"response_format json_schema is unsupported\"}";
+                body = "{\"error\":{\"message\":\"This response_format type is unavailable now\"}}";
             } else {
                 status = 200;
                 body = "{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"content\":\"{\\\"thought\\\":\\\"\\\",\\\"toolCalls\\\":[],\\\"finalAnswer\\\":\\\"ok\\\"}\"}}]}";
@@ -265,9 +266,114 @@ class OpenAiCompatibleClientTest {
             assertEquals("ok", objectMapper.readTree(second.content()).path("finalAnswer").asText());
             assertEquals("json_object", first.responseFormat());
             assertEquals("json_object", second.responseFormat());
+            assertEquals(2, first.requestAttempts());
+            assertEquals("json_schema", first.fallbackFrom());
+            assertEquals(1, second.requestAttempts());
 
             assertEquals(3, requests.get());
             assertEquals(List.of("json_schema", "json_object", "json_object"), formats);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void reportsBothFailuresWhenJsonObjectFallbackIsRejected() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/chat/completions", exchange -> {
+            JsonNode request = objectMapper.readTree(exchange.getRequestBody());
+            String format = request.path("response_format").path("type").asText();
+            requests.incrementAndGet();
+            String body = format.equals("json_schema")
+                    ? "{\"error\":\"json_schema is not supported\"}"
+                    : "{\"error\":\"prompt must contain json\"}";
+            byte[] response = body.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(400, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+
+        try {
+            URI endpoint = URI.create(
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/chat/completions"
+            );
+            OpenAiCompatibleClient client = new OpenAiCompatibleClient(
+                    HttpClient.newHttpClient(), objectMapper, endpoint, "model", "key",
+                    Duration.ofSeconds(5), 512
+            );
+
+            java.io.IOException error = assertThrows(
+                    java.io.IOException.class,
+                    () -> client.chat(List.of(ChatMessage.user("test")))
+            );
+
+            assertEquals(2, requests.get());
+            assertTrue(error.getMessage().contains("Provider rejected json_schema"));
+            assertTrue(error.getMessage().contains("json_object fallback returned HTTP 400"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void doesNotFallbackForUnrelatedResponseFormatValidationError() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/chat/completions", exchange -> {
+            requests.incrementAndGet();
+            byte[] response = "{\"error\":\"response_format request is malformed\"}"
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(400, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+
+        try {
+            URI endpoint = URI.create(
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/chat/completions"
+            );
+            OpenAiCompatibleClient client = new OpenAiCompatibleClient(
+                    HttpClient.newHttpClient(), objectMapper, endpoint, "model", "key",
+                    Duration.ofSeconds(5), 512
+            );
+
+            java.io.IOException error = assertThrows(
+                    java.io.IOException.class,
+                    () -> client.chat(List.of(ChatMessage.user("test")))
+            );
+
+            assertEquals(1, requests.get());
+            assertTrue(error.getMessage().startsWith("Provider returned HTTP 400"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void plainTextRequestOmitsResponseFormat() throws Exception {
+        AtomicReference<JsonNode> requestBody = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/chat/completions", exchange -> {
+            requestBody.set(objectMapper.readTree(exchange.getRequestBody()));
+            byte[] response = "{\"choices\":[{\"message\":{\"content\":\"summary\"}}]}"
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            OpenAiCompatibleClient client = OpenAiCompatibleClient.deepSeek(
+                    URI.create("http://127.0.0.1:" + server.getAddress().getPort()),
+                    "deepseek", "key", Duration.ofSeconds(5), 512
+            );
+            ModelResponse response = client.chatText(List.of(ChatMessage.user("summarize")));
+            assertEquals("summary", response.content());
+            assertEquals("text", response.responseFormat());
+            assertEquals(false, requestBody.get().has("response_format"));
         } finally {
             server.stop(0);
         }

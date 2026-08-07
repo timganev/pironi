@@ -17,11 +17,18 @@ public final class RunCommandTool implements Tool {
     private final Workspace workspace;
     private final Duration defaultTimeout;
     private final int maxOutputCharacters;
+    private final ShellScope shellScope;
 
     public RunCommandTool(Workspace workspace, Duration defaultTimeout, int maxOutputCharacters) {
+        this(workspace, defaultTimeout, maxOutputCharacters, ShellScope.WORKSPACE);
+    }
+
+    public RunCommandTool(Workspace workspace, Duration defaultTimeout, int maxOutputCharacters,
+            ShellScope shellScope) {
         this.workspace = workspace;
         this.defaultTimeout = defaultTimeout;
         this.maxOutputCharacters = maxOutputCharacters;
+        this.shellScope = shellScope;
     }
 
     @Override
@@ -55,6 +62,8 @@ public final class RunCommandTool implements Tool {
     public ToolResult execute(JsonNode arguments) {
         try {
             String command = ToolArguments.requiredText(arguments, "command");
+            String rejection = CommandScopePolicy.rejection(command, shellScope);
+            if (rejection != null) return ToolResult.failure(rejection);
             int timeoutSeconds = ToolArguments.optionalPositiveInt(
                     arguments,
                     "timeoutSeconds",

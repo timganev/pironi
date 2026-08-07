@@ -7,22 +7,32 @@ public record ModelResponse(
         long durationNanos,
         long evalDurationNanos,
         String finishReason,
-        String responseFormat
+        String responseFormat,
+        int requestAttempts,
+        String fallbackFrom,
+        String fallbackReason
 ) {
     public ModelResponse(String content, long promptTokens, long outputTokens, long durationNanos) {
-        this(content, promptTokens, outputTokens, durationNanos, 0, "unknown", "unknown");
+        this(content, promptTokens, outputTokens, durationNanos, 0, "unknown", "unknown", 1, "", "");
     }
 
     public ModelResponse(String content, long promptTokens, long outputTokens,
             long durationNanos, long evalDurationNanos) {
         this(content, promptTokens, outputTokens, durationNanos, evalDurationNanos,
-                "unknown", "unknown");
+                "unknown", "unknown", 1, "", "");
     }
 
     public ModelResponse(String content, long promptTokens, long outputTokens,
             long durationNanos, long evalDurationNanos, String finishReason) {
         this(content, promptTokens, outputTokens, durationNanos, evalDurationNanos,
-                finishReason, "unknown");
+                finishReason, "unknown", 1, "", "");
+    }
+
+    public ModelResponse(String content, long promptTokens, long outputTokens,
+            long durationNanos, long evalDurationNanos, String finishReason,
+            String responseFormat) {
+        this(content, promptTokens, outputTokens, durationNanos, evalDurationNanos,
+                finishReason, responseFormat, 1, "", "");
     }
 
     public ModelResponse {
@@ -31,6 +41,9 @@ public record ModelResponse(
         }
         if (finishReason == null || finishReason.isBlank()) finishReason = "unknown";
         if (responseFormat == null || responseFormat.isBlank()) responseFormat = "unknown";
+        if (requestAttempts < 1) requestAttempts = 1;
+        if (fallbackFrom == null) fallbackFrom = "";
+        if (fallbackReason == null) fallbackReason = "";
     }
 
     public boolean truncated() {

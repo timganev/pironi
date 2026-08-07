@@ -142,10 +142,12 @@ public final class InteractiveShell {
 
     public int run(String initialTask) throws IOException, InterruptedException {
         if (initialTask != null && !initialTask.isBlank()) {
-            AgentResult result = runner.run(initialTask);
-            if (!result.streamed()) println(result.output());
-            conversationHistory.add("User: " + initialTask);
-            conversationHistory.add("Pironi: " + result.output());
+            AgentResult result = runTask(initialTask);
+            if (result != null) {
+                if (!result.streamed()) println(result.output());
+                conversationHistory.add("User: " + initialTask);
+                conversationHistory.add("Pironi: " + result.output());
+            }
         }
 
         while (true) {
@@ -174,7 +176,8 @@ public final class InteractiveShell {
             println("Conversation memory: " + exchangeCount + "/4 exchanges");
 
             String fullTask = context.isEmpty() ? line : context + "Current request:\n" + line;
-            AgentResult result = runner.run(fullTask);
+            AgentResult result = runTask(fullTask);
+            if (result == null) continue;
             if (!result.streamed()) println(result.output());
             conversationHistory.add("User: " + line);
             conversationHistory.add("Pironi: " + result.output());
@@ -185,6 +188,18 @@ public final class InteractiveShell {
             }
         }
         return 0;
+    }
+
+    private AgentResult runTask(String task) throws InterruptedException {
+        try {
+            return runner.run(task);
+        } catch (IOException | RuntimeException e) {
+            String detail = e.getMessage() == null || e.getMessage().isBlank()
+                    ? e.getClass().getSimpleName() : e.getMessage();
+            println("Request failed: " + detail);
+            println("You can retry or change the model.");
+            return null;
+        }
     }
 
     private void handleCommand(String line) throws IOException {

@@ -43,12 +43,20 @@ public final class JsonlTraceWriter implements TraceWriter {
         event.put("evalDurationNanos", response.evalDurationNanos());
         event.put("finishReason", response.finishReason());
         event.put("responseFormat", response.responseFormat());
+        event.put("requestAttempts", response.requestAttempts());
+        if (!response.fallbackFrom().isBlank()) event.put("fallbackFrom", response.fallbackFrom());
+        if (!response.fallbackReason().isBlank()) event.put("fallbackReason", response.fallbackReason());
         write(event);
     }
 
     @Override
     public synchronized void protocolError(int turn, String error) {
         write(event("protocol_error", turn).put("error", error));
+    }
+
+    @Override
+    public synchronized void modelError(int turn, String error) {
+        write(event("model_error", turn).put("error", error));
     }
 
     @Override

@@ -181,31 +181,43 @@ For Linux ARM64, replace `x64` with `aarch64` in the Adoptium API URL.
 
 ## Harness baseline: Pironi vs Hermes
 
-The following single-run baseline was measured on 2026-07-24 on the same
-machine and against the same direct provider endpoint. Both processes started
-a new one-shot session with the exact prompt `хей`, no tool calls, and no project or personal context requested.
-Wall time includes process startup, request latency, generation, parsing, and
-shutdown.
+This baseline was repeated on 2026-08-07 on the same machine, against the same
+direct DeepSeek endpoint, with `deepseek-v4-flash`. Each harness was started
+three times in a new one-shot session with the exact prompt `хей`, an empty
+workspace, and no requested project or personal context. The table reports the
+median, followed by the observed range where useful. Wall time includes process
+startup, request latency, generation, parsing, and shutdown.
 
 | Metric | Pironi | Hermes |
 | --- | ---: | ---: |
 | Harness | Pironi | Hermes |
-| Result | `Привет! Чем могу помочь?` | `Хей, Тим. Какво има?` |
-| Wall time | 4.85 s | 6.36 s |
-| Uncached input | 472 | 16,317 |
-| Cache read | not reported | 5,888 |
-| Effective prompt | 472 | 22,205 |
-| Output | 245 | 61 |
-| Total tokens | 717 | 22,266 |
+| Representative result | `Привет! Чем могу помочь?` | `Хей, Тим. На линия съм. С какво да помогна?` |
+| Wall time | 3.57 s (3.57–3.67) | 6.22 s (5.84–6.42) |
+| Peak RSS | 132 MiB (129–132) | 127 MiB (126–127) |
+| Uncached input | 1,134 | 16,335 (15,567–21,967) |
+| Cache read | not reported | 5,632 (0–6,400) |
+| Effective prompt | 1,134 | 21,967 |
+| Output | 125 (116–141) | 94 (78–98) |
+| Total tokens | 1,259 | 22,061 |
 | API calls | 1 | 1 |
 
-For this deliberately tiny request, Pironi was 1.51 seconds (about 24%)
-faster and sent about 47 times fewer effective prompt tokens. The result
-measures harness overhead, not general model quality. Hermes supplied a much
-larger built-in prompt/tool environment and produced the more appropriate
-Bulgarian response. The context-free Pironi run incorrectly interpreted
-`хей` as Russian. Output-token accounting may also include provider-side
-reasoning differently, so input-token overhead is the more useful comparison.
+For this deliberately tiny request, Pironi's median was 2.65 seconds (about
+43%) faster and its effective prompt was about 19.4 times smaller. Its total
+token count was about 94% lower. The result measures harness overhead, not
+general model quality: Hermes supplied a much larger built-in prompt/tool
+environment and consistently produced the more appropriate Bulgarian response,
+while all three Pironi runs interpreted `хей` as Russian. Output-token
+accounting may include provider-side reasoning differently, so effective input
+is the more useful token comparison.
+
+Pironi has become heavier at the prompt level since the 2026-07-24 baseline:
+its input grew from 472 to 1,134 tokens, or about 2.4 times, as capabilities and
+protocol guidance were added. That increase is real, but it did not make Pironi
+heavier than Hermes in this test. Pironi still sent about 95% fewer effective
+prompt tokens and finished sooner. Process memory tells a different story: the
+Java process used about 4% more peak RSS than Hermes at the median. Latency is
+provider-sensitive, so the small three-run sample should be treated as a local
+startup-and-request baseline, not a general performance ranking.
 
 The measured software footprints differ substantially:
 
@@ -213,8 +225,8 @@ The measured software footprints differ substantially:
 | ------------------------ | -----------------------------------------------------: | ----------------------------------------------------------------------------------: |
 | Harness                  |                                Pironi `0.1.0-SNAPSHOT` |                                                                     Hermes `0.17.0` |
 | Implementation           |                                                Java 25 |                                      Python 3.11 core with TypeScript UI components |
-| Measured local footprint |                                      3.8 MB shaded JAR |                                                                 7.4 GB installation |
-| Source-only footprint    | about 584 KB, excluding `target`, IDE data, and traces | about 137 MB, excluding `.git`, `venv`, `node_modules`, build, and generated output |
+| Measured local footprint |                         3.8 MiB shaded JAR (4.0 MB) |                                                    7.1 GiB installation (7.6 GB) |
+| Source-only footprint    | about 471 KiB, excluding `.git`, `target`, `build`, IDE data, and traces | about 122 MiB, excluding `.git`, `venv`, `node_modules`, build, and generated output |
 
 The footprint figures are not perfectly symmetrical. Pironi's JAR does not
 bundle the Java runtime, while the measured Hermes checkout contains a 5.4 GB
@@ -222,21 +234,23 @@ Python virtual environment and 1.2 GB `node_modules` directory. Hermes also
 implements gateways, messaging integrations, plugins, skills, browser and
 desktop UI features that Pironi intentionally does not provide.
 
-Commands used for the baseline:
+Commands used for each baseline run (with a fresh directory per repetition):
 
 ```bash
 # Hermes: safe mode disables custom rules, memory, plugins, and MCP servers.
 hermes --safe-mode \
-  --provider PROVIDER \
-  --model MODEL \
+  --provider deepseek \
+  --model deepseek-v4-flash \
   -z 'хей'
 
 # Pironi: empty workspace, no personal context, no TUI/status output.
 java -jar target/pironi-0.1.0-SNAPSHOT.jar \
-  --provider PROVIDER \
-  --model MODEL \
+  --provider deepseek \
+  --model deepseek-v4-flash \
   --no-interactive \
   --workspace /tmp/empty-pironi-workspace \
+  --pironi-home /tmp/empty-pironi-home \
+  --trace /tmp/empty-pironi-workspace/trace.jsonl \
   --approval read-only \
   --status never \
   --personal-context deny \
@@ -244,10 +258,11 @@ java -jar target/pironi-0.1.0-SNAPSHOT.jar \
   --task 'хей'
 ```
 
-Hermes usage came from session `20260724_115036_d0984a` in its local session
-database. Pironi usage came from the `model_response` event in
-`/tmp/pironi-benchmark-b9ArG9/trace.jsonl`. Minion was intentionally excluded
-from the final comparison at the user's request.
+Hermes usage came from sessions `20260807_140129_bf87c4`,
+`20260807_140135_9eccc7`, and `20260807_140141_10f715` in its local session
+database. Pironi usage came from the corresponding `model_response` trace
+events. `/usr/bin/time` supplied wall time and peak RSS. Minion remains excluded
+from the comparison at the user's request.
 
 ## Requirements for building from source
 
@@ -450,11 +465,16 @@ variables and never stores the key in its config or trace. Provider model
 names, behavior, and pricing can change; verify the current provider
 documentation before using the paid API.
 
-Pironi requests the same strict JSON Schema from Ollama and OpenAI-compatible
-providers. If an OpenAI-compatible endpoint explicitly rejects `json_schema`,
+Pironi requests the same strict JSON Schema from Ollama and schema-capable
+OpenAI-compatible providers. If an endpoint explicitly rejects `json_schema`,
 Pironi retries once with `json_object` and remembers that decision for the
 remaining process lifetime. DeepSeek empty-content responses are retried up to
 two additional times; completed tools are not executed again.
+
+The dedicated DeepSeek profile starts directly with `json_object`, because the
+current endpoint reports `json_schema` as unavailable. Internal summarization
+and context-compression calls use plain text and omit `response_format`
+entirely; only agent protocol turns require structured output.
 
 OpenRouter is another dedicated profile over the generic client:
 
@@ -555,12 +575,18 @@ Sending personal context to a cloud provider requires the explicit
 --personal-context auto|allow|deny
 --status auto|always|never
 --deny-tools NAME,NAME
+--allow-tools NAME,NAME
+--shell-scope workspace|user|unrestricted
+--search-roots PATH,PATH
 ```
 
 The default trace is `WORKSPACE/.pironi/trace.jsonl`. A trace can contain
 prompts, model responses, tool arguments, and tool output. Treat it as
 potentially sensitive and do not commit it.
 Unknown CLI options fail startup and close misspellings include a suggestion.
+`--allow-tools` enables exactly the named tools and cannot be combined with
+`--deny-tools`. `find_files` searches only the roots configured by
+`--search-roots`; its default root is the workspace.
 
 ## Live status
 
@@ -596,11 +622,12 @@ Status uses `stderr`; the final answer remains clean on `stdout`.
 On `/exit`, Pironi clears the reserved row and restores the normal terminal
 scroll region.
 
-Ollama responses use NDJSON streaming. In interactive mode Pironi incrementally
-extracts and prints only the JSON protocol's `finalAnswer`; `thought` and raw
-protocol JSON stay hidden. Tool turns continue to use the status line, and the
-completed answer is retained for validation, tracing and conversation memory
-without being printed a second time.
+Ollama responses use NDJSON transport streaming, but Pironi buffers the protocol
+envelope and prints `finalAnswer` only after the complete JSON has parsed and
+automatic verification has passed. This prevents a plausible answer from being
+shown before a truncated or malformed envelope is detected. `thought` and raw
+protocol JSON stay hidden, and the completed answer is retained for tracing and
+conversation memory without being printed twice.
 
 Interactive conversation colors distinguish speakers: user input is cyan and
 streamed agent answers are green. Status, memory and approval messages retain
@@ -612,7 +639,9 @@ their neutral UI colors. JLine generates the terminal-specific escape sequences.
 - `read_file`
 - `write_file`
 - `apply_patch`
+- `move_file`
 - `rollback_checkpoint`
+- `find_files`
 - `http_get`
 - `run_command`
 
@@ -635,6 +664,19 @@ Shell commands use Bash on Linux/macOS and `cmd.exe` on Windows. Wrapper-based
 verification selects `mvnw`/`gradlew` on Unix and their `.cmd`/`.bat`
 counterparts on Windows.
 
+`--shell-scope workspace` is the default and rejects explicit absolute paths,
+parent traversal, home shortcuts, directory-changing commands and `sudo`.
+This is a conservative lexical guardrail, not an operating-system sandbox;
+prefer `read_file`, `find_files`, `move_file` and the other scoped tools.
+`--shell-scope user` permits paths available to the current OS user but still
+blocks `sudo`; `unrestricted` removes the lexical checks and must be used only
+in an isolated environment.
+
+`move_file` operates only inside the workspace, refuses overwrite, creates
+checkpoints and verifies SHA-256 after the move. `find_files` does not follow
+results outside an allowed real root and bounds visited files, result count and
+content size.
+
 `http_get` retrieves bounded current information directly through Java and
 does not depend on curl or a shell. It accepts HTTPS only, does not follow
 redirects, rejects credentials and local/private/link-local destinations, and
@@ -648,6 +690,12 @@ receive a targeted repair request for a shorter complete JSON object.
 The provider response schema requires exactly `thought`, `toolCalls`, and
 `finalAnswer`, rejects unknown envelope/tool-call fields, and is shared by the
 Ollama and OpenAI-compatible clients.
+Successful trace events also include the number of provider request attempts
+and any fallback source; failed requests produce a `model_error` event.
+
+After a successful mutating file tool, Pironi owns automatic verification. The
+agent prompt tells the model not to repeat the same build through `run_command`
+unless automatic verification fails and targeted diagnostics are needed.
 
 For Ollama, Pironi currently sends `think: false`, uses the requested context
 window and caps generation with `--max-output-tokens`.

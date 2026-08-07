@@ -9,6 +9,8 @@ public interface TraceWriter extends AutoCloseable {
 
     void protocolError(int turn, String error);
 
+    default void modelError(int turn, String error) {}
+
     void toolResult(int turn, String toolName, JsonNode arguments, ToolResult result);
 
     void completed(int turn, String finalAnswer);

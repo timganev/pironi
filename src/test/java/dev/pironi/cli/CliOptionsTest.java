@@ -2,6 +2,7 @@ package dev.pironi.cli;
 
 import dev.pironi.safety.ApprovalMode;
 import dev.pironi.status.StatusMode;
+import dev.pironi.tool.ShellScope;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -9,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -132,6 +134,32 @@ class CliOptionsTest {
         );
 
         assertEquals(Set.of(), options.denyTools());
+        assertEquals(Set.of(), options.allowTools());
+        assertEquals(ShellScope.WORKSPACE, options.shellScope());
+        assertEquals(List.of(options.workspace()), options.searchRoots());
+    }
+
+    @Test
+    void parsesAllowToolsShellScopeAndSearchRoots() {
+        CliOptions options = CliOptions.parse(new String[]{
+                "--model", "qwen3.6:35b-a3b",
+                "--allow-tools", "read_file,find_files",
+                "--shell-scope", "user",
+                "--search-roots", temporaryDirectory + "," + temporaryDirectory.resolve("docs")
+        }, Map.of());
+
+        assertEquals(Set.of("read_file", "find_files"), options.allowTools());
+        assertEquals(ShellScope.USER, options.shellScope());
+        assertEquals(2, options.searchRoots().size());
+    }
+
+    @Test
+    void allowAndDenyToolsConflict() {
+        assertThrows(IllegalArgumentException.class, () -> CliOptions.parse(new String[]{
+                "--model", "qwen3.6:35b-a3b",
+                "--allow-tools", "read_file",
+                "--deny-tools", "run_command"
+        }, Map.of()));
     }
 
     @Test

@@ -278,4 +278,28 @@ class InteractiveShellTest {
         assertTrue(output.contains("Current approval: auto"));
     }
 
+    @Test
+    void providerFailureDoesNotCloseInteractiveShell() throws Exception {
+        BufferedReader input = new BufferedReader(new StringReader("first\nsecond\n/exit\n"));
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        AtomicInteger calls = new AtomicInteger();
+        InteractiveShell shell = new InteractiveShell(
+                input,
+                new PrintStream(bytes, true, StandardCharsets.UTF_8),
+                task -> {
+                    if (calls.getAndIncrement() == 0) throw new java.io.IOException("HTTP 400");
+                    return new AgentResult(true, "recovered", 1);
+                }
+        );
+
+        assertEquals(0, shell.run(null));
+
+        String output = bytes.toString(StandardCharsets.UTF_8);
+        assertEquals(2, calls.get());
+        assertTrue(output.contains("Request failed: HTTP 400"));
+        assertTrue(output.contains("You can retry or change the model."));
+        assertTrue(output.contains("recovered"));
+        assertTrue(output.contains("Session closed."));
+    }
+
 }

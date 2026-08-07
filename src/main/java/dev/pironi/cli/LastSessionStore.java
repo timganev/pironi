@@ -28,7 +28,10 @@ final class LastSessionStore {
             "personal-context",
             "status",
             "verify-command",
-            "deny-tools"
+            "deny-tools",
+            "allow-tools",
+            "shell-scope",
+            "search-roots"
     );
 
     private final Path path;
@@ -81,6 +84,19 @@ final class LastSessionStore {
                     options.denyTools().stream().sorted().collect(java.util.stream.Collectors.joining(","))
             );
         }
+        if (!options.allowTools().isEmpty()) {
+            properties.setProperty(
+                    "allow-tools",
+                    options.allowTools().stream().sorted()
+                            .collect(java.util.stream.Collectors.joining(","))
+            );
+        }
+        properties.setProperty("shell-scope", cliName(options.shellScope()));
+        properties.setProperty(
+                "search-roots",
+                options.searchRoots().stream().map(Path::toString)
+                        .collect(java.util.stream.Collectors.joining(","))
+        );
 
         Files.createDirectories(path.getParent());
         Path temporary = Files.createTempFile(path.getParent(), ".last-session-", ".tmp");

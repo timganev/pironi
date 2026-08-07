@@ -23,7 +23,7 @@ public final class OpenAiCompatibleClient implements ModelClient {
     private final Duration timeout;
     private final int maxOutputTokens;
     private final boolean deepSeekThinking;
-    private volatile boolean jsonSchemaSupported = true;
+    private volatile boolean jsonSchemaSupported;
 
     public OpenAiCompatibleClient(
             URI baseUri,
@@ -107,24 +107,49 @@ public final class OpenAiCompatibleClient implements ModelClient {
         this.timeout = timeout;
         this.maxOutputTokens = maxOutputTokens;
         this.deepSeekThinking = deepSeekThinking;
+        this.jsonSchemaSupported = !deepSeekThinking;
     }
 
     @Override
     public ModelResponse chat(List<ChatMessage> messages) throws IOException, InterruptedException {
+        return chat(messages, true);
+    }
+
+    @Override
+    public ModelResponse chatText(List<ChatMessage> messages) throws IOException, InterruptedException {
+        return chat(messages, false);
+    }
+
+    private ModelResponse chat(List<ChatMessage> messages, boolean structured)
+            throws IOException, InterruptedException {
         int maxAttempts = deepSeekThinking ? 3 : 1;
+        int requestAttempts = 0;
+        String fallbackFrom = "";
         long totalDurationNanos = 0;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-            TimedResponse timed = send(messages, jsonSchemaSupported);
+            String schemaFailure = null;
+            TimedResponse timed = send(messages, structured, jsonSchemaSupported);
+            requestAttempts++;
             totalDurationNanos += timed.durationNanos();
             HttpResponse<String> response = timed.response();
-            if (schemaUnsupported(response)) {
+            if (structured && jsonSchemaSupported && schemaUnsupported(response)) {
+                schemaFailure = "HTTP " + response.statusCode() + ": " + safeError(response.body());
+                fallbackFrom = "json_schema";
                 jsonSchemaSupported = false;
-                timed = send(messages, false);
+                timed = send(messages, true, false);
+                requestAttempts++;
                 totalDurationNanos += timed.durationNanos();
                 response = timed.response();
             }
 
             if (response.statusCode() / 100 != 2) {
+                if (schemaFailure != null) {
+                    throw new IOException(
+                            "Provider rejected json_schema (" + schemaFailure
+                                    + "); json_object fallback returned HTTP "
+                                    + response.statusCode() + ": " + safeError(response.body())
+                    );
+                }
                 throw new IOException(
                         "Provider returned HTTP " + response.statusCode() + ": "
                                 + safeError(response.body())
@@ -155,22 +180,25 @@ public final class OpenAiCompatibleClient implements ModelClient {
                     totalDurationNanos,
                     0,
                     finishReason,
-                    jsonSchemaSupported ? "json_schema" : "json_object"
+                    structured ? (jsonSchemaSupported ? "json_schema" : "json_object") : "text",
+                    requestAttempts,
+                    fallbackFrom,
+                    schemaFailure == null ? "" : schemaFailure
             );
         }
         throw new IOException("Provider response retry loop ended unexpectedly");
     }
 
-    private TimedResponse send(List<ChatMessage> messages, boolean jsonSchema)
+    private TimedResponse send(List<ChatMessage> messages, boolean structured, boolean jsonSchema)
             throws IOException, InterruptedException {
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("model", model);
         payload.put("stream", false);
         payload.put("temperature", 0);
         payload.put("max_tokens", maxOutputTokens);
-        if (jsonSchema) {
+        if (structured && jsonSchema) {
             payload.set("response_format", AgentResponseSchema.openAiResponseFormat(objectMapper));
-        } else {
+        } else if (structured) {
             payload.putObject("response_format").put("type", "json_object");
         }
         if (deepSeekThinking) {
@@ -207,8 +235,19 @@ public final class OpenAiCompatibleClient implements ModelClient {
     private static boolean schemaUnsupported(HttpResponse<String> response) {
         if (response.statusCode() != 400 && response.statusCode() != 422) return false;
         String body = response.body() == null ? "" : response.body().toLowerCase(Locale.ROOT);
-        return body.contains("json_schema") || body.contains("response_format")
+        boolean namesSchema = body.contains("json_schema")
+                || (body.contains("response_format") && body.contains("schema"))
+                || (body.contains("response_format") && body.contains("type"))
                 || body.contains("structured output");
+        boolean saysUnsupported = body.contains("unsupported")
+                || body.contains("not supported")
+                || body.contains("does not support")
+                || body.contains("unknown type")
+                || body.contains("invalid")
+                || body.contains("unavailable")
+                || body.contains("must be one of")
+                || body.contains("not allowed");
+        return namesSchema && saysUnsupported;
     }
 
     private static String responseContent(JsonNode content) throws IOException {

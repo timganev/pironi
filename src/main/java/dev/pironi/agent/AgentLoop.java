@@ -107,7 +107,10 @@ public final class AgentLoop {
     }
 
     public AgentResult run(String task) throws IOException, InterruptedException {
-        List<ChatMessage> messages = new ArrayList<>(memory.begin(task));
+        List<ChatMessage> messages = new ArrayList<>();
+        int activeTurn = 0;
+        try {
+        messages.addAll(memory.begin(task));
         if (messages.isEmpty()) {
             messages.add(ChatMessage.system(buildSystemPrompt()));
         } else if (messages.getFirst().role().equals("system")) {
@@ -121,33 +124,12 @@ public final class AgentLoop {
         int protocolErrors = 0;
         int unknownToolErrors = 0;
         for (int turn = 1; turn <= maxTurns; turn++) {
+            activeTurn = turn;
             compressIfNeeded(messages, task);
             truncateHistory(messages);
             ModelResponse response;
-            FinalAnswerStreamer answerStreamer = liveOutput == null
-                    ? null
-                    : new FinalAnswerStreamer(new Consumer<>() {
-                        private boolean started;
-
-                        @Override
-                        public void accept(String chunk) {
-                            if (!started) {
-                                statusReporter.outputStarted();
-                                started = true;
-                            }
-                            liveOutput.accept(chunk);
-                        }
-                    });
             try (var ignored = statusReporter.thinking(turn, List.copyOf(messages))) {
-                response = answerStreamer == null
-                        ? modelClient.chat(List.copyOf(messages))
-                        : modelClient.chatStreaming(List.copyOf(messages), answerStreamer::accept);
-            }
-            boolean streamedThisTurn = answerStreamer != null && answerStreamer.emitted();
-            if (streamedThisTurn) {
-                liveOutput.accept(System.lineSeparator());
-                statusReporter.outputFinished();
-                statusReporter.idle();
+                response = modelClient.chat(List.copyOf(messages));
             }
             statusReporter.modelResponse(response);
             memory.addTokens(response);
@@ -210,6 +192,7 @@ public final class AgentLoop {
                 memory.completed(task, decision.finalAnswer());
                 memory.checkpoint(messages, task);
                 memory.finished(true);
+                boolean streamedThisTurn = emitValidatedAnswer(decision.finalAnswer());
                 statusReporter.idle();
                 return new AgentResult(true, decision.finalAnswer(), turn, streamedThisTurn);
             }
@@ -221,6 +204,42 @@ public final class AgentLoop {
         memory.checkpoint(messages, task);
         memory.finished(false);
         return new AgentResult(false, "Maximum turns exceeded without finalAnswer", maxTurns);
+        } catch (IOException | InterruptedException | RuntimeException e) {
+            statusReporter.idle();
+            traceWriter.modelError(activeTurn,
+                    e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+            recordExceptionalFailure(messages, task, e);
+            throw e;
+        }
+    }
+
+    private void recordExceptionalFailure(
+            List<ChatMessage> messages,
+            String task,
+            Throwable primaryFailure
+    ) {
+        try {
+            memory.checkpoint(messages, task);
+        } catch (RuntimeException checkpointFailure) {
+            primaryFailure.addSuppressed(checkpointFailure);
+        }
+        try {
+            memory.finished(false);
+        } catch (RuntimeException statusFailure) {
+            primaryFailure.addSuppressed(statusFailure);
+        }
+    }
+
+    private boolean emitValidatedAnswer(String answer) {
+        if (liveOutput == null) return false;
+        statusReporter.outputStarted();
+        try {
+            liveOutput.accept(answer);
+            liveOutput.accept(System.lineSeparator());
+        } finally {
+            statusReporter.outputFinished();
+        }
+        return true;
     }
 
     private ToolExecutionResult executeTools(int turn, List<ToolCall> toolCalls) {
@@ -327,7 +346,7 @@ public final class AgentLoop {
                 Available tools:
                 %s
 
-                Respond with exactly one JSON object and no markdown fences:
+                Respond with exactly one valid json object and no markdown fences:
                 {
                   "thought": "brief next-step summary",
                   "toolCalls": [
@@ -339,6 +358,9 @@ public final class AgentLoop {
                 To finish, return an empty toolCalls array and a non-empty finalAnswer.
                 Tool arguments must match the documented schema exactly.
                 Modify source files only with apply_patch, never with run_command.
+                After a successful mutating file tool, Pironi automatically runs the configured
+                verification before accepting finalAnswer. Do not duplicate that verification with
+                run_command unless automatic verification fails and you need targeted diagnostics.
                 A failed tool result is feedback: correct the call instead of stopping.
                 """.formatted(schemas);
 
@@ -361,7 +383,7 @@ public final class AgentLoop {
         if (!memory.shouldCompress()) return;
         String prompt = memory.compressionPrompt(messages, task);
         if (prompt == null) return;
-        ModelResponse summary = modelClient.chat(List.of(
+        ModelResponse summary = modelClient.chatText(List.of(
                 ChatMessage.system("Summarize conversation state faithfully and concisely."),
                 ChatMessage.user(prompt)
         ));
@@ -406,7 +428,7 @@ public final class AgentLoop {
                 %s
 
                 %s
-                Return only a valid JSON object with thought, toolCalls, and finalAnswer.
+                Return only a valid json object with thought, toolCalls, and finalAnswer.
                 Do not use markdown fences or native provider tool calls.
                 """.formatted(error.getMessage(), guidance);
     }

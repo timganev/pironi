@@ -14,6 +14,8 @@ import dev.pironi.safety.Workspace;
 import dev.pironi.tool.ApplyPatchTool;
 import dev.pironi.tool.ListFilesTool;
 import dev.pironi.tool.HttpGetTool;
+import dev.pironi.tool.FindFilesTool;
+import dev.pironi.tool.MoveFileTool;
 import dev.pironi.tool.ReadFileTool;
 import dev.pironi.tool.RunCommandTool;
 import dev.pironi.tool.RollbackCheckpointTool;
@@ -125,11 +127,17 @@ public final class PironiMain {
                 new ReadFileTool(workspace, 32_000),
                 new WriteFileTool(workspace),
                 new ApplyPatchTool(workspace, checkpoints),
+                new MoveFileTool(workspace, checkpoints),
                 new RollbackCheckpointTool(checkpoints),
+                new FindFilesTool(options.searchRoots()),
                 new HttpGetTool(),
-                new RunCommandTool(workspace, Duration.ofSeconds(90), 32_000)
+                new RunCommandTool(
+                        workspace, Duration.ofSeconds(90), 32_000, options.shellScope()
+                )
         );
-        ToolRegistry tools = configuredTools(availableTools, options.denyTools());
+        ToolRegistry tools = configuredTools(
+                availableTools, options.denyTools(), options.allowTools()
+        );
 
         boolean statusEnabled = options.statusMode() == StatusMode.ALWAYS
                 || (options.statusMode() == StatusMode.AUTO && System.console() != null);
@@ -451,10 +459,19 @@ public final class PironiMain {
     }
 
     static ToolRegistry configuredTools(List<Tool> availableTools, Set<String> deniedTools) {
+        return configuredTools(availableTools, deniedTools, Set.of());
+    }
+
+    static ToolRegistry configuredTools(
+            List<Tool> availableTools,
+            Set<String> deniedTools,
+            Set<String> allowedTools
+    ) {
         Set<String> knownNames = availableTools.stream()
                 .map(Tool::name)
                 .collect(Collectors.toUnmodifiableSet());
-        List<String> unknownNames = deniedTools.stream()
+        Set<String> configuredNames = allowedTools.isEmpty() ? deniedTools : allowedTools;
+        List<String> unknownNames = configuredNames.stream()
                 .filter(name -> !knownNames.contains(name))
                 .sorted()
                 .toList();
@@ -463,13 +480,16 @@ public final class PironiMain {
                     .sorted(Comparator.naturalOrder())
                     .collect(Collectors.joining(","));
             throw new IllegalArgumentException(
-                    "Unknown tool name(s) in --deny-tools: "
+                    "Unknown tool name(s) in "
+                            + (allowedTools.isEmpty() ? "--deny-tools: " : "--allow-tools: ")
                             + String.join(",", unknownNames)
                             + ". Known tools: " + known
             );
         }
         return new ToolRegistry(availableTools.stream()
-                .filter(tool -> !deniedTools.contains(tool.name()))
+                .filter(tool -> allowedTools.isEmpty()
+                        ? !deniedTools.contains(tool.name())
+                        : allowedTools.contains(tool.name()))
                 .toList());
     }
 
@@ -485,6 +505,8 @@ public final class PironiMain {
                 context: %d
                 status: %s
                 interactive: %s
+                shell-scope: %s
+                search-roots: %s
                 """.formatted(
                 options.provider().name().toLowerCase().replace('_', '-'),
                 options.model(),
@@ -492,7 +514,9 @@ public final class PironiMain {
                 options.approvalMode().name().toLowerCase().replace('_', '-'),
                 options.contextSize(),
                 options.statusMode().name().toLowerCase(),
-                options.interactive()
+                options.interactive(),
+                options.shellScope().name().toLowerCase(),
+                options.searchRoots()
         );
     }
 
@@ -526,6 +550,9 @@ public final class PironiMain {
                   --status auto|always|never                    default: always
                   --verify-command COMMAND                     auto-detect Maven/Gradle
                   --deny-tools NAME,NAME                        remove named tools; unknown names fail startup
+                  --allow-tools NAME,NAME                       enable only named tools; conflicts with --deny-tools
+                  --shell-scope workspace|user|unrestricted    default: workspace lexical guardrail
+                  --search-roots PATH,PATH                      allowed roots for find_files; default: workspace
 
                 Examples:
                   java -jar pironi.jar

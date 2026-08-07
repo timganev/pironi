@@ -20,6 +20,12 @@ public final class SwitchableModelClient implements ModelClient {
     }
 
     @Override
+    public ModelResponse chatText(List<ChatMessage> messages)
+            throws IOException, InterruptedException {
+        return delegate.chatText(messages);
+    }
+
+    @Override
     public ModelResponse chatStreaming(List<ChatMessage> messages, Consumer<String> contentChunk)
             throws IOException, InterruptedException {
         return delegate.chatStreaming(messages, contentChunk);

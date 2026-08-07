@@ -4,6 +4,7 @@ import dev.pironi.agent.PersonalContextMode;
 import dev.pironi.model.ProviderType;
 import dev.pironi.safety.ApprovalMode;
 import dev.pironi.status.StatusMode;
+import dev.pironi.tool.ShellScope;
 
 import java.net.URI;
 import java.nio.file.Path;
@@ -12,6 +13,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.List;
 
 record CliOptions(
         ProviderType provider,
@@ -32,6 +34,9 @@ record CliOptions(
         StatusMode statusMode,
         String verifyCommand,
         Set<String> denyTools,
+        Set<String> allowTools,
+        ShellScope shellScope,
+        List<Path> searchRoots,
         boolean interactive,
         boolean noTui
 ) {
@@ -43,7 +48,7 @@ record CliOptions(
             "provider", "base-url", "api-key-env", "model", "workspace", "task",
             "approval", "activity", "max-turns", "context", "max-output-tokens",
             "timeout-seconds", "trace", "pironi-home", "personal-context", "status",
-            "verify-command", "deny-tools"
+            "verify-command", "deny-tools", "allow-tools", "shell-scope", "search-roots"
     );
     private static final Set<String> KNOWN_OPTIONS = java.util.stream.Stream.concat(
             BOOLEAN_FLAGS.stream(), VALUE_OPTIONS.stream()
@@ -69,6 +74,9 @@ record CliOptions(
                 statusMode,
                 verifyCommand,
                 denyTools,
+                allowTools,
+                shellScope,
+                searchRoots,
                 interactive,
                 false
         );
@@ -101,6 +109,9 @@ record CliOptions(
                 statusMode,
                 verifyCommand,
                 denyTools,
+                allowTools,
+                shellScope,
+                searchRoots,
                 interactive,
                 false
         );
@@ -126,6 +137,9 @@ record CliOptions(
                 statusMode,
                 verifyCommand,
                 denyTools,
+                allowTools,
+                shellScope,
+                searchRoots,
                 interactive,
                 false
         );
@@ -211,6 +225,13 @@ record CliOptions(
             approvalMode = ApprovalMode.AUTO;
         }
 
+        Set<String> denied = parseToolSet(values.get("deny-tools"));
+        Set<String> allowed = parseToolSet(values.get("allow-tools"));
+        if (!denied.isEmpty() && !allowed.isEmpty()) {
+            throw new IllegalArgumentException("--allow-tools and --deny-tools cannot be used together");
+        }
+        List<Path> searchRoots = parseSearchRoots(values.get("search-roots"), workspace);
+
         return new CliOptions(
                 provider,
                 baseUri,
@@ -233,13 +254,16 @@ record CliOptions(
                 PersonalContextMode.parse(values.getOrDefault("personal-context", "auto")),
                 StatusMode.parse(values.getOrDefault("status", "always")),
                 values.get("verify-command"),
-                parseDenyTools(values.get("deny-tools")),
+                denied,
+                allowed,
+                ShellScope.parse(values.getOrDefault("shell-scope", "workspace")),
+                searchRoots,
                 interactive,
                 false
         );
     }
 
-    private static Set<String> parseDenyTools(String raw) {
+    private static Set<String> parseToolSet(String raw) {
         if (raw == null || raw.isBlank()) {
             return Set.of();
         }
@@ -251,6 +275,17 @@ record CliOptions(
             }
         }
         return Set.copyOf(names);
+    }
+
+    private static List<Path> parseSearchRoots(String raw, Path workspace) {
+        if (raw == null || raw.isBlank()) return List.of(workspace);
+        return java.util.Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .map(Path::of)
+                .map(path -> path.toAbsolutePath().normalize())
+                .distinct()
+                .toList();
     }
 
     private static Map<String, String> parsePairs(String[] args) {

@@ -42,6 +42,18 @@ class PironiMainTest {
     }
 
     @Test
+    void allowedToolsFormAnExactRegistry() {
+        var registry = PironiMain.configuredTools(
+                List.of(tool("read_file"), tool("find_files"), tool("run_command")),
+                Set.of(),
+                Set.of("read_file", "find_files")
+        );
+
+        assertEquals(Set.of("read_file", "find_files"), registry.all().stream()
+                .map(Tool::name).collect(java.util.stream.Collectors.toSet()));
+    }
+
+    @Test
     void directDeepSeekModelSwitchAlsoSwitchesProvider() {
         CliOptions previous = CliOptions.parse(new String[0], Map.of());
 

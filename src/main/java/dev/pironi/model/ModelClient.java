@@ -8,6 +8,11 @@ import java.util.function.Consumer;
 public interface ModelClient {
     ModelResponse chat(List<ChatMessage> messages) throws IOException, InterruptedException;
 
+    default ModelResponse chatText(List<ChatMessage> messages)
+            throws IOException, InterruptedException {
+        return chat(messages);
+    }
+
     default ModelResponse chatStreaming(
             List<ChatMessage> messages,
             Consumer<String> contentChunk
