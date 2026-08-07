@@ -240,7 +240,13 @@ public final class InteractiveShell {
                 else println("Sessions not available.");
             }
             case "/resume" -> {
-                if (shellCommands != null) println(shellCommands.resumeSession(arg));
+                if (shellCommands != null) {
+                    String result = shellCommands.resumeSession(arg);
+                    if (result.startsWith("Session scheduled for resume:")) {
+                        conversationHistory.clear();
+                    }
+                    println(result);
+                }
                 else println("Sessions not available.");
             }
             case "/delete-session" -> {

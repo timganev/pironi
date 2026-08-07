@@ -273,6 +273,18 @@ OpenRouter is a cloud provider, so `--personal-context auto` does not send
 - `--approval ask` prompts before each mutating tool call.
 - `--approval auto` permits mutating tool calls without prompting.
 - `--approval read-only` denies mutating tool calls.
+- `--activity auto` is a convenience override for `--approval auto`, including
+  when `--approval ask` also appears in the command.
+
+Interactive sessions are persisted under `~/.pironi/sessions`. `/sessions`
+lists them, `/resume [ID]` schedules a saved checkpoint for the next request,
+and `/compress now` schedules semantic compression for the next request.
+Model-reported prompt and output token counts drive the compression threshold.
+
+Skills live under `~/.pironi/skills/NAME/SKILL.md`. `/skill NAME` activates a
+skill for subsequent agent prompts, `/skill off` clears it, and
+`/save-skill NAME` saves the last successfully completed turn as a reusable
+skill.
 
 `run_command` is considered mutating because arbitrary shell commands can
 change files or external state. Prefer `ask` or `read-only` when evaluating a

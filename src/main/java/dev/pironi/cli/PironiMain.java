@@ -26,6 +26,7 @@ import dev.pironi.status.TerminalStatusReporter;
 import dev.pironi.verification.ProjectVerificationGate;
 import dev.pironi.session.SessionStore;
 import dev.pironi.session.SkillStore;
+import dev.pironi.session.PersistentAgentMemory;
 import dev.pironi.session.ContextCompressor;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
@@ -95,6 +96,10 @@ public final class PironiMain {
         SessionStore sessions = new SessionStore(options.pironiHome(), objectMapper);
         ContextCompressor compressor = new ContextCompressor(options.contextSize(), objectMapper);
         SkillStore skills = new SkillStore(options.pironiHome());
+        PersistentAgentMemory memory = new PersistentAgentMemory(
+                sessions, compressor, skills, objectMapper, options.model(),
+                options.workspace(), options.contextSize(), options.maxTurns()
+        );
         ProviderConfig provider = new ProviderConfig(
                 options.provider(),
                 options.baseUri(),
@@ -206,7 +211,8 @@ public final class PironiMain {
                     ),
                     options.maxTurns(),
                     4,
-                    liveOutput
+                    liveOutput,
+                    memory
             );
 
             if (interactive) {
@@ -346,7 +352,9 @@ public final class PironiMain {
                                 return modelCatalog.models(catalogOptions);
                             }
                         };
-                InteractiveShell.ShellCommands shellC = new DefaultShellCommands(sessions, compressor, skills);
+                InteractiveShell.ShellCommands shellC = new DefaultShellCommands(
+                        sessions, compressor, skills, memory
+                );
                 InteractiveShell shell = new InteractiveShell(
                         terminal,
                         System.out,
@@ -496,6 +504,8 @@ public final class PironiMain {
                 Agent:
                   --workspace PATH                              default: /home/tim/repos/pironi
                   --approval ask|auto|read-only                 default: read-only
+                  --activity auto                              allow tool activity without prompts;
+                                                               overrides --approval
                   --interactive                                default
                   --no-interactive                             one-shot; requires --task
                   --task TEXT                                  optional initial interactive task

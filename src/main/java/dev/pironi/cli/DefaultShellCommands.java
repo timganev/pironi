@@ -3,6 +3,7 @@ package dev.pironi.cli;
 import dev.pironi.session.ContextCompressor;
 import dev.pironi.session.SessionStore;
 import dev.pironi.session.SkillStore;
+import dev.pironi.session.PersistentAgentMemory;
 
 import java.io.IOException;
 
@@ -13,11 +14,14 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
     private final SessionStore sessions;
     private final ContextCompressor compressor;
     private final SkillStore skills;
+    private final PersistentAgentMemory memory;
 
-    DefaultShellCommands(SessionStore sessions, ContextCompressor compressor, SkillStore skills) {
+    DefaultShellCommands(SessionStore sessions, ContextCompressor compressor, SkillStore skills,
+            PersistentAgentMemory memory) {
         this.sessions = sessions;
         this.compressor = compressor;
         this.skills = skills;
+        this.memory = memory;
     }
 
     @Override public String listSessions() {
@@ -42,10 +46,7 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
     }
 
     @Override public String resumeSession(String id) {
-        var msgs = sessions.loadCheckpoint(id.isEmpty() ? null : id);
-        return msgs.isPresent()
-                ? "Checkpoint loaded: " + msgs.get().length() + " chars"
-                : "No checkpoint found";
+        return memory.resume(id);
     }
 
     @Override public String deleteSession(String id) {
@@ -74,7 +75,10 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
         switch (arg) {
             case "off" -> compressor.setEnabled(false);
             case "on" -> compressor.setEnabled(true);
-            case "now" -> message = "Summary:\n" + compressor.lastSummary();
+            case "now" -> {
+                memory.requestCompression();
+                message = "Compression scheduled for the next agent request.";
+            }
             default -> {
                 try { compressor.setThreshold(Double.parseDouble(arg)); }
                 catch (NumberFormatException e) {
@@ -104,14 +108,11 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
     }
 
     @Override public String loadSkill(String name) {
-        var content = skills.load(name);
-        return content.isPresent()
-                ? "Skill loaded: " + name + " (" + content.get().length() + " chars)"
-                : "Skill not found: " + name;
+        return memory.activateSkill(name);
     }
 
     @Override public String saveSkill(String title) {
-        return "Auto-save from last turn. Not yet implemented.";
+        return memory.saveLastTurnAsSkill(title);
     }
 
     @Override public String forgetSkill(String name) {

@@ -35,6 +35,7 @@ public final class AgentLoop {
     private final int maxTurns;
     private final int maxProtocolErrors;
     private final Consumer<String> liveOutput;
+    private final AgentMemory memory;
 
     public AgentLoop(
             ModelClient modelClient,
@@ -51,7 +52,7 @@ public final class AgentLoop {
     ) {
         this(modelClient, decisionParser, objectMapper, toolRegistry, approvalPolicy,
                 traceWriter, agentContext, statusReporter, verificationGate, maxTurns,
-                maxProtocolErrors, null);
+                maxProtocolErrors, null, AgentMemory.none());
     }
 
     public AgentLoop(
@@ -68,6 +69,26 @@ public final class AgentLoop {
             int maxProtocolErrors,
             Consumer<String> liveOutput
     ) {
+        this(modelClient, decisionParser, objectMapper, toolRegistry, approvalPolicy,
+                traceWriter, agentContext, statusReporter, verificationGate, maxTurns,
+                maxProtocolErrors, liveOutput, AgentMemory.none());
+    }
+
+    public AgentLoop(
+            ModelClient modelClient,
+            DecisionParser decisionParser,
+            ObjectMapper objectMapper,
+            ToolRegistry toolRegistry,
+            ApprovalPolicy approvalPolicy,
+            TraceWriter traceWriter,
+            AgentContext agentContext,
+            StatusReporter statusReporter,
+            VerificationGate verificationGate,
+            int maxTurns,
+            int maxProtocolErrors,
+            Consumer<String> liveOutput,
+            AgentMemory memory
+    ) {
         this.modelClient = modelClient;
         this.decisionParser = decisionParser;
         this.objectMapper = objectMapper;
@@ -80,16 +101,25 @@ public final class AgentLoop {
         this.maxTurns = maxTurns;
         this.maxProtocolErrors = maxProtocolErrors;
         this.liveOutput = liveOutput;
+        this.memory = memory == null ? AgentMemory.none() : memory;
     }
 
     public AgentResult run(String task) throws IOException, InterruptedException {
-        List<ChatMessage> messages = new ArrayList<>();
-        messages.add(ChatMessage.system(buildSystemPrompt()));
+        List<ChatMessage> messages = new ArrayList<>(memory.begin(task));
+        if (messages.isEmpty()) {
+            messages.add(ChatMessage.system(buildSystemPrompt()));
+        } else if (messages.getFirst().role().equals("system")) {
+            messages.set(0, ChatMessage.system(buildSystemPrompt()));
+        } else {
+            messages.addFirst(ChatMessage.system(buildSystemPrompt()));
+        }
         messages.add(ChatMessage.user(task));
+        memory.record(ChatMessage.user(task), 0, 0);
 
         int protocolErrors = 0;
         int unknownToolErrors = 0;
         for (int turn = 1; turn <= maxTurns; turn++) {
+            compressIfNeeded(messages, task);
             truncateHistory(messages);
             ModelResponse response;
             FinalAnswerStreamer answerStreamer = liveOutput == null
@@ -118,8 +148,11 @@ public final class AgentLoop {
                 statusReporter.idle();
             }
             statusReporter.modelResponse(response);
+            memory.addTokens(response);
             traceWriter.modelResponse(turn, response);
             messages.add(ChatMessage.assistant(response.content()));
+            memory.record(ChatMessage.assistant(response.content()),
+                    response.promptTokens(), response.outputTokens());
 
             AgentDecision decision;
             try {
@@ -130,6 +163,8 @@ public final class AgentLoop {
                 traceWriter.protocolError(turn, e.getMessage());
                 if (protocolErrors > maxProtocolErrors) {
                     statusReporter.idle();
+                    memory.checkpoint(messages, task);
+                    memory.finished(false);
                     return new AgentResult(false, "Protocol error limit exceeded: " + e.getMessage(), turn);
                 }
                 messages.add(ChatMessage.user(protocolRepairMessage(e)));
@@ -143,6 +178,8 @@ public final class AgentLoop {
                     unknownToolErrors++;
                     if (unknownToolErrors > maxProtocolErrors) {
                         statusReporter.idle();
+                        memory.checkpoint(messages, task);
+                        memory.finished(false);
                         return new AgentResult(
                                 false,
                                 "Unknown tool limit exceeded after " + unknownToolErrors + " attempts",
@@ -162,6 +199,9 @@ public final class AgentLoop {
                     continue;
                 }
                 traceWriter.completed(turn, decision.finalAnswer());
+                memory.completed(task, decision.finalAnswer());
+                memory.checkpoint(messages, task);
+                memory.finished(true);
                 statusReporter.idle();
                 return new AgentResult(true, decision.finalAnswer(), turn, streamedThisTurn);
             }
@@ -170,6 +210,8 @@ public final class AgentLoop {
         }
 
         statusReporter.idle();
+        memory.checkpoint(messages, task);
+        memory.finished(false);
         return new AgentResult(false, "Maximum turns exceeded without finalAnswer", maxTurns);
     }
 
@@ -204,6 +246,7 @@ public final class AgentLoop {
             }
 
             traceWriter.toolResult(turn, call.name(), call.arguments(), result);
+            memory.recordTool(call.name(), call.arguments(), result.output());
             if (tool != null && tool.requiresVerification() && result.success()) {
                 verificationGate.markChanged();
             }
@@ -297,7 +340,28 @@ public final class AgentLoop {
         appendContext(prompt, "Identity from SOUL.md", agentContext.soul());
         appendContext(prompt, "User profile from USER.md", agentContext.userProfile());
         appendContext(prompt, "Project instructions from CLAUDE.md", agentContext.projectInstructions());
+        appendContext(prompt, "Session skills", memory.promptContext());
         return prompt.toString();
+    }
+
+    private void compressIfNeeded(List<ChatMessage> messages, String task)
+            throws IOException, InterruptedException {
+        if (!memory.shouldCompress()) return;
+        String prompt = memory.compressionPrompt(messages, task);
+        if (prompt == null) return;
+        ModelResponse summary = modelClient.chat(List.of(
+                ChatMessage.system("Summarize conversation state faithfully and concisely."),
+                ChatMessage.user(prompt)
+        ));
+        String compressed = memory.storeSummary(summary.content());
+        List<ChatMessage> tail = new ArrayList<>(messages.subList(
+                Math.max(1, messages.size() - 4), messages.size()
+        ));
+        messages.clear();
+        messages.add(ChatMessage.system(buildSystemPrompt()));
+        messages.add(ChatMessage.user(compressed));
+        messages.addAll(tail);
+        memory.checkpoint(messages, task);
     }
 
     private static void appendContext(StringBuilder prompt, String heading, String content) {

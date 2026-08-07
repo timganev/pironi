@@ -104,6 +104,36 @@ public final class TestKeysRunner {
                         List.of("Session closed."),
                         List.of("Unknown command:", "OK/exit"),
                         List.of("abd")
+                ),
+                new Scenario(
+                        "completion cancellation preserves conversation history",
+                        List.of(
+                                keys("first\\r"),
+                                keys("/"),
+                                waitFor(300),
+                                keys("\\e"),
+                                keys("\\x15"),
+                                keys("second\\r"),
+                                keys("/exit\\r")
+                        ),
+                        List.of("Conversation memory: 1/4 exchanges", "Session closed."),
+                        List.of("Unknown command:", "OK/exit", "OK/sessions"),
+                        List.of(
+                                "first",
+                                "User: first\nPironi: OK\nCurrent request:\nsecond"
+                        )
+                ),
+                new Scenario(
+                        "resume clears unrelated shell conversation history",
+                        List.of(
+                                keys("old request\\r"),
+                                keys("/resume saved\\r"),
+                                keys("continued request\\r"),
+                                keys("/exit\\r")
+                        ),
+                        List.of("Session scheduled for resume:", "Session closed."),
+                        List.of("Unknown command:"),
+                        List.of("old request", "continued request")
                 )
         );
 
@@ -286,7 +316,9 @@ public final class TestKeysRunner {
     private static InteractiveShell.ShellCommands testShellCommands() {
         return new InteractiveShell.ShellCommands() {
             @Override public String listSessions() { return "[sessions]"; }
-            @Override public String resumeSession(String id) { return "[resume " + id + "]"; }
+            @Override public String resumeSession(String id) {
+                return "Session scheduled for resume: 3 messages";
+            }
             @Override public String deleteSession(String id) { return "[delete " + id + "]"; }
             @Override public String searchSessions(String query) { return "[search " + query + "]"; }
             @Override public String compressStatus() { return "off"; }

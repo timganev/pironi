@@ -40,6 +40,36 @@ class CliOptionsTest {
         assertEquals(StatusMode.ALWAYS, options.statusMode());
     }
 
+    @Test
+    void autoActivityOverridesAskApproval() {
+        CliOptions options = CliOptions.parse(
+                new String[]{
+                        "--model", "qwen3.6:35b-a3b",
+                        "--approval", "ask",
+                        "--activity", "auto"
+                },
+                Map.of()
+        );
+
+        assertEquals(ApprovalMode.AUTO, options.approvalMode());
+    }
+
+    @Test
+    void activityRejectsUnknownModes() {
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> CliOptions.parse(
+                        new String[]{
+                                "--model", "qwen3.6:35b-a3b",
+                                "--activity", "sometimes"
+                        },
+                        Map.of()
+                )
+        );
+
+        assertTrue(error.getMessage().contains("Unknown activity mode"));
+    }
+
 
     @Test
     void noInteractiveRequiresTask() {

@@ -91,7 +91,7 @@ public final class ContextCompressor {
     public String storeSummary(String summary) {
         this.lastSummary = summary;
         // Reset: system + task (~500) + summary (~300) + last 4 turns (~800) ≈ 1600 base
-        runningPromptTokens = 1600;
+        runningPromptTokens = Math.min(1600, contextLimit / 2L);
         runningOutputTokens = 0;
         return """
                [COMPRESSED CONTEXT]

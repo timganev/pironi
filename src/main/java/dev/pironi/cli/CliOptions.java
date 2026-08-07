@@ -187,6 +187,19 @@ record CliOptions(
                 Path.of(System.getProperty("user.home"), ".pironi").toString()
         )).toAbsolutePath().normalize();
 
+        ApprovalMode approvalMode = ApprovalMode.parse(
+                values.getOrDefault("approval", "read-only")
+        );
+        String activity = values.get("activity");
+        if (activity != null) {
+            if (!activity.equalsIgnoreCase("auto")) {
+                throw new IllegalArgumentException(
+                        "Unknown activity mode: " + activity + " (expected auto)"
+                );
+            }
+            approvalMode = ApprovalMode.AUTO;
+        }
+
         return new CliOptions(
                 provider,
                 baseUri,
@@ -195,7 +208,7 @@ record CliOptions(
                 keyEnvironmentName,
                 workspace,
                 task,
-                ApprovalMode.parse(values.getOrDefault("approval", "read-only")),
+                approvalMode,
                 positiveInt(values, "max-turns", 8),
                 positiveInt(
                         values,

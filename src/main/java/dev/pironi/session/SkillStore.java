@@ -16,6 +16,7 @@ import java.util.stream.Stream;
  */
 public final class SkillStore {
     private static final int MAX_INDEX_TOKENS = 30;
+    private static final int MAX_SKILL_CHARACTERS = 24_000;
 
     private final Path skillsDir;
 
@@ -52,10 +53,12 @@ public final class SkillStore {
     // ── load ───────────────────────────────────────────────────────────
 
     public Optional<String> load(String name) {
+        if (!validName(name)) return Optional.empty();
         Path md = skillsDir.resolve(name).resolve("SKILL.md");
         if (!Files.exists(md)) return Optional.empty();
         try {
             String content = Files.readString(md, StandardCharsets.UTF_8);
+            if (content.length() > MAX_SKILL_CHARACTERS) return Optional.empty();
             // Touch file for mtime tracking
             md.toFile().setLastModified(System.currentTimeMillis());
             return Optional.of(content);
@@ -67,6 +70,8 @@ public final class SkillStore {
     // ── save ───────────────────────────────────────────────────────────
 
     public boolean save(String name, String content) {
+        if (name == null || name.isBlank() || content == null || content.isBlank()) return false;
+        if (content.length() > MAX_SKILL_CHARACTERS) return false;
         try {
             Path dir = skillsDir.resolve(sanitize(name));
             Files.createDirectories(dir);
@@ -81,6 +86,7 @@ public final class SkillStore {
     // ── archive / restore ──────────────────────────────────────────────
 
     public boolean archive(String name) {
+        if (!validName(name)) return false;
         try {
             Path src = skillsDir.resolve(name);
             Path dst = skillsDir.resolve(".archive").resolve(name);
@@ -94,6 +100,7 @@ public final class SkillStore {
     }
 
     public boolean restore(String name) {
+        if (!validName(name)) return false;
         try {
             Path src = skillsDir.resolve(".archive").resolve(name);
             Path dst = skillsDir.resolve(name);
@@ -173,6 +180,10 @@ public final class SkillStore {
 
     private static String sanitize(String name) {
         return name.replaceAll("[^a-zA-Z0-9_-]", "-").toLowerCase();
+    }
+
+    private static boolean validName(String name) {
+        return name != null && name.matches("[a-zA-Z0-9_-]+");
     }
 
     private static String truncate(String s, int max) {

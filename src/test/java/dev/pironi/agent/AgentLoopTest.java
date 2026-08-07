@@ -176,6 +176,62 @@ class AgentLoopTest {
         ));
     }
 
+    @Test
+    void abortsAfterBoundedConsecutiveUnknownTools() throws Exception {
+        String unknown = """
+                {"thought":"try","toolCalls":[{"name":"missing","arguments":{}}],"finalAnswer":null}
+                """;
+        RecordingModelClient model = new RecordingModelClient(unknown, unknown, unknown);
+
+        AgentResult result = loop(model, List.of()).run("test");
+
+        assertTrue(!result.success());
+        assertTrue(result.output().contains("Unknown tool limit exceeded"));
+        assertEquals(3, result.turns());
+    }
+
+    @Test
+    void recordsTurnsTokensToolsAndCheckpointInMemory() throws Exception {
+        Tool tool = new Tool() {
+            public String name() { return "echo"; }
+            public String description() { return "echo"; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return false; }
+            public ToolResult execute(JsonNode arguments) { return ToolResult.success("ok"); }
+        };
+        RecordingModelClient model = new RecordingModelClient(
+                "{\"thought\":\"call\",\"toolCalls\":[{\"name\":\"echo\",\"arguments\":{}}],\"finalAnswer\":null}",
+                "{\"thought\":\"done\",\"toolCalls\":[],\"finalAnswer\":\"answer\"}"
+        );
+        RecordingMemory memory = new RecordingMemory();
+
+        AgentResult result = loop(model, List.of(tool), new NoOpVerificationGate(), memory).run("goal");
+
+        assertTrue(result.success());
+        assertEquals(3, memory.messages.size());
+        assertEquals(1, memory.tools);
+        assertEquals(2, memory.responses);
+        assertEquals(1, memory.checkpoints);
+        assertEquals("answer", memory.answer);
+    }
+
+    @Test
+    void compressionUsesDedicatedRequestAndSkillContextEntersSystemPrompt() throws Exception {
+        RecordingModelClient model = new RecordingModelClient(
+                "compact summary",
+                "{\"thought\":\"done\",\"toolCalls\":[],\"finalAnswer\":\"answer\"}"
+        );
+        RecordingMemory memory = new RecordingMemory();
+        memory.compress = true;
+
+        AgentResult result = loop(model, List.of(), new NoOpVerificationGate(), memory).run("goal");
+
+        assertTrue(result.success());
+        assertTrue(model.requests.get(0).getLast().content().contains("compress this"));
+        assertTrue(model.requests.get(1).getFirst().content().contains("active test skill"));
+        assertEquals("compact summary", memory.summary);
+    }
+
     private AgentLoop loop(ModelClient model, List<Tool> tools) {
         return loop(model, tools, new NoOpVerificationGate());
     }
@@ -184,6 +240,15 @@ class AgentLoopTest {
             ModelClient model,
             List<Tool> tools,
             VerificationGate verificationGate
+    ) {
+        return loop(model, tools, verificationGate, AgentMemory.none());
+    }
+
+    private AgentLoop loop(
+            ModelClient model,
+            List<Tool> tools,
+            VerificationGate verificationGate,
+            AgentMemory memory
     ) {
         return new AgentLoop(
                 model,
@@ -196,8 +261,38 @@ class AgentLoopTest {
                 new NoOpStatusReporter(),
                 verificationGate,
                 4,
-                2
+                2,
+                null,
+                memory
         );
+    }
+
+    private static final class RecordingMemory implements AgentMemory {
+        private final List<ChatMessage> messages = new ArrayList<>();
+        private int tools;
+        private int responses;
+        private int checkpoints;
+        private String answer = "";
+        private String summary = "";
+        private boolean compress;
+
+        @Override public void record(ChatMessage message, long prompt, long output) {
+            messages.add(message);
+        }
+        @Override public void recordTool(String name, JsonNode arguments, String output) { tools++; }
+        @Override public void addTokens(ModelResponse response) { responses++; }
+        @Override public boolean shouldCompress() {
+            boolean result = compress;
+            compress = false;
+            return result;
+        }
+        @Override public String compressionPrompt(List<ChatMessage> messages, String task) {
+            return "compress this";
+        }
+        @Override public String storeSummary(String value) { summary = value; return value; }
+        @Override public void checkpoint(List<ChatMessage> messages, String task) { checkpoints++; }
+        @Override public String promptContext() { return "active test skill"; }
+        @Override public void completed(String task, String value) { answer = value; }
     }
 
     private static final class RecordingVerificationGate implements VerificationGate {

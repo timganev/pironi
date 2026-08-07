@@ -54,4 +54,13 @@ class DecisionParserTest {
                         """)
         );
     }
+
+    @Test
+    void rejectsOversizedInputBeforeParsing() {
+        ProtocolException error = assertThrows(
+                ProtocolException.class,
+                () -> parser.parse("x".repeat(256 * 1024 + 1))
+        );
+        assertTrue(error.getMessage().contains("exceeds"));
+    }
 }

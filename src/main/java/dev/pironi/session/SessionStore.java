@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Stream;
 
 /**
@@ -41,9 +42,12 @@ public final class SessionStore {
     // ── create ─────────────────────────────────────────────────────────
 
     public SessionMeta startSession(String model, Path workspace, int contextLimit, int maxTurns) {
-        String slug = workspace.getFileName() != null ? workspace.getFileName().toString() : "session";
+        String rawSlug = workspace.getFileName() != null
+                ? workspace.getFileName().toString() : "session";
+        String slug = rawSlug.replaceAll("[^a-zA-Z0-9._-]", "-");
+        if (slug.isBlank()) slug = "session";
         String ts = FMT.format(Instant.now());
-        String id = ts + "-" + slug;
+        String id = ts + "-" + slug + "-" + UUID.randomUUID().toString().substring(0, 8);
         currentPath = sessionsDir.resolve(id + ".jsonl");
         currentMeta = new SessionMeta(id, model, workspace.toString(), contextLimit, maxTurns,
                 Instant.now().toString(), 0, 0, "active");
@@ -98,6 +102,12 @@ public final class SessionStore {
 
     public SessionMeta currentMeta() { return currentMeta; }
 
+    public synchronized void updateStatus(String status) {
+        if (currentMeta == null) return;
+        currentMeta = currentMeta.withStatus(status);
+        saveMeta();
+    }
+
     // ── checkpoint ─────────────────────────────────────────────────────
 
     public void saveCheckpoint(String compressedJson) {
@@ -111,6 +121,7 @@ public final class SessionStore {
     }
 
     public Optional<String> loadCheckpoint(String sessionId) {
+        if (!validId(sessionId)) return Optional.empty();
         Path p = sessionsDir.resolve(sessionId + ".ckpt.json");
         if (!Files.exists(p)) return Optional.empty();
         try {
@@ -152,6 +163,7 @@ public final class SessionStore {
     }
 
     public List<String> readSessionMessages(String sessionId) throws IOException {
+        if (!validId(sessionId)) return List.of();
         Path jsonl = sessionsDir.resolve(sessionId + ".jsonl");
         if (!Files.exists(jsonl)) return List.of();
         var messages = new ArrayList<String>();
@@ -162,14 +174,23 @@ public final class SessionStore {
     }
 
     public boolean deleteSession(String sessionId) {
+        if (!validId(sessionId)) return false;
         try {
-            Files.deleteIfExists(sessionsDir.resolve(sessionId + ".jsonl"));
-            Files.deleteIfExists(sessionsDir.resolve(sessionId + ".meta.json"));
-            Files.deleteIfExists(sessionsDir.resolve(sessionId + ".ckpt.json"));
+            boolean deleted = Files.deleteIfExists(sessionsDir.resolve(sessionId + ".jsonl"));
+            deleted |= Files.deleteIfExists(sessionsDir.resolve(sessionId + ".meta.json"));
+            deleted |= Files.deleteIfExists(sessionsDir.resolve(sessionId + ".ckpt.json"));
             rebuildIndex();
-            return true;
+            return deleted;
         } catch (IOException e) {
             return false;
+        }
+    }
+
+    public Optional<String> latestSessionId() {
+        try {
+            return listSessions().stream().findFirst().map(SessionMeta::id);
+        } catch (IOException e) {
+            return Optional.empty();
         }
     }
 
@@ -230,6 +251,10 @@ public final class SessionStore {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    private static boolean validId(String id) {
+        return id != null && !id.isBlank() && id.matches("[a-zA-Z0-9._-]+");
     }
 
     public record SessionMeta(
