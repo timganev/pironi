@@ -8,6 +8,175 @@ requiring Python or a separate runtime.
 This is an early implementation. Use it in a disposable workspace until the
 tool and approval behavior has been tested for your use case.
 
+## Download and run
+
+The current binaries are published on the
+[Pironi v0.1.1 release page](https://github.com/timganev/pironi/releases/tag/v0.1.1).
+Choose the setup that matches the machine:
+
+| Platform                       | Recommended package                          |              Admin rights | Java/Maven required         | Start command              |
+| ------------------------------ | -------------------------------------------- | ------------------------: | --------------------------- | -------------------------- |
+| Windows 11, locked-down laptop | `pironi-windows-x64-portable.zip`            |                        No | Neither; Java 25 is bundled | `pironi.bat ...`           |
+| macOS                          | Standalone JAR                               | Yes for Java installation | Java 25; no Maven           | `java -jar pironi.jar ...` |
+| Linux, full access             | Standalone JAR + system-wide Temurin runtime |                       Yes | Java 25; no Maven           | `pironi ...`               |
+| Development machine            | Source checkout                              |          Depends on setup | JDK 25 and Maven 3.9+       | `mvn clean verify`         |
+
+The standalone JAR is about 3.8 MB but needs Java 25. The Windows portable ZIP
+is larger because it contains its own Java runtime. Maven is needed only when
+building or testing Pironi from source.
+
+### Windows 11 without admin rights
+
+This is the recommended setup for a managed Windows x64 laptop where software
+cannot be installed:
+
+1. Download
+   [`pironi-windows-x64-portable.zip`](https://github.com/timganev/pironi/releases/download/v0.1.1/pironi-windows-x64-portable.zip).
+2. Extract the complete ZIP into a writable location such as
+   `Documents\Pironi`. Keep `pironi.bat`, `pironi.jar`, and `runtime` together.
+3. Open the extracted folder, click the address bar, enter `cmd`, and press
+   Enter to open Command Prompt in the correct directory.
+4. Set the API key for that window and start Pironi:
+
+```bat
+set DEEPSEEK_API_KEY=your-key
+
+pironi.bat ^
+  --provider deepseek ^
+  --model deepseek-v4-flash ^
+  --workspace "%USERPROFILE%\Documents\project" ^
+  --context 131072 ^
+  --max-output-tokens 16384 ^
+  --max-turns 30 ^
+  --activity auto
+```
+
+No installer, elevation, Maven, `JAVA_HOME`, or system `PATH` change is used.
+The key set with `set` exists only in the current Command Prompt process; set
+it again in each new window. `--activity auto` permits workspace-changing tool
+calls without confirmation, so use it only in a project that may be modified.
+
+Always provide a Windows `--workspace` on the first start. Later invocations
+without arguments can restore the saved non-secret profile. Pironi stores its
+settings and sessions below `%USERPROFILE%\.pironi`.
+
+#### Windows alternative: an existing unpacked JDK 25
+
+If Java 25 is already unpacked somewhere such as
+`%USERPROFILE%\Downloads\Java\jdk-25`, the smaller standalone JAR can be used
+instead of the portable ZIP. No global environment variables or admin rights
+are required. Set `JAVA_HOME` and prepend Java to `PATH` only for the current
+Command Prompt window:
+
+```bat
+set "JAVA_HOME=%USERPROFILE%\Downloads\Java\jdk-25"
+set "PATH=%JAVA_HOME%\bin;%PATH%"
+
+java -version
+```
+
+Then set the API key and launch the downloaded JAR:
+
+```bat
+set "DEEPSEEK_API_KEY=your-key"
+
+java -jar "%USERPROFILE%\Downloads\pironi-0.1.0-SNAPSHOT.jar" ^
+  --provider deepseek ^
+  --model deepseek-v4-flash ^
+  --workspace "%USERPROFILE%\Documents\project" ^
+  --context 131072 ^
+  --max-output-tokens 16384 ^
+  --max-turns 30 ^
+  --activity auto
+```
+
+These `set` commands affect only the current Command Prompt process and
+disappear when the window is closed. They are unnecessary when using
+`pironi-windows-x64-portable.zip`, because `pironi.bat` starts the bundled
+runtime directly.
+
+### macOS
+
+Install a Java 25 JDK, for example Eclipse Temurin through Homebrew, and verify
+that the active runtime is version 25:
+
+```bash
+brew install --cask temurin@25
+java -version
+```
+
+Download the standalone JAR and run it. Maven is not required:
+
+```bash
+mkdir -p "$HOME/Applications/Pironi"
+curl -fL \
+  https://github.com/timganev/pironi/releases/download/v0.1.1/pironi-0.1.0-SNAPSHOT.jar \
+  -o "$HOME/Applications/Pironi/pironi.jar"
+
+export DEEPSEEK_API_KEY='your-key'
+java -jar "$HOME/Applications/Pironi/pironi.jar" \
+  --provider deepseek \
+  --model deepseek-v4-flash \
+  --workspace "$HOME/Projects/project" \
+  --context 131072 \
+  --max-output-tokens 16384 \
+  --max-turns 30 \
+  --activity auto
+```
+
+Apple Silicon and Intel Macs use the same JAR; the installed Java runtime must
+match the Mac architecture. Without Homebrew, install Java 25 from
+[Eclipse Temurin](https://adoptium.net/temurin/releases/?version=25).
+
+### Linux with full administrative access
+
+This distribution-independent example installs the latest Temurin 25 x64 JRE
+under `/opt`, Pironi under `/opt/pironi`, and a launcher under
+`/usr/local/bin`. Maven is not installed because the release JAR does not need
+it:
+
+```bash
+curl -fL \
+  'https://api.adoptium.net/v3/binary/latest/25/ga/linux/x64/jre/hotspot/normal/eclipse' \
+  -o /tmp/temurin-25-jre.tar.gz
+
+sudo install -d /opt/pironi-java-25 /opt/pironi
+sudo tar -xzf /tmp/temurin-25-jre.tar.gz \
+  -C /opt/pironi-java-25 --strip-components=1
+sudo curl -fL \
+  https://github.com/timganev/pironi/releases/download/v0.1.1/pironi-0.1.0-SNAPSHOT.jar \
+  -o /opt/pironi/pironi.jar
+
+sudo ln -sf /opt/pironi-java-25/bin/java /usr/local/bin/pironi-java
+printf '%s\n' '#!/bin/sh' \
+  'exec /usr/local/bin/pironi-java -jar /opt/pironi/pironi.jar "$@"' \
+  | sudo tee /usr/local/bin/pironi >/dev/null
+sudo chmod 755 /usr/local/bin/pironi
+```
+
+Start Pironi with local Ollama:
+
+```bash
+pironi \
+  --provider ollama \
+  --model MODEL \
+  --workspace /path/to/project \
+  --approval ask
+```
+
+Or use DeepSeek:
+
+```bash
+export DEEPSEEK_API_KEY='your-key'
+pironi \
+  --provider deepseek \
+  --model deepseek-v4-flash \
+  --workspace /path/to/project \
+  --activity auto
+```
+
+For Linux ARM64, replace `x64` with `aarch64` in the Adoptium API URL.
+
 ## Harness baseline: Pironi vs Hermes
 
 The following single-run baseline was measured on 2026-07-24 on the same
@@ -78,13 +247,13 @@ database. Pironi usage came from the `model_response` event in
 `/tmp/pironi-benchmark-b9ArG9/trace.jsonl`. Minion was intentionally excluded
 from the final comparison at the user's request.
 
-## Requirements
+## Requirements for building from source
 
-- OpenJDK 25
-- Maven 3.9+
-- Ollama for local models, or an OpenAI-compatible API endpoint
+- OpenJDK/JDK 25;
+- Maven 3.9+;
+- Ollama for local models, or an OpenAI-compatible API endpoint.
 
-## Build and test
+## Build and test from source
 
 ```bash
 mvn clean verify
