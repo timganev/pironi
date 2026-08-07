@@ -45,4 +45,18 @@ class WriteFileToolTest {
         assertFalse(result.success());
         assertFalse(Files.exists(workspaceRoot.getParent().resolve("outside.txt")));
     }
+
+    @Test
+    void createsMissingParentDirectories() throws Exception {
+        WriteFileTool tool = new WriteFileTool(new Workspace(workspaceRoot));
+
+        ToolResult result = tool.execute(objectMapper.readTree("""
+                {"path":"reports/daily/result.md","content":"ready"}
+                """));
+
+        assertTrue(result.success());
+        assertEquals("ready", Files.readString(
+                workspaceRoot.resolve("reports/daily/result.md")
+        ));
+    }
 }

@@ -116,6 +116,65 @@ class AgentLoopTest {
     }
 
     @Test
+    void failedBatchPreflightPreventsPartialMutation() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger executions = new java.util.concurrent.atomic.AtomicInteger();
+        Tool valid = new Tool() {
+            public String name() { return "valid_write"; }
+            public String description() { return "valid"; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return true; }
+            public ToolResult execute(JsonNode arguments) {
+                executions.incrementAndGet();
+                return ToolResult.success("changed");
+            }
+        };
+        Tool invalid = new Tool() {
+            public String name() { return "invalid_write"; }
+            public String description() { return "invalid"; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return true; }
+            public ToolResult validate(JsonNode arguments) {
+                return ToolResult.failure("path escapes workspace");
+            }
+            public ToolResult execute(JsonNode arguments) {
+                throw new AssertionError("must not execute");
+            }
+        };
+        RecordingModelClient model = new RecordingModelClient(
+                """
+                {"thought":"batch","toolCalls":[
+                  {"name":"valid_write","arguments":{}},
+                  {"name":"invalid_write","arguments":{}}
+                ],"finalAnswer":null}
+                """,
+                """
+                {"thought":"done","toolCalls":[],"finalAnswer":"reported"}
+                """
+        );
+
+        AgentResult result = loop(model, List.of(valid, invalid)).run("test");
+
+        assertTrue(result.success());
+        assertEquals(0, executions.get());
+        String feedback = model.requests.get(1).getLast().content();
+        assertTrue(feedback.contains("failed_preflight"));
+        assertTrue(feedback.contains("Not executed because another tool call failed preflight"));
+    }
+
+    @Test
+    void systemPromptRequiresExactPathsAndScopedMoves() throws Exception {
+        RecordingModelClient model = new RecordingModelClient(
+                "{\"thought\":\"done\",\"toolCalls\":[],\"finalAnswer\":\"ok\"}"
+        );
+
+        loop(model, List.of()).run("create резултат.md");
+
+        String prompt = model.requests.getFirst().getFirst().content();
+        assertTrue(prompt.contains("filenames verbatim"));
+        assertTrue(prompt.contains("use move_file for moves and renames"));
+    }
+
+    @Test
     void refusesFinalAnswerUntilAutomaticVerificationPasses() throws Exception {
         Tool mutatingTool = new Tool() {
             public String name() { return "change"; }

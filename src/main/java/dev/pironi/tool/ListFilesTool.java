@@ -16,10 +16,18 @@ public final class ListFilesTool implements Tool {
 
     private final Workspace workspace;
     private final int maxEntries;
+    private final Set<Path> hiddenPaths;
 
     public ListFilesTool(Workspace workspace, int maxEntries) {
+        this(workspace, maxEntries, Set.of());
+    }
+
+    public ListFilesTool(Workspace workspace, int maxEntries, Set<Path> hiddenPaths) {
         this.workspace = workspace;
         this.maxEntries = maxEntries;
+        this.hiddenPaths = hiddenPaths.stream()
+                .map(path -> path.toAbsolutePath().normalize())
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     @Override
@@ -55,6 +63,7 @@ public final class ListFilesTool implements Tool {
                 String output = files
                         .filter(Files::isRegularFile)
                         .filter(file -> !isIgnored(workspace.root().relativize(file)))
+                        .filter(file -> !hiddenPaths.contains(file.toAbsolutePath().normalize()))
                         .sorted(Comparator.naturalOrder())
                         .limit(maxEntries)
                         .map(workspace.root()::relativize)

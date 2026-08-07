@@ -7,6 +7,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -29,5 +30,18 @@ class FindFilesToolTest {
         assertTrue(found.output().contains("note.md"));
         assertFalse(found.output().contains("other.txt"));
         assertFalse(rejected.success());
+    }
+
+    @Test
+    void excludesExplicitHiddenPath() throws Exception {
+        Path visible = Files.writeString(root.resolve("visible.txt"), "ok");
+        Path hidden = Files.writeString(root.resolve("trace.jsonl"), "secret");
+        FindFilesTool tool = new FindFilesTool(List.of(root), Set.of(hidden));
+
+        ToolResult result = tool.execute(new ObjectMapper().createObjectNode()
+                .put("root", root.toString()).put("name", "*"));
+
+        assertTrue(result.output().contains(visible.toString()));
+        assertFalse(result.output().contains(hidden.toString()));
     }
 }

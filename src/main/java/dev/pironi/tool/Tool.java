@@ -19,5 +19,10 @@ public interface Tool {
         return arguments.toString();
     }
 
+    /** Validate arguments and policy-sensitive paths without changing external state. */
+    default ToolResult validate(JsonNode arguments) {
+        return ToolResult.success("validated");
+    }
+
     ToolResult execute(JsonNode arguments);
 }

@@ -10,17 +10,26 @@ import java.nio.file.Path;
 import java.nio.file.PathMatcher;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 public final class FindFilesTool implements Tool {
     private static final int MAX_VISITED = 20_000;
     private static final int MAX_CONTENT_BYTES = 2 * 1024 * 1024;
     private final List<Path> allowedRoots;
+    private final Set<Path> hiddenPaths;
 
     public FindFilesTool(List<Path> allowedRoots) {
+        this(allowedRoots, Set.of());
+    }
+
+    public FindFilesTool(List<Path> allowedRoots, Set<Path> hiddenPaths) {
         if (allowedRoots.isEmpty()) throw new IllegalArgumentException("At least one search root is required");
         this.allowedRoots = allowedRoots.stream()
                 .map(path -> path.toAbsolutePath().normalize())
                 .toList();
+        this.hiddenPaths = hiddenPaths.stream()
+                .map(path -> path.toAbsolutePath().normalize())
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     @Override public String name() { return "find_files"; }
@@ -51,6 +60,8 @@ public final class FindFilesTool implements Tool {
                     if (!Files.isRegularFile(candidate) || !matcher.matches(candidate.getFileName())) continue;
                     Path real = candidate.toRealPath();
                     if (!real.startsWith(realRoot)) continue;
+                    if (hiddenPaths.contains(candidate.toAbsolutePath().normalize())
+                            || hiddenPaths.contains(real)) continue;
                     if (!contains.isEmpty()) {
                         if (Files.size(real) > MAX_CONTENT_BYTES) continue;
                         String text = Files.readString(real, StandardCharsets.UTF_8);

@@ -55,8 +55,10 @@ pironi.bat ^
 
 No installer, elevation, Maven, `JAVA_HOME`, or system `PATH` change is used.
 The key set with `set` exists only in the current Command Prompt process; set
-it again in each new window. `--activity auto` permits workspace-changing tool
-calls without confirmation, so use it only in a project that may be modified.
+it again in each new window. `--activity auto` permits scoped workspace-changing
+tool calls without confirmation, so use it only in a project that may be
+modified. For safety, it does not expose `run_command` with the default
+`--shell-scope workspace`.
 
 Always provide a Windows `--workspace` on the first start. Later invocations
 without arguments can restore the saved non-secret profile. Pironi stores its
@@ -495,7 +497,9 @@ OpenRouter is a cloud provider, so `--personal-context auto` does not send
 ## Approvals
 
 - `--approval ask` prompts before each mutating tool call.
-- `--approval auto` permits mutating tool calls without prompting.
+- `--approval auto` permits scoped mutating tool calls without prompting. With
+  the default workspace shell scope, `run_command` is omitted because a lexical
+  shell guard is not an operating-system sandbox.
 - `--approval read-only` denies mutating tool calls.
 - `--activity auto` is a convenience override for `--approval auto`, including
   when `--approval ask` also appears in the command.
@@ -513,8 +517,10 @@ skill for subsequent agent prompts, `/skill off` clears it, and
 skill.
 
 `run_command` is considered mutating because arbitrary shell commands can
-change files or external state. Prefer `ask` or `read-only` when evaluating a
-new model.
+change files or external state. In auto mode, opt in explicitly with an exact
+`--allow-tools` list containing `run_command`, or deliberately broaden
+`--shell-scope`; otherwise use `ask` when shell access is needed. Prefer
+`read-only` when evaluating a new model.
 
 ## Context files and privacy
 
@@ -582,11 +588,15 @@ Sending personal context to a cloud provider requires the explicit
 
 The default trace is `WORKSPACE/.pironi/trace.jsonl`. A trace can contain
 prompts, model responses, tool arguments, and tool output. Treat it as
-potentially sensitive and do not commit it.
+potentially sensitive and do not commit it. The active trace path is hidden
+from `list_files`, `find_files`, and `read_file`, even when a custom trace is
+placed directly in the workspace.
 Unknown CLI options fail startup and close misspellings include a suggestion.
 `--allow-tools` enables exactly the named tools and cannot be combined with
 `--deny-tools`. `find_files` searches only the roots configured by
-`--search-roots`; its default root is the workspace.
+`--search-roots`; its default root is the workspace. `read_file` accepts the
+absolute paths returned by `find_files` as read-only inputs, while all writing
+tools remain restricted to the workspace.
 
 ## Live status
 
@@ -653,8 +663,9 @@ automatically runs the configured verification command or detects Maven/Gradle.
 `.pironi`, `.idea`, `target`, `build`, `.gradle`, and `node_modules`.
 `--deny-tools` removes exact tool names from this set and rejects unknown names
 at startup. It does not restrict filesystem access through `run_command`.
-`run_command` still requires mutation approval, but does not trigger a second
-automatic build after a successful command. Source changes must use
+`run_command` requires mutation approval when present, but does not trigger a
+second automatic build after a successful command. It is absent from default
+auto/workspace sessions. Source changes must use
 `apply_patch`, which does trigger automatic verification.
 Commands and automatic verification inherit the Java runtime that launched
 Pironi: `JAVA_HOME` is set from the active JVM and its `bin` directory is
@@ -673,9 +684,18 @@ blocks `sudo`; `unrestricted` removes the lexical checks and must be used only
 in an isolated environment.
 
 `move_file` operates only inside the workspace, refuses overwrite, creates
-checkpoints and verifies SHA-256 after the move. `find_files` does not follow
+checkpoints and verifies SHA-256 after the move. `write_file` creates missing
+parent directories safely. `find_files` does not follow
 results outside an allowed real root and bounds visited files, result count and
 content size.
+
+Before a multi-tool batch starts, Pironi validates known file-tool arguments
+and approval decisions. A failed preflight prevents the other calls from
+running. Runtime mixtures are labelled `partial_success` in the model feedback,
+so the agent cannot safely describe the whole batch as successful.
+The regression suite covers external-root reads, hidden traces, Unicode output
+paths, parent creation, batch preflight, and symlink escape rejection for scoped
+file reads.
 
 `http_get` retrieves bounded current information directly through Java and
 does not depend on curl or a shell. It accepts HTTPS only, does not follow

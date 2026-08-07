@@ -54,6 +54,24 @@ class PironiMainTest {
     }
 
     @Test
+    void autoActivityDisablesWorkspaceShellUnlessExplicitlyAllowed() {
+        CliOptions options = CliOptions.parse(
+                new String[]{"--activity", "auto", "--model", "test"}, Map.of()
+        );
+
+        assertEquals(Set.of("run_command"), PironiMain.autoSafeDeniedTools(options));
+
+        CliOptions explicit = CliOptions.parse(
+                new String[]{
+                        "--activity", "auto", "--model", "test",
+                        "--allow-tools", "run_command"
+                },
+                Map.of()
+        );
+        assertEquals(Set.of(), PironiMain.autoSafeDeniedTools(explicit));
+    }
+
+    @Test
     void directDeepSeekModelSwitchAlsoSwitchesProvider() {
         CliOptions previous = CliOptions.parse(new String[0], Map.of());
 

@@ -31,6 +31,24 @@ public final class MoveFileTool implements Tool {
     @Override public boolean mutating() { return true; }
 
     @Override
+    public ToolResult validate(JsonNode arguments) {
+        try {
+            Path source = workspace.resolveExisting(
+                    ToolArguments.requiredText(arguments, "source")
+            );
+            Path destination = workspace.validateForWriteCreatingParents(
+                    ToolArguments.requiredText(arguments, "destination")
+            );
+            if (!Files.isRegularFile(source)) throw new IOException("Source is not a regular file");
+            if (Files.exists(destination)) throw new IOException("Destination already exists");
+            if (source.equals(destination)) throw new IOException("Source and destination are identical");
+            return ToolResult.success("validated");
+        } catch (IllegalArgumentException | IOException e) {
+            return ToolResult.failure(e.getMessage());
+        }
+    }
+
+    @Override
     public ToolResult execute(JsonNode arguments) {
         try {
             Path source = workspace.resolveExisting(ToolArguments.requiredText(arguments, "source"));

@@ -24,7 +24,8 @@ public final class WriteFileTool implements Tool {
 
     @Override
     public String description() {
-        return "Atomically replace a UTF-8 text file inside the workspace.";
+        return "Atomically create or replace a UTF-8 text file inside the workspace, creating "
+                + "missing parent directories.";
     }
 
     @Override
@@ -38,6 +39,21 @@ public final class WriteFileTool implements Tool {
     }
 
     @Override
+    public ToolResult validate(JsonNode arguments) {
+        try {
+            String path = ToolArguments.requiredText(arguments, "path");
+            JsonNode contentNode = arguments.get("content");
+            if (contentNode == null || !contentNode.isTextual()) {
+                throw new IllegalArgumentException("content must be a string");
+            }
+            workspace.validateForWriteCreatingParents(path);
+            return ToolResult.success("validated");
+        } catch (IllegalArgumentException | IOException e) {
+            return ToolResult.failure(e.getMessage());
+        }
+    }
+
+    @Override
     public ToolResult execute(JsonNode arguments) {
         try {
             String path = ToolArguments.requiredText(arguments, "path");
@@ -46,7 +62,7 @@ public final class WriteFileTool implements Tool {
                 throw new IllegalArgumentException("content must be a string");
             }
 
-            Path target = workspace.resolveForWrite(path);
+            Path target = workspace.resolveForWriteCreatingParents(path);
             Path temporary = Files.createTempFile(target.getParent(), ".pironi-", ".tmp");
             try {
                 Files.writeString(temporary, contentNode.textValue(), StandardCharsets.UTF_8);

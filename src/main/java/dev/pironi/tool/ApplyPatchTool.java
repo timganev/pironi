@@ -56,6 +56,16 @@ public final class ApplyPatchTool implements Tool {
     }
 
     @Override
+    public ToolResult validate(JsonNode arguments) {
+        try {
+            prepare(arguments);
+            return ToolResult.success("validated");
+        } catch (IllegalArgumentException | IOException e) {
+            return ToolResult.failure(e.getMessage());
+        }
+    }
+
+    @Override
     public ToolResult execute(JsonNode arguments) {
         try {
             Patch patch = prepare(arguments);

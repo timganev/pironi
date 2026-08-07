@@ -37,6 +37,14 @@ public final class Workspace {
     }
 
     public Path resolveForWriteCreatingParents(String relativePath) throws IOException {
+        Path candidate = validateForWriteCreatingParents(relativePath);
+        Path parent = candidate.getParent();
+        Files.createDirectories(parent);
+        ensureInside(parent.toRealPath());
+        return parent.resolve(candidate.getFileName());
+    }
+
+    public Path validateForWriteCreatingParents(String relativePath) throws IOException {
         Path candidate = resolveLexically(relativePath);
         Path parent = candidate.getParent();
         if (parent == null) throw new IOException("Path has no parent: " + relativePath);
@@ -44,9 +52,7 @@ public final class Workspace {
         while (existing != null && !Files.exists(existing)) existing = existing.getParent();
         if (existing == null) throw new IOException("No existing parent for: " + relativePath);
         ensureInside(existing.toRealPath());
-        Files.createDirectories(parent);
-        ensureInside(parent.toRealPath());
-        return parent.resolve(candidate.getFileName());
+        return candidate;
     }
 
     private Path resolveLexically(String relativePath) throws IOException {

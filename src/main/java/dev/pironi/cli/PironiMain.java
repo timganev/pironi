@@ -9,6 +9,7 @@ import dev.pironi.agent.CapabilityReport;
 import dev.pironi.model.ProviderConfig;
 import dev.pironi.model.SwitchableModelClient;
 import dev.pironi.safety.ConsoleApprovalPolicy;
+import dev.pironi.safety.ApprovalMode;
 import dev.pironi.safety.CheckpointManager;
 import dev.pironi.safety.Workspace;
 import dev.pironi.tool.ApplyPatchTool;
@@ -43,6 +44,7 @@ import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
+import java.util.HashSet;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
@@ -122,21 +124,25 @@ public final class PironiMain {
                 java.net.http.HttpClient.newHttpClient(), objectMapper
         );
 
+        Set<Path> hiddenAgentPaths = Set.of(options.tracePath().toAbsolutePath().normalize());
         List<Tool> availableTools = List.of(
-                new ListFilesTool(workspace, 500),
-                new ReadFileTool(workspace, 32_000),
+                new ListFilesTool(workspace, 500, hiddenAgentPaths),
+                new ReadFileTool(
+                        workspace, 32_000, options.searchRoots(), hiddenAgentPaths
+                ),
                 new WriteFileTool(workspace),
                 new ApplyPatchTool(workspace, checkpoints),
                 new MoveFileTool(workspace, checkpoints),
                 new RollbackCheckpointTool(checkpoints),
-                new FindFilesTool(options.searchRoots()),
+                new FindFilesTool(options.searchRoots(), hiddenAgentPaths),
                 new HttpGetTool(),
                 new RunCommandTool(
                         workspace, Duration.ofSeconds(90), 32_000, options.shellScope()
                 )
         );
+        Set<String> effectiveDeniedTools = autoSafeDeniedTools(options);
         ToolRegistry tools = configuredTools(
-                availableTools, options.denyTools(), options.allowTools()
+                availableTools, effectiveDeniedTools, options.allowTools()
         );
 
         boolean statusEnabled = options.statusMode() == StatusMode.ALWAYS
@@ -462,6 +468,17 @@ public final class PironiMain {
         return configuredTools(availableTools, deniedTools, Set.of());
     }
 
+    static Set<String> autoSafeDeniedTools(CliOptions options) {
+        if (options.approvalMode() != ApprovalMode.AUTO
+                || options.shellScope() != dev.pironi.tool.ShellScope.WORKSPACE
+                || !options.allowTools().isEmpty()) {
+            return options.denyTools();
+        }
+        Set<String> denied = new HashSet<>(options.denyTools());
+        denied.add("run_command");
+        return Set.copyOf(denied);
+    }
+
     static ToolRegistry configuredTools(
             List<Tool> availableTools,
             Set<String> deniedTools,
@@ -535,8 +552,8 @@ public final class PironiMain {
                 Agent:
                   --workspace PATH                              default: current directory
                   --approval ask|auto|read-only                 default: read-only
-                  --activity auto                              allow tool activity without prompts;
-                                                               overrides --approval
+                  --activity auto                              allow scoped tool activity without prompts;
+                                                               overrides --approval; default workspace shell is disabled
                   --interactive                                default
                   --no-interactive                             one-shot; requires --task
                   --task TEXT                                  optional initial interactive task

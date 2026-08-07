@@ -7,6 +7,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -30,6 +31,18 @@ class ListFilesToolTest {
 
         assertEquals(true, result.success());
         assertEquals("pom.xml", result.output());
+    }
+
+    @Test
+    void excludesExplicitTracePathOutsidePrivateDirectory() throws Exception {
+        Path visible = Files.writeString(workspaceRoot.resolve("visible.txt"), "ok");
+        Path trace = Files.writeString(workspaceRoot.resolve("trace.jsonl"), "private");
+
+        ToolResult result = new ListFilesTool(
+                new Workspace(workspaceRoot), 100, Set.of(trace)
+        ).execute(OBJECT_MAPPER.readTree("{\"path\":\".\"}"));
+
+        assertEquals(visible.getFileName().toString(), result.output());
     }
 
     private void writeInDirectory(String directory, String file) throws Exception {
