@@ -91,7 +91,7 @@ public final class ContextFileLoader {
 
     private static List<Path> workspaceLineage(Workspace workspace) {
         Path root = workspace.root().toAbsolutePath().normalize();
-        Path userHome = Path.of(System.getProperty("user.home")).toAbsolutePath().normalize();
+        Path userHome = canonicalize(Path.of(System.getProperty("user.home")));
         if (!root.startsWith(userHome)) {
             return List.of(root);
         }
@@ -103,6 +103,14 @@ public final class ContextFileLoader {
             lineage.add(current);
         }
         return lineage;
+    }
+
+    private static Path canonicalize(Path path) {
+        try {
+            return path.toRealPath();
+        } catch (IOException ignored) {
+            return path.toAbsolutePath().normalize();
+        }
     }
 
     private static String combineLayers(List<String> layers, String label) throws IOException {
