@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ContextFileLoaderTest {
     @TempDir
@@ -48,8 +49,8 @@ class ContextFileLoaderTest {
                 pironiHome
         );
 
-        assertEquals("local soul", context.soul());
-        assertEquals("local user", context.userProfile());
+        assertTrue(context.soul().endsWith("local soul"));
+        assertTrue(context.userProfile().endsWith("local user"));
     }
 
     @Test
@@ -106,5 +107,114 @@ class ContextFileLoaderTest {
 
         assertEquals("", context.soul());
         assertEquals("", context.userProfile());
+    }
+
+    @Test
+    void customPironiHomePrefersLocalPersonalContext() throws Exception {
+        Path workspaceRoot = Files.createDirectory(temporaryDirectory.resolve("local-workspace"));
+        Path portableHome = Files.createDirectory(temporaryDirectory.resolve("portable-home"));
+        Files.writeString(portableHome.resolve("SOUL.md"), "portable soul");
+        Files.writeString(portableHome.resolve("USER.md"), "portable user");
+
+        AgentContext context = ContextFileLoader.load(
+                new Workspace(workspaceRoot),
+                ProviderType.DEEPSEEK,
+                PersonalContextMode.ALLOW,
+                portableHome
+        );
+
+        assertTrue(context.soul().endsWith("portable soul"));
+        assertTrue(context.userProfile().endsWith("portable user"));
+    }
+
+    @Test
+    void customPironiHomeFallsBackToUserPironiDirectory() throws Exception {
+        String previousUserHome = System.getProperty("user.home");
+        Path userHome = Files.createDirectory(temporaryDirectory.resolve("user-home"));
+        Path defaultPironiHome = Files.createDirectories(userHome.resolve(".pironi"));
+        Path portableHome = Files.createDirectory(temporaryDirectory.resolve("empty-portable-home"));
+        Path workspaceRoot = Files.createDirectory(temporaryDirectory.resolve("fallback-workspace"));
+        Files.writeString(defaultPironiHome.resolve("SOUL.md"), "fallback soul");
+        Files.writeString(defaultPironiHome.resolve("USER.md"), "fallback user");
+
+        try {
+            System.setProperty("user.home", userHome.toString());
+            AgentContext context = ContextFileLoader.load(
+                    new Workspace(workspaceRoot),
+                    ProviderType.DEEPSEEK,
+                    PersonalContextMode.ALLOW,
+                    portableHome
+            );
+
+            assertEquals("fallback soul", context.soul());
+            assertEquals("fallback user", context.userProfile());
+        } finally {
+            System.setProperty("user.home", previousUserHome);
+        }
+    }
+
+    @Test
+    void personalContextCascadesFromGlobalThroughPortableToNearestWorkspace() throws Exception {
+        String previousUserHome = System.getProperty("user.home");
+        Path userHome = Files.createDirectory(temporaryDirectory.resolve("cascade-user"));
+        Path globalHome = Files.createDirectories(userHome.resolve(".pironi"));
+        Path portableHome = Files.createDirectory(temporaryDirectory.resolve("cascade-portable"));
+        Path project = Files.createDirectories(userHome.resolve("Documents/project"));
+        Path projectHome = Files.createDirectory(project.resolve(".pironi"));
+        Files.writeString(globalHome.resolve("SOUL.md"), "global soul");
+        Files.writeString(portableHome.resolve("SOUL.md"), "portable soul");
+        Files.writeString(projectHome.resolve("SOUL.md"), "project soul");
+
+        try {
+            System.setProperty("user.home", userHome.toString());
+            AgentContext context = ContextFileLoader.load(
+                    new Workspace(project),
+                    ProviderType.DEEPSEEK,
+                    PersonalContextMode.ALLOW,
+                    portableHome
+            );
+
+            assertOrdered(context.soul(), "global soul", "portable soul", "project soul");
+            assertTrue(context.soul().contains("Later layers override earlier layers"));
+        } finally {
+            System.setProperty("user.home", previousUserHome);
+        }
+    }
+
+    @Test
+    void claudeInstructionsCascadeFromUserHomeToWorkspace() throws Exception {
+        String previousUserHome = System.getProperty("user.home");
+        Path userHome = Files.createDirectory(temporaryDirectory.resolve("claude-user"));
+        Path parent = Files.createDirectories(userHome.resolve("Documents"));
+        Path project = Files.createDirectory(parent.resolve("project"));
+        Files.writeString(userHome.resolve("CLAUDE.md"), "global project rules");
+        Files.writeString(parent.resolve("CLAUDE.md"), "documents rules");
+        Files.writeString(project.resolve("CLAUDE.md"), "nearest project rules");
+
+        try {
+            System.setProperty("user.home", userHome.toString());
+            AgentContext context = ContextFileLoader.load(
+                    new Workspace(project),
+                    ProviderType.DEEPSEEK,
+                    PersonalContextMode.DENY,
+                    Files.createDirectory(temporaryDirectory.resolve("claude-pironi-home"))
+            );
+
+            assertOrdered(
+                    context.projectInstructions(),
+                    "global project rules", "documents rules", "nearest project rules"
+            );
+        } finally {
+            System.setProperty("user.home", previousUserHome);
+        }
+    }
+
+    private static void assertOrdered(String text, String... fragments) {
+        int previous = -1;
+        for (String fragment : fragments) {
+            int current = text.indexOf(fragment);
+            assertTrue(current > previous, "Expected ordered fragment: " + fragment);
+            previous = current;
+        }
     }
 }

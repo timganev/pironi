@@ -144,7 +144,7 @@ public final class InteractiveShell {
         if (initialTask != null && !initialTask.isBlank()) {
             AgentResult result = runTask(initialTask);
             if (result != null) {
-                if (!result.streamed()) println(result.output());
+                if (!result.streamed()) printAgentAnswer(result.output());
                 conversationHistory.add("User: " + initialTask);
                 conversationHistory.add("Pironi: " + result.output());
             }
@@ -178,7 +178,7 @@ public final class InteractiveShell {
             String fullTask = context.isEmpty() ? line : context + "Current request:\n" + line;
             AgentResult result = runTask(fullTask);
             if (result == null) continue;
-            if (!result.streamed()) println(result.output());
+            if (!result.streamed()) printAgentAnswer(result.output());
             conversationHistory.add("User: " + line);
             conversationHistory.add("Pironi: " + result.output());
 
@@ -333,6 +333,17 @@ public final class InteractiveShell {
     private void println(String text) {
         if (lineReader != null) {
             lineReader.printAbove(text);
+        } else {
+            output.println(text);
+        }
+    }
+
+    private void printAgentAnswer(String text) {
+        if (lineReader != null) {
+            lineReader.printAbove(new AttributedString(
+                    text,
+                    AttributedStyle.DEFAULT.foreground(AttributedStyle.GREEN)
+            ));
         } else {
             output.println(text);
         }

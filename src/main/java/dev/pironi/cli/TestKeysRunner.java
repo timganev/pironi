@@ -160,6 +160,18 @@ public final class TestKeysRunner {
                         List.of("[doctor]", "Session closed."),
                         List.of("Unknown command:"),
                         List.of()
+                ),
+                new Scenario(
+                        "multiline Cyrillic answer uses JLine-safe rendering",
+                        List.of(keys("wrap\\r"), keys("/exit\\r")),
+                        List.of(
+                                "Първи дълъг ред на кирилица",
+                                "Втори ред остава след първия",
+                                "Трети ред не се размества",
+                                "Session closed."
+                        ),
+                        List.of("Unknown command:"),
+                        List.of("wrap")
                 )
         );
 
@@ -244,14 +256,13 @@ public final class TestKeysRunner {
                 terminalOutput,
                 task -> {
                     submittedTasks.add(task);
-                    status.outputStarted();
-                    synchronized (terminal) {
-                        terminal.writer().println("OK");
-                        terminal.flush();
-                    }
-                    status.outputFinished();
                     status.idle();
-                    return new AgentResult(true, "OK", 1, true);
+                    String answer = task.equals("wrap")
+                            ? "Първи дълъг ред на кирилица ".repeat(5)
+                                    + "\nВтори ред остава след първия"
+                                    + "\nТрети ред не се размества"
+                            : "OK";
+                    return new AgentResult(true, answer, 1, false);
                 },
                 testModelCommands(),
                 testShellCommands(),

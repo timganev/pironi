@@ -7,6 +7,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 
 public final class ContextFileLoader {
     private static final int MAX_FILE_CHARACTERS = 24_000;
@@ -27,24 +30,32 @@ public final class ContextFileLoader {
             case AUTO -> provider == ProviderType.OLLAMA;
         };
 
-        String soul = loadPersonal ? readOptional(pironiHome.resolve("SOUL.md"), "SOUL.md") : "";
-        String user = loadPersonal ? readOptional(pironiHome.resolve("USER.md"), "USER.md") : "";
+        Path defaultHome = Path.of(System.getProperty("user.home"), ".pironi")
+                .toAbsolutePath().normalize();
+        String soul = loadPersonal
+                ? readPersonalCascade(workspace, pironiHome, defaultHome, "SOUL.md") : "";
+        String user = loadPersonal
+                ? readPersonalCascade(workspace, pironiHome, defaultHome, "USER.md") : "";
         String project = readProjectInstructions(workspace);
         return new AgentContext(soul, user, project);
     }
 
     private static String readProjectInstructions(Workspace workspace) throws IOException {
-        Path candidate = workspace.root().resolve("CLAUDE.md");
-        if (!Files.exists(candidate)) {
-            return "";
+        List<String> layers = new ArrayList<>();
+        for (Path directory : workspaceLineage(workspace)) {
+            Path candidate = directory.resolve("CLAUDE.md");
+            if (!Files.exists(candidate)) continue;
+            if (!Files.isRegularFile(candidate)) {
+                throw new IOException("CLAUDE.md is not a regular file: " + candidate);
+            }
+            String content = Files.readString(candidate, StandardCharsets.UTF_8);
+            int marker = content.indexOf(RUNTIME_CONTEXT_END);
+            String runtimeContent =
+                    marker < 0 ? content : content.substring(0, marker).stripTrailing();
+            ensureWithinLimit(runtimeContent, candidate, "CLAUDE.md");
+            if (!runtimeContent.isBlank()) layers.add(runtimeContent);
         }
-        Path path = workspace.resolveExisting("CLAUDE.md");
-        String content = Files.readString(path, StandardCharsets.UTF_8);
-        int marker = content.indexOf(RUNTIME_CONTEXT_END);
-        String runtimeContent =
-                marker < 0 ? content : content.substring(0, marker).stripTrailing();
-        ensureWithinLimit(runtimeContent, path, "CLAUDE.md");
-        return runtimeContent;
+        return combineLayers(layers, "CLAUDE.md");
     }
 
     private static String readOptional(Path path, String label) throws IOException {
@@ -55,6 +66,58 @@ public final class ContextFileLoader {
             throw new IOException(label + " is not a regular file: " + path);
         }
         return readLimited(path, label);
+    }
+
+    private static String readPersonalCascade(
+            Workspace workspace,
+            Path pironiHome,
+            Path defaultHome,
+            String fileName
+    ) throws IOException {
+        LinkedHashSet<Path> homes = new LinkedHashSet<>();
+        homes.add(defaultHome.toAbsolutePath().normalize());
+        homes.add(pironiHome.toAbsolutePath().normalize());
+        for (Path directory : workspaceLineage(workspace)) {
+            homes.add(directory.resolve(".pironi").toAbsolutePath().normalize());
+        }
+
+        List<String> layers = new ArrayList<>();
+        for (Path home : homes) {
+            String content = readOptional(home.resolve(fileName), fileName);
+            if (!content.isBlank()) layers.add(content);
+        }
+        return combineLayers(layers, fileName);
+    }
+
+    private static List<Path> workspaceLineage(Workspace workspace) {
+        Path root = workspace.root().toAbsolutePath().normalize();
+        Path userHome = Path.of(System.getProperty("user.home")).toAbsolutePath().normalize();
+        if (!root.startsWith(userHome)) {
+            return List.of(root);
+        }
+        List<Path> lineage = new ArrayList<>();
+        Path current = userHome;
+        lineage.add(current);
+        for (Path segment : userHome.relativize(root)) {
+            current = current.resolve(segment);
+            lineage.add(current);
+        }
+        return lineage;
+    }
+
+    private static String combineLayers(List<String> layers, String label) throws IOException {
+        if (layers.isEmpty()) return "";
+        if (layers.size() == 1) return layers.getFirst();
+        StringBuilder combined = new StringBuilder(
+                "Layers are ordered from global to local. Later layers override earlier "
+                        + "layers when instructions conflict."
+        );
+        for (int index = 0; index < layers.size(); index++) {
+            combined.append("\n\n### ").append(label).append(" layer ")
+                    .append(index + 1).append('\n').append(layers.get(index));
+        }
+        ensureWithinLimit(combined.toString(), Path.of(label), label + " cascade");
+        return combined.toString();
     }
 
     private static String readLimited(Path path, String label) throws IOException {

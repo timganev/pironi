@@ -201,21 +201,6 @@ public final class PironiMain {
                     input,
                     System.out
             );
-            java.util.function.Consumer<String> liveOutput = null;
-            if (interactive) {
-                Terminal outputTerminal = terminal;
-                liveOutput = chunk -> {
-                    synchronized (outputTerminal) {
-                        outputTerminal.writer().print(new org.jline.utils.AttributedString(
-                                chunk,
-                                org.jline.utils.AttributedStyle.DEFAULT.foreground(
-                                        org.jline.utils.AttributedStyle.GREEN
-                                )
-                        ).toAnsi(outputTerminal));
-                        outputTerminal.flush();
-                    }
-                };
-            }
             AgentLoop loop = new AgentLoop(
                     modelClient,
                     new DecisionParser(objectMapper),
@@ -232,7 +217,7 @@ public final class PironiMain {
                     ),
                     options.maxTurns(),
                     4,
-                    liveOutput,
+                    null,
                     memory
             );
 

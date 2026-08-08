@@ -32,8 +32,8 @@ SHA-256 checksum files.
 This is the recommended setup for a managed Windows x64 laptop where software
 cannot be installed:
 
-1. Download
-   [`pironi-windows-x64-portable.zip`](https://github.com/timganev/pironi/releases/download/v0.1.1/pironi-windows-x64-portable.zip).
+1. Download the latest Windows x64 ZIP from the
+   [Pironi releases page](https://github.com/timganev/pironi/releases/latest).
 2. Extract the complete ZIP into a writable location such as
    `Documents\Pironi`. Keep `pironi.bat`, `pironi.jar`, and `runtime` together.
 3. Open the extracted folder, click the address bar, enter `cmd`, and press
@@ -60,11 +60,19 @@ tool calls without confirmation, so use it only in a project that may be
 modified. For safety, it does not expose `run_command` with the default
 `--shell-scope workspace`.
 
-Always provide a Windows `--workspace` on the first start. Later invocations
-without arguments can restore the saved non-secret profile. Pironi stores its
-settings and sessions below `%USERPROFILE%\.pironi`. If the final workspace
-directory does not exist yet, Pironi creates it; keep the path in quotes because
-Windows user and project directories may contain spaces.
+When no override is supplied, `pironi.bat` writes only below
+`%USERPROFILE%\Documents\PironiWorkspace`, permits read-only file searches below
+`%USERPROFILE%` (including Downloads, Desktop, and Documents), and uses the
+`.pironi` directory beside `pironi.bat` for `SOUL.md`, `USER.md`, skills, and
+sessions. Personal context is layered from `%USERPROFILE%\.pironi`, through the
+portable home, and then through `.pironi` directories down to the workspace;
+nearer layers override conflicting instructions from broader layers. `CLAUDE.md`
+files cascade from the user home down to the workspace in the same order. These
+personal files are sent to the selected cloud provider; pass
+`--personal-context deny` to disable that.
+Arguments after `pironi.bat` override the launcher defaults, so an explicit
+`--workspace` still selects a project. Pironi creates a missing final workspace
+directory automatically.
 
 #### Windows alternative: an existing unpacked JDK 25
 
@@ -97,9 +105,8 @@ java -jar "%USERPROFILE%\Downloads\pironi-0.1.0-SNAPSHOT.jar" ^
 ```
 
 These `set` commands affect only the current Command Prompt process and
-disappear when the window is closed. They are unnecessary when using
-`pironi-windows-x64-portable.zip`, because `pironi.bat` starts the bundled
-runtime directly.
+disappear when the window is closed. They are unnecessary when using the
+Windows portable ZIP, because `pironi.bat` starts the bundled runtime directly.
 
 ### macOS
 
