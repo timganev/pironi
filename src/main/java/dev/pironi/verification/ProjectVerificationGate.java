@@ -2,15 +2,13 @@ package dev.pironi.verification;
 
 import dev.pironi.safety.Workspace;
 import dev.pironi.tool.PlatformShell;
+import dev.pironi.tool.ProcessEnvironment;
 
 import java.io.IOException;
-import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
-import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
@@ -51,7 +49,7 @@ public final class ProjectVerificationGate implements VerificationGate {
             ProcessBuilder processBuilder = new ProcessBuilder(PlatformShell.command(command))
                     .directory(workspace.root().toFile())
                     .redirectErrorStream(true);
-            useCurrentJavaRuntime(processBuilder.environment());
+            ProcessEnvironment.useCurrentJavaRuntime(processBuilder.environment());
             Process process = processBuilder.start();
             FutureTask<byte[]> output = new FutureTask<>(
                     () -> process.getInputStream().readAllBytes()
@@ -95,14 +93,6 @@ public final class ProjectVerificationGate implements VerificationGate {
 
     public String command() {
         return command;
-    }
-
-    private static void useCurrentJavaRuntime(Map<String, String> environment) {
-        String javaHome = System.getProperty("java.home");
-        environment.put("JAVA_HOME", javaHome);
-        String javaBin = Path.of(javaHome, "bin").toString();
-        String path = environment.getOrDefault("PATH", "");
-        environment.put("PATH", path.isBlank() ? javaBin : javaBin + File.pathSeparator + path);
     }
 
     static Optional<String> detectCommand(Workspace workspace, String osName) {

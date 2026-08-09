@@ -45,4 +45,26 @@ class FindFilesToolTest {
         assertTrue(result.output().contains(visible.toRealPath().toString()));
         assertFalse(result.output().contains(hidden.toRealPath().toString()));
     }
+
+    @Test
+    void skipsDirectoryLinksWithoutLosingNormalMatches() throws Exception {
+        Path documents = Files.createDirectories(root.resolve("Documents"));
+        Path expected = Files.writeString(documents.resolve("marker.txt"), "junction-safe-18d2");
+        Path loop = root.resolve("Application Data");
+        try {
+            Files.createSymbolicLink(loop, root);
+        } catch (UnsupportedOperationException | java.nio.file.FileSystemException e) {
+            org.junit.jupiter.api.Assumptions.abort("Directory links are not available: " + e.getMessage());
+        }
+
+        ToolResult result = new FindFilesTool(List.of(root)).execute(
+                new ObjectMapper().createObjectNode()
+                        .put("root", root.toString())
+                        .put("contains", "junction-safe-18d2")
+        );
+
+        assertTrue(result.success(), result.output());
+        assertTrue(result.output().contains(expected.toRealPath().toString()));
+        assertFalse(result.output().contains("Application Data"));
+    }
 }

@@ -3,6 +3,7 @@ package dev.pironi.cli;
 import com.fasterxml.jackson.databind.JsonNode;
 import dev.pironi.tool.Tool;
 import dev.pironi.tool.ToolResult;
+import dev.pironi.status.StatusMode;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -14,6 +15,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PironiMainTest {
+    @Test
+    void automaticStatusRequiresAnInteractiveConsole() {
+        assertEquals(false, PironiMain.statusEnabled(StatusMode.AUTO, false, "Linux"));
+        assertEquals(true, PironiMain.statusEnabled(StatusMode.AUTO, true, "Linux"));
+        assertEquals(false, PironiMain.statusEnabled(StatusMode.AUTO, true, "Windows 11"));
+        assertEquals(true, PironiMain.statusEnabled(StatusMode.ALWAYS, false, "Windows 11"));
+        assertEquals(false, PironiMain.statusEnabled(StatusMode.NEVER, true, "Linux"));
+    }
+
     @Test
     void deniedToolsAreAbsentFromRegistry() {
         var registry = PironiMain.configuredTools(

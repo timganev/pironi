@@ -44,6 +44,15 @@ $env:DEEPSEEK_API_KEY = "your-key"
 .\pironi.bat --provider deepseek --model deepseek-v4-flash --context 131072 --max-output-tokens 16384 --max-turns 30 --activity auto
 ```
 
+For a scripted one-shot task containing Cyrillic, quotes, or other Unicode,
+save the prompt as UTF-8 and pass its path instead of putting the prompt on the
+`cmd.exe` command line:
+
+```powershell
+Set-Content -Path .\task.txt -Value 'Прегледай проекта и обобщи риска. ✓' -Encoding utf8
+.\pironi.bat --provider deepseek --model deepseek-v4-flash --no-interactive --task-file .\task.txt --activity auto
+```
+
 PowerShell does not search the current directory for commands, which is why
 the required launcher spelling is `.\pironi.bat`. The `$env:` assignment lasts
 only until that PowerShell process closes. To persist the key for the current
@@ -524,6 +533,7 @@ Sending personal context to a cloud provider requires the explicit
 --interactive
 --no-interactive
 --task TEXT
+--task-file PATH
 --max-turns N
 --context N
 --max-output-tokens N
@@ -544,6 +554,9 @@ potentially sensitive and do not commit it. The active trace path is hidden
 from `list_files`, `find_files`, and `read_file`, even when a custom trace is
 placed directly in the workspace.
 Unknown CLI options fail startup and close misspellings include a suggestion.
+`--task-file` reads the complete task as UTF-8 and cannot be combined with
+`--task`; it is the recommended one-shot input on Windows when the prompt
+contains Unicode or shell-sensitive characters.
 `--allow-tools` enables exactly the named tools and cannot be combined with
 `--deny-tools`. `find_files` searches only the roots configured by
 `--search-roots`; its default root is the workspace. `list_files` and
@@ -576,7 +589,9 @@ Normal output and the ANSI status frame share one `PrintStream`; every frame is
 written as one operation to prevent status fragments from being interleaved
 inside model output in IDE terminals.
 
-- `--status auto` enables the line only for an interactive console.
+- `--status auto` enables the reserved line only for a supported interactive
+  console. It stays off on Windows Terminal because its scroll-region behavior
+  can merge the status with wrapped agent output.
 - `--status always` forces it on, which is useful in some IDE terminals.
 - `--status never` disables it.
 

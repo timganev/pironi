@@ -52,5 +52,11 @@ SOUL.md и USER.md се изпращат към избрания cloud моде�
 Pironi създава последната workspace папка, ако още не съществува. Кавичките са
 задължителни, когато пътят съдържа интервали.
 
+За one-shot задача с кирилица, кавички или други Unicode символи запиши prompt-а
+като UTF-8 файл и използвай --task-file, вместо да го подаваш през cmd.exe:
+
+   Set-Content -Path .\task.txt -Value 'Прегледай проекта и обобщи риска. ✓' -Encoding utf8
+   .\pironi.bat --provider deepseek --model deepseek-v4-flash --no-interactive --task-file .\task.txt --activity auto
+
 Не мести pironi.bat, pironi.jar или runtime поотделно. Те трябва да останат
 заедно в разархивираната папка.

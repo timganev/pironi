@@ -5,10 +5,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystems;
+import java.nio.file.FileVisitResult;
+import java.nio.file.FileVisitor;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.PathMatcher;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -61,23 +65,67 @@ public final class FindFilesTool implements Tool {
             PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + name);
             Path realRoot = root.toRealPath();
             List<String> results = new ArrayList<>();
-            int visited = 0;
-            try (var paths = Files.walk(realRoot)) {
-                for (Path candidate : (Iterable<Path>) paths::iterator) {
-                    if (++visited > MAX_VISITED || results.size() >= maxResults) break;
-                    if (!Files.isRegularFile(candidate) || !matcher.matches(candidate.getFileName())) continue;
-                    Path real = candidate.toRealPath();
-                    if (!real.startsWith(realRoot)) continue;
-                    if (hiddenPaths.contains(candidate.toAbsolutePath().normalize())
-                            || hiddenPaths.contains(real)) continue;
-                    if (!contains.isEmpty()) {
-                        if (Files.size(real) > MAX_CONTENT_BYTES) continue;
-                        String text = Files.readString(real, StandardCharsets.UTF_8);
-                        if (!text.contains(contains)) continue;
+            Set<Object> visitedDirectories = new HashSet<>();
+            Set<Path> visitedRealDirectories = new HashSet<>();
+            int[] visited = {0};
+            Files.walkFileTree(realRoot, new FileVisitor<>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) {
+                    if (++visited[0] > MAX_VISITED || results.size() >= maxResults) {
+                        return FileVisitResult.TERMINATE;
                     }
-                    results.add(real.toString());
+                    if (!directory.equals(realRoot)
+                            && (attributes.isSymbolicLink() || Files.isSymbolicLink(directory))) {
+                        return FileVisitResult.SKIP_SUBTREE;
+                    }
+                    try {
+                        Path realDirectory = directory.toRealPath();
+                        if (!visitedRealDirectories.add(realDirectory)) return FileVisitResult.SKIP_SUBTREE;
+                        Object identity = attributes.fileKey();
+                        if (identity != null && !visitedDirectories.add(identity)) {
+                            return FileVisitResult.SKIP_SUBTREE;
+                        }
+                    } catch (IOException ignored) {
+                        return FileVisitResult.SKIP_SUBTREE;
+                    }
+                    return FileVisitResult.CONTINUE;
                 }
-            }
+
+                @Override
+                public FileVisitResult visitFile(Path candidate, BasicFileAttributes attributes) {
+                    if (++visited[0] > MAX_VISITED || results.size() >= maxResults) {
+                        return FileVisitResult.TERMINATE;
+                    }
+                    if (!attributes.isRegularFile() || !matcher.matches(candidate.getFileName())) {
+                        return FileVisitResult.CONTINUE;
+                    }
+                    try {
+                        Path real = candidate.toRealPath();
+                        if (!real.startsWith(realRoot)) return FileVisitResult.CONTINUE;
+                        if (hiddenPaths.contains(candidate.toAbsolutePath().normalize())
+                                || hiddenPaths.contains(real)) return FileVisitResult.CONTINUE;
+                        if (!contains.isEmpty()) {
+                            if (attributes.size() > MAX_CONTENT_BYTES) return FileVisitResult.CONTINUE;
+                            String text = Files.readString(real, StandardCharsets.UTF_8);
+                            if (!text.contains(contains)) return FileVisitResult.CONTINUE;
+                        }
+                        results.add(real.toString());
+                    } catch (IOException ignored) {
+                        // A single unreadable or transient path must not abort the whole search.
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFileFailed(Path file, IOException error) {
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult postVisitDirectory(Path directory, IOException error) {
+                    return FileVisitResult.CONTINUE;
+                }
+            });
             return ToolResult.success(results.isEmpty() ? "No matches." : String.join("\n", results));
         } catch (IllegalArgumentException | IOException e) {
             return ToolResult.failure(e.getMessage());

@@ -6,19 +6,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 class WindowsPortableLauncherTest {
     @Test
-    void providesSafeLaptopDefaultsBeforeUserOverrides() throws Exception {
+    void providesEnvironmentDefaultsWithoutDuplicatingUserOptions() throws Exception {
         String launcher = Files.readString(Path.of("dist", "windows", "pironi.bat"));
 
-        int defaults = launcher.indexOf("--workspace \"%USERPROFILE%\"");
-        int arguments = launcher.indexOf("%*", defaults);
-        assertTrue(defaults >= 0, "portable launcher should provide a writable workspace");
-        assertTrue(launcher.contains("--search-roots \"%USERPROFILE%\""));
-        assertTrue(launcher.contains("--pironi-home \"%PIRONI_DIR%.pironi\""));
-        assertTrue(launcher.contains("--personal-context allow"));
-        assertTrue(launcher.contains("--shell-scope user"));
-        assertTrue(arguments > defaults, "user arguments must follow and override defaults");
+        assertTrue(launcher.contains("PIRONI_DEFAULT_WORKSPACE=%USERPROFILE%"));
+        assertTrue(launcher.contains("PIRONI_DEFAULT_SEARCH_ROOTS=%USERPROFILE%"));
+        assertTrue(launcher.contains("PIRONI_DEFAULT_HOME=%PIRONI_DIR%.pironi"));
+        assertTrue(launcher.contains("PIRONI_DEFAULT_PERSONAL_CONTEXT=allow"));
+        assertTrue(launcher.contains("PIRONI_DEFAULT_SHELL_SCOPE=user"));
+        assertTrue(launcher.contains("-jar \"%PIRONI_DIR%pironi.jar\" %*"));
+        assertFalse(launcher.contains("--workspace \"%USERPROFILE%\""));
     }
 }

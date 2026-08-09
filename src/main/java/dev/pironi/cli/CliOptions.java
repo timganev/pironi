@@ -7,6 +7,9 @@ import dev.pironi.status.StatusMode;
 import dev.pironi.tool.ShellScope;
 
 import java.net.URI;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.HashMap;
@@ -45,7 +48,7 @@ record CliOptions(
     ).toAbsolutePath().normalize();
     private static final Set<String> BOOLEAN_FLAGS = Set.of("interactive", "no-interactive", "no-tui");
     private static final Set<String> VALUE_OPTIONS = Set.of(
-            "provider", "base-url", "api-key-env", "model", "workspace", "task",
+            "provider", "base-url", "api-key-env", "model", "workspace", "task", "task-file",
             "approval", "activity", "max-turns", "context", "max-output-tokens",
             "timeout-seconds", "trace", "pironi-home", "personal-context", "status",
             "verify-command", "deny-tools", "allow-tools", "shell-scope", "search-roots"
@@ -177,14 +180,20 @@ record CliOptions(
                 throw new IllegalArgumentException("Missing required option --model");
             }
         }
-        String task = values.get("task");
+        if (values.containsKey("task") && values.containsKey("task-file")) {
+            throw new IllegalArgumentException("--task and --task-file cannot be used together");
+        }
+        String task = values.containsKey("task-file")
+                ? readTaskFile(values.get("task-file"))
+                : values.get("task");
         boolean interactive = interactive(values);
         if (!interactive && (task == null || task.isBlank())) {
-            throw new IllegalArgumentException("--task is required with --no-interactive");
+            throw new IllegalArgumentException("--task or --task-file is required with --no-interactive");
         }
-        Path workspace = Path.of(
-                values.getOrDefault("workspace", DEFAULT_WORKSPACE.toString())
-        ).toAbsolutePath().normalize();
+        Path workspace = Path.of(values.getOrDefault(
+                "workspace",
+                environment.getOrDefault("PIRONI_DEFAULT_WORKSPACE", DEFAULT_WORKSPACE.toString())
+        )).toAbsolutePath().normalize();
         URI baseUri = URI.create(values.getOrDefault("base-url", defaultBaseUrl(providerValue)));
 
         String apiKey = null;
@@ -209,7 +218,10 @@ record CliOptions(
                 : workspace.resolve(".pironi/trace.jsonl");
         Path pironiHome = Path.of(values.getOrDefault(
                 "pironi-home",
-                Path.of(System.getProperty("user.home"), ".pironi").toString()
+                environment.getOrDefault(
+                        "PIRONI_DEFAULT_HOME",
+                        Path.of(System.getProperty("user.home"), ".pironi").toString()
+                )
         )).toAbsolutePath().normalize();
 
         ApprovalMode approvalMode = ApprovalMode.parse(
@@ -230,7 +242,10 @@ record CliOptions(
         if (!denied.isEmpty() && !allowed.isEmpty()) {
             throw new IllegalArgumentException("--allow-tools and --deny-tools cannot be used together");
         }
-        List<Path> searchRoots = parseSearchRoots(values.get("search-roots"), workspace);
+        List<Path> searchRoots = parseSearchRoots(
+                values.getOrDefault("search-roots", environment.get("PIRONI_DEFAULT_SEARCH_ROOTS")),
+                workspace
+        );
 
         return new CliOptions(
                 provider,
@@ -251,12 +266,18 @@ record CliOptions(
                 Duration.ofSeconds(positiveInt(values, "timeout-seconds", 600)),
                 trace,
                 pironiHome,
-                PersonalContextMode.parse(values.getOrDefault("personal-context", "auto")),
-                StatusMode.parse(values.getOrDefault("status", "always")),
+                PersonalContextMode.parse(values.getOrDefault(
+                        "personal-context",
+                        environment.getOrDefault("PIRONI_DEFAULT_PERSONAL_CONTEXT", "auto")
+                )),
+                StatusMode.parse(values.getOrDefault("status", "auto")),
                 values.get("verify-command"),
                 denied,
                 allowed,
-                ShellScope.parse(values.getOrDefault("shell-scope", "workspace")),
+                ShellScope.parse(values.getOrDefault(
+                        "shell-scope",
+                        environment.getOrDefault("PIRONI_DEFAULT_SHELL_SCOPE", "workspace")
+                )),
                 searchRoots,
                 interactive,
                 false
@@ -275,6 +296,15 @@ record CliOptions(
             }
         }
         return Set.copyOf(names);
+    }
+
+    private static String readTaskFile(String value) {
+        Path path = Path.of(value).toAbsolutePath().normalize();
+        try {
+            return Files.readString(path, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Cannot read --task-file " + path + ": " + e.getMessage());
+        }
     }
 
     private static List<Path> parseSearchRoots(String raw, Path workspace) {

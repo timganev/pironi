@@ -4,11 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import dev.pironi.safety.Workspace;
 
 import java.io.IOException;
-import java.io.File;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
 import java.time.Duration;
-import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
@@ -74,7 +71,7 @@ public final class RunCommandTool implements Tool {
             ProcessBuilder processBuilder = new ProcessBuilder(PlatformShell.command(command))
                     .directory(workspace.root().toFile())
                     .redirectErrorStream(true);
-            useCurrentJavaRuntime(processBuilder.environment());
+            ProcessEnvironment.useCurrentJavaRuntime(processBuilder.environment());
             Process process = processBuilder.start();
 
             FutureTask<byte[]> outputFuture = new FutureTask<>(() -> {
@@ -110,11 +107,4 @@ public final class RunCommandTool implements Tool {
         }
     }
 
-    static void useCurrentJavaRuntime(Map<String, String> environment) {
-        String javaHome = System.getProperty("java.home");
-        environment.put("JAVA_HOME", javaHome);
-        String javaBin = Path.of(javaHome, "bin").toString();
-        String path = environment.getOrDefault("PATH", "");
-        environment.put("PATH", path.isBlank() ? javaBin : javaBin + File.pathSeparator + path);
-    }
 }

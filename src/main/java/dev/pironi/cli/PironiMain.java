@@ -145,8 +145,11 @@ public final class PironiMain {
                 availableTools, effectiveDeniedTools, options.allowTools()
         );
 
-        boolean statusEnabled = options.statusMode() == StatusMode.ALWAYS
-                || (options.statusMode() == StatusMode.AUTO && System.console() != null);
+        boolean statusEnabled = statusEnabled(
+                options.statusMode(),
+                System.console() != null,
+                System.getProperty("os.name", "")
+        );
         boolean interactive = options.interactive() && !options.noTui();
 
         Terminal terminal = null;
@@ -464,6 +467,12 @@ public final class PironiMain {
         return Set.copyOf(denied);
     }
 
+    static boolean statusEnabled(StatusMode mode, boolean consolePresent, String osName) {
+        boolean windows = osName.toLowerCase(java.util.Locale.ROOT).contains("win");
+        return mode == StatusMode.ALWAYS
+                || (mode == StatusMode.AUTO && consolePresent && !windows);
+    }
+
     static ToolRegistry configuredTools(
             List<Tool> availableTools,
             Set<String> deniedTools,
@@ -540,8 +549,9 @@ public final class PironiMain {
                   --activity auto                              allow scoped tool activity without prompts;
                                                                overrides --approval; default workspace shell is disabled
                   --interactive                                default
-                  --no-interactive                             one-shot; requires --task
+                  --no-interactive                             one-shot; requires --task or --task-file
                   --task TEXT                                  optional initial interactive task
+                  --task-file PATH                             read the task as UTF-8; conflicts with --task
                   --max-turns N                                 default: 8
                   --context N                                   Ollama 8192, OpenRouter 200000, DeepSeek 1000000
                   --max-output-tokens N                         default: 4096
@@ -549,7 +559,7 @@ public final class PironiMain {
                   --trace PATH                                  default: WORKSPACE/.pironi/trace.jsonl
                   --pironi-home PATH                            default: ~/.pironi
                   --personal-context auto|allow|deny            auto: Ollama only
-                  --status auto|always|never                    default: always
+                  --status auto|always|never                    default: auto
                   --verify-command COMMAND                     auto-detect Maven/Gradle
                   --deny-tools NAME,NAME                        remove named tools; unknown names fail startup
                   --allow-tools NAME,NAME                       enable only named tools; conflicts with --deny-tools

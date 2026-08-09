@@ -40,7 +40,7 @@ class CliOptionsTest {
         assertEquals(Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize(),
                 options.workspace());
         assertEquals(ApprovalMode.READ_ONLY, options.approvalMode());
-        assertEquals(StatusMode.ALWAYS, options.statusMode());
+        assertEquals(StatusMode.AUTO, options.statusMode());
     }
 
     @Test
@@ -127,6 +127,39 @@ class CliOptionsTest {
     }
 
     @Test
+    void taskFileReadsUtf8WithoutShellArgumentEncoding() throws Exception {
+        Path taskFile = Files.writeString(
+                temporaryDirectory.resolve("задача.txt"),
+                "Редактирай файл „данни“. ✓",
+                java.nio.charset.StandardCharsets.UTF_8
+        );
+
+        CliOptions options = CliOptions.parse(new String[]{
+                "--model", "qwen3.6:35b-a3b",
+                "--no-interactive",
+                "--task-file", taskFile.toString()
+        }, Map.of());
+
+        assertEquals("Редактирай файл „данни“. ✓", options.task());
+    }
+
+    @Test
+    void taskAndTaskFileAreMutuallyExclusive() throws Exception {
+        Path taskFile = Files.writeString(temporaryDirectory.resolve("task.txt"), "inspect");
+
+        IllegalArgumentException error = assertThrows(
+                IllegalArgumentException.class,
+                () -> CliOptions.parse(new String[]{
+                        "--model", "qwen3.6:35b-a3b",
+                        "--task", "inspect",
+                        "--task-file", taskFile.toString()
+                }, Map.of())
+        );
+
+        assertEquals("--task and --task-file cannot be used together", error.getMessage());
+    }
+
+    @Test
     void denyToolsDefaultsToEmpty() {
         CliOptions options = CliOptions.parse(
                 new String[]{"--model", "qwen3.6:35b-a3b"},
@@ -151,6 +184,37 @@ class CliOptionsTest {
         assertEquals(Set.of("read_file", "find_files"), options.allowTools());
         assertEquals(ShellScope.USER, options.shellScope());
         assertEquals(2, options.searchRoots().size());
+    }
+
+    @Test
+    void launcherEnvironmentProvidesDefaultsThatCliCanOverride() {
+        Path launcherWorkspace = temporaryDirectory.resolve("launcher");
+        Path explicitWorkspace = temporaryDirectory.resolve("explicit");
+        Path portableHome = temporaryDirectory.resolve("portable-home");
+        Map<String, String> environment = Map.of(
+                "PIRONI_DEFAULT_WORKSPACE", launcherWorkspace.toString(),
+                "PIRONI_DEFAULT_SEARCH_ROOTS", launcherWorkspace.toString(),
+                "PIRONI_DEFAULT_HOME", portableHome.toString(),
+                "PIRONI_DEFAULT_PERSONAL_CONTEXT", "allow",
+                "PIRONI_DEFAULT_SHELL_SCOPE", "user"
+        );
+
+        CliOptions defaults = CliOptions.parse(new String[]{"--model", "test"}, environment);
+        CliOptions overridden = CliOptions.parse(new String[]{
+                "--model", "test", "--workspace", explicitWorkspace.toString(),
+                "--search-roots", explicitWorkspace.toString(),
+                "--personal-context", "deny", "--shell-scope", "workspace"
+        }, environment);
+
+        assertEquals(launcherWorkspace.toAbsolutePath(), defaults.workspace());
+        assertEquals(List.of(launcherWorkspace.toAbsolutePath()), defaults.searchRoots());
+        assertEquals(portableHome.toAbsolutePath(), defaults.pironiHome());
+        assertEquals(dev.pironi.agent.PersonalContextMode.ALLOW, defaults.personalContextMode());
+        assertEquals(ShellScope.USER, defaults.shellScope());
+        assertEquals(explicitWorkspace.toAbsolutePath(), overridden.workspace());
+        assertEquals(List.of(explicitWorkspace.toAbsolutePath()), overridden.searchRoots());
+        assertEquals(dev.pironi.agent.PersonalContextMode.DENY, overridden.personalContextMode());
+        assertEquals(ShellScope.WORKSPACE, overridden.shellScope());
     }
 
     @Test
