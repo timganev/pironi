@@ -415,6 +415,11 @@ public final class AgentLoop {
                 Modify source files only with apply_patch, never with run_command.
                 Prefer scoped file tools over shell commands: use move_file for moves and renames,
                 and write_file for complete new text files. Never emulate move_file with copy plus rm.
+                UTF-8 text tools cannot edit binary Microsoft Office files. On Windows, first inspect
+                which applications or converters are available. When Microsoft Office and run_command
+                are available, use PowerShell COM automation for .doc/.docx, .xls/.xlsx, and .ppt/.pptx;
+                otherwise state which required application or converter is missing. Verify the saved
+                document exists and preserve the original unless the user explicitly requests overwrite.
                 After a successful mutating file tool, Pironi automatically runs the configured
                 verification before accepting finalAnswer. Do not duplicate that verification with
                 run_command unless automatic verification fails and you need targeted diagnostics.

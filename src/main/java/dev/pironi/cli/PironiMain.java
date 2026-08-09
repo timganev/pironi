@@ -126,7 +126,7 @@ public final class PironiMain {
 
         Set<Path> hiddenAgentPaths = Set.of(options.tracePath().toAbsolutePath().normalize());
         List<Tool> availableTools = List.of(
-                new ListFilesTool(workspace, 500, hiddenAgentPaths),
+                new ListFilesTool(workspace, 500, options.searchRoots(), hiddenAgentPaths),
                 new ReadFileTool(
                         workspace, 32_000, options.searchRoots(), hiddenAgentPaths
                 ),

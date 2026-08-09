@@ -11,19 +11,18 @@ tool and approval behavior has been tested for your use case.
 ## Download and run
 
 The current binaries are published on the
-[Pironi v0.1.1 release page](https://github.com/timganev/pironi/releases/tag/v0.1.1).
+[latest Pironi release page](https://github.com/timganev/pironi/releases/latest).
 Choose the setup that matches the machine:
 
 | Platform                       | Recommended package                          |              Admin rights | Java/Maven required         | Start command              |
 | ------------------------------ | -------------------------------------------- | ------------------------: | --------------------------- | -------------------------- |
 | Windows 11, locked-down laptop | Windows x64 portable ZIP                     |                        No | Neither; Java 25 is bundled | `pironi.bat ...`           |
-| macOS                          | macOS portable archive or standalone JAR     |                        No | None for portable archive   | `./pironi ...`             |
-| Linux, full access             | Linux portable archive or standalone JAR     |                        No | None for portable archive   | `./pironi ...`             |
+| macOS (Apple Silicon)          | macOS ARM64 portable archive                 |                        No | None; Java 25 is bundled     | `./pironi ...`             |
+| Linux x64                      | Linux x64 portable archive                   |                        No | None; Java 25 is bundled     | `./pironi ...`             |
 | Development machine            | Source checkout                              |          Depends on setup | JDK 25 and Maven 3.9+       | `mvn clean verify`         |
 
-The standalone JAR needs Java 25. Portable archives are larger because they
-contain a trimmed Java 25 runtime. Maven is needed only when building or
-testing Pironi from source. Starting with the next tagged release, CI produces
+Portable archives contain a trimmed Java 25 runtime. Maven is needed only when
+building or testing Pironi from source. Each tagged release provides
 `windows-x64.zip`, `linux-x64.tar.gz`, and `macos-arm64.tar.gz` bundles with
 SHA-256 checksum files.
 
@@ -36,33 +35,37 @@ cannot be installed:
    [Pironi releases page](https://github.com/timganev/pironi/releases/latest).
 2. Extract the complete ZIP into a writable location such as
    `Documents\Pironi`. Keep `pironi.bat`, `pironi.jar`, and `runtime` together.
-3. Open the extracted folder, click the address bar, enter `cmd`, and press
-   Enter to open Command Prompt in the correct directory.
-4. Set the API key for that window and start Pironi:
+3. Open PowerShell in the extracted folder.
+4. Set the API key for the current PowerShell window and start Pironi. Both
+   commands below are intentionally single-line commands:
 
-```bat
-set DEEPSEEK_API_KEY=your-key
-
-pironi.bat ^
-  --provider deepseek ^
-  --model deepseek-v4-flash ^
-  --workspace "%USERPROFILE%\Documents\project" ^
-  --context 131072 ^
-  --max-output-tokens 16384 ^
-  --max-turns 30 ^
-  --activity auto
+```powershell
+$env:DEEPSEEK_API_KEY = "your-key"
+.\pironi.bat --provider deepseek --model deepseek-v4-flash --context 131072 --max-output-tokens 16384 --max-turns 30 --activity auto
 ```
 
-No installer, elevation, Maven, `JAVA_HOME`, or system `PATH` change is used.
-The key set with `set` exists only in the current Command Prompt process; set
-it again in each new window. `--activity auto` permits scoped workspace-changing
-tool calls without confirmation, so use it only in a project that may be
-modified. For safety, it does not expose `run_command` with the default
-`--shell-scope workspace`.
+PowerShell does not search the current directory for commands, which is why
+the required launcher spelling is `.\pironi.bat`. The `$env:` assignment lasts
+only until that PowerShell process closes. To persist the key for the current
+Windows user without admin rights, run this once and then open a new terminal:
 
-When no override is supplied, `pironi.bat` writes only below
-`%USERPROFILE%\Documents\PironiWorkspace`, permits read-only file searches below
-`%USERPROFILE%` (including Downloads, Desktop, and Documents), and uses the
+```powershell
+[Environment]::SetEnvironmentVariable("DEEPSEEK_API_KEY", "your-key", "User")
+```
+
+This stores the secret in the user environment, so use the session-only form
+on a shared or managed machine. In Command Prompt (not PowerShell), the
+equivalent session-only syntax is `set "DEEPSEEK_API_KEY=your-key"`, followed
+by `pironi.bat --provider deepseek --model deepseek-v4-flash --context 131072 --max-output-tokens 16384 --max-turns 30 --activity auto`.
+
+No installer, elevation, Maven, `JAVA_HOME`, or system `PATH` change is used.
+`--activity auto` permits user-file changes and shell commands without
+confirmation in the Windows portable default. Use it only on a backed-up user
+profile and review the requested task carefully.
+
+When no override is supplied, `pironi.bat` uses `%USERPROFILE%` as both the
+writable workspace and search root (including Downloads, Desktop, and
+Documents), enables user-scoped shell commands, and uses the
 `.pironi` directory beside `pironi.bat` for `SOUL.md`, `USER.md`, skills, and
 sessions. Personal context is layered from `%USERPROFILE%\.pironi`, through the
 portable home, and then through `.pironi` directories down to the workspace;
@@ -89,19 +92,12 @@ set "PATH=%JAVA_HOME%\bin;%PATH%"
 java -version
 ```
 
-Then set the API key and launch the downloaded JAR:
+Then set the API key and launch the downloaded JAR from Command Prompt using
+single-line commands:
 
 ```bat
 set "DEEPSEEK_API_KEY=your-key"
-
-java -jar "%USERPROFILE%\Downloads\pironi-0.1.0-SNAPSHOT.jar" ^
-  --provider deepseek ^
-  --model deepseek-v4-flash ^
-  --workspace "%USERPROFILE%\Documents\project" ^
-  --context 131072 ^
-  --max-output-tokens 16384 ^
-  --max-turns 30 ^
-  --activity auto
+java -jar "%USERPROFILE%\Downloads\pironi.jar" --provider deepseek --model deepseek-v4-flash --workspace "%USERPROFILE%" --context 131072 --max-output-tokens 16384 --max-turns 30 --activity auto --shell-scope user
 ```
 
 These `set` commands affect only the current Command Prompt process and
@@ -110,83 +106,30 @@ Windows portable ZIP, because `pironi.bat` starts the bundled runtime directly.
 
 ### macOS
 
-Install a Java 25 JDK, for example Eclipse Temurin through Homebrew, and verify
-that the active runtime is version 25:
+Download `pironi-VERSION-macos-arm64.tar.gz` from the
+[latest release](https://github.com/timganev/pironi/releases/latest), extract it,
+and run the bundled launcher. Maven, Homebrew, and a system Java are not needed:
 
 ```bash
-brew install --cask temurin@25
-java -version
-```
-
-Download the standalone JAR and run it. Maven is not required:
-
-```bash
-mkdir -p "$HOME/Applications/Pironi"
-curl -fL \
-  https://github.com/timganev/pironi/releases/download/v0.1.1/pironi-0.1.0-SNAPSHOT.jar \
-  -o "$HOME/Applications/Pironi/pironi.jar"
-
 export DEEPSEEK_API_KEY='your-key'
-java -jar "$HOME/Applications/Pironi/pironi.jar" \
-  --provider deepseek \
-  --model deepseek-v4-flash \
-  --workspace "$HOME/Projects/project" \
-  --context 131072 \
-  --max-output-tokens 16384 \
-  --max-turns 30 \
-  --activity auto
+./pironi --provider deepseek --model deepseek-v4-flash --workspace "$HOME/Projects/project" --context 131072 --max-output-tokens 16384 --max-turns 30 --activity auto
 ```
 
-Apple Silicon and Intel Macs use the same JAR; the installed Java runtime must
-match the Mac architecture. Without Homebrew, install Java 25 from
-[Eclipse Temurin](https://adoptium.net/temurin/releases/?version=25).
+The published macOS portable archive is ARM64 and targets Apple Silicon.
 
 ### Linux with full administrative access
 
-This distribution-independent example installs the latest Temurin 25 x64 JRE
-under `/opt`, Pironi under `/opt/pironi`, and a launcher under
-`/usr/local/bin`. Maven is not installed because the release JAR does not need
-it:
-
-```bash
-curl -fL \
-  'https://api.adoptium.net/v3/binary/latest/25/ga/linux/x64/jre/hotspot/normal/eclipse' \
-  -o /tmp/temurin-25-jre.tar.gz
-
-sudo install -d /opt/pironi-java-25 /opt/pironi
-sudo tar -xzf /tmp/temurin-25-jre.tar.gz \
-  -C /opt/pironi-java-25 --strip-components=1
-sudo curl -fL \
-  https://github.com/timganev/pironi/releases/download/v0.1.1/pironi-0.1.0-SNAPSHOT.jar \
-  -o /opt/pironi/pironi.jar
-
-sudo ln -sf /opt/pironi-java-25/bin/java /usr/local/bin/pironi-java
-printf '%s\n' '#!/bin/sh' \
-  'exec /usr/local/bin/pironi-java -jar /opt/pironi/pironi.jar "$@"' \
-  | sudo tee /usr/local/bin/pironi >/dev/null
-sudo chmod 755 /usr/local/bin/pironi
-```
-
-Start Pironi with local Ollama:
-
-```bash
-pironi \
-  --provider ollama \
-  --model MODEL \
-  --workspace /path/to/project \
-  --approval ask
-```
-
-Or use DeepSeek:
+Download `pironi-VERSION-linux-x64.tar.gz` from the
+[latest release](https://github.com/timganev/pironi/releases/latest), extract it,
+and run its bundled launcher. No system Java or Maven is required:
 
 ```bash
 export DEEPSEEK_API_KEY='your-key'
-pironi \
-  --provider deepseek \
-  --model deepseek-v4-flash \
-  --workspace /path/to/project \
-  --activity auto
+./pironi --provider deepseek --model deepseek-v4-flash --workspace /path/to/project --activity auto
 ```
+
+With full administrative access, move the extracted directory under
+`/opt/pironi` and symlink its `pironi` launcher into `/usr/local/bin` if desired.
 
 For Linux ARM64, replace `x64` with `aarch64` in the Adoptium API URL.
 
@@ -603,14 +546,14 @@ placed directly in the workspace.
 Unknown CLI options fail startup and close misspellings include a suggestion.
 `--allow-tools` enables exactly the named tools and cannot be combined with
 `--deny-tools`. `find_files` searches only the roots configured by
-`--search-roots`; its default root is the workspace. `read_file` accepts the
-absolute paths returned by `find_files` as read-only inputs, while all writing
-tools remain restricted to the workspace.
+`--search-roots`; its default root is the workspace. `list_files` and
+`read_file` accept absolute directories/files below these roots. Writing tools
+remain restricted to the workspace.
 
 ## Live status
 
 In an interactive terminal Pironi reserves the bottom terminal row for a
-persistent status line on `stderr`:
+persistent status line in the interactive terminal:
 
 ```text
 ⠹ MODEL | project | ctx ~7% | working 18s | turn 2/8
@@ -649,7 +592,7 @@ protocol JSON stay hidden, and the completed answer is retained for tracing and
 conversation memory without being printed twice.
 
 Interactive conversation colors distinguish speakers: user input is cyan and
-streamed agent answers are green. Status, memory and approval messages retain
+validated agent answers are green. Status, memory and approval messages retain
 their neutral UI colors. JLine generates the terminal-specific escape sequences.
 
 ## Current tool set
@@ -664,11 +607,13 @@ their neutral UI colors. JLine generates the terminal-specific escape sequences.
 - `http_get`
 - `run_command`
 
-All file paths are restricted to the selected workspace. `apply_patch` requires
+Writing and moving paths are restricted to the selected workspace. Read-only
+tools may also use configured `--search-roots`. `apply_patch` requires
 one exact old-text match, shows a diff before approval, creates a checkpoint,
 and writes atomically. Before a final answer after a mutation, Pironi
 automatically runs the configured verification command or detects Maven/Gradle.
-`list_files` omits common generated/private directories such as `.git`,
+`list_files` accepts workspace-relative directories and absolute directories
+below configured search roots. It omits common generated/private directories such as `.git`,
 `.pironi`, `.idea`, `target`, `build`, `.gradle`, and `node_modules`.
 `--deny-tools` removes exact tool names from this set and rejects unknown names
 at startup. It does not restrict filesystem access through `run_command`.
@@ -711,6 +656,19 @@ does not depend on curl or a shell. It accepts HTTPS only, does not follow
 redirects, rejects credentials and local/private/link-local destinations, and
 caps response bodies at 64 KiB. The generated Runtime capabilities section
 tells the model which tools, shell and network path are actually available.
+
+### Microsoft Office documents on Windows
+
+The scoped text tools do not parse or rewrite binary Office formats. When
+`run_command` is enabled and desktop Microsoft Office is installed, Pironi can
+inspect and automate Word, Excel, and PowerPoint through PowerShell COM for
+`.doc`/`.docx`, `.xls`/`.xlsx`, and `.ppt`/`.pptx`. It must first detect the
+available application, preserve the original unless overwrite was requested,
+and verify the saved result. If Office is absent or COM automation is blocked
+by company policy, a suitable converter or a dedicated document tool is
+required. Auto mode with user-scoped shell access is powerful and has no
+transactional rollback for COM edits, so keep OneDrive/version history or a
+backup enabled.
 
 Provider finish reasons and the effective `json_schema`/`json_object` response
 format are written to the JSONL trace. `length`/`max_tokens`

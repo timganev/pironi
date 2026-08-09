@@ -7,6 +7,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -43,6 +44,27 @@ class ListFilesToolTest {
         ).execute(OBJECT_MAPPER.readTree("{\"path\":\".\"}"));
 
         assertEquals(visible.getFileName().toString(), result.output());
+    }
+
+    @Test
+    void listsAbsoluteDirectoryBelowConfiguredSearchRoot() throws Exception {
+        Path externalRoot = Files.createDirectory(workspaceRoot.resolveSibling(
+                workspaceRoot.getFileName() + "-external"
+        ));
+        Path downloads = Files.createDirectory(externalRoot.resolve("Downloads"));
+        Path document = Files.writeString(downloads.resolve("report.txt"), "content");
+        ListFilesTool tool = new ListFilesTool(
+                new Workspace(workspaceRoot), 100, List.of(externalRoot), Set.of()
+        );
+
+        ToolResult allowed = tool.execute(OBJECT_MAPPER.createObjectNode()
+                .put("path", downloads.toString()));
+        ToolResult rejected = tool.execute(OBJECT_MAPPER.createObjectNode()
+                .put("path", externalRoot.getParent().toString()));
+
+        assertEquals(true, allowed.success());
+        assertEquals(document.toRealPath().toString(), allowed.output());
+        assertEquals(false, rejected.success());
     }
 
     private void writeInDirectory(String directory, String file) throws Exception {

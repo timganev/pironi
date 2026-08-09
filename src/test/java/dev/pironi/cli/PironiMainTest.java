@@ -69,6 +69,15 @@ class PironiMainTest {
                 Map.of()
         );
         assertEquals(Set.of(), PironiMain.autoSafeDeniedTools(explicit));
+
+        CliOptions userScoped = CliOptions.parse(
+                new String[]{
+                        "--activity", "auto", "--model", "test",
+                        "--shell-scope", "user"
+                },
+                Map.of()
+        );
+        assertEquals(Set.of(), PironiMain.autoSafeDeniedTools(userScoped));
     }
 
     @Test

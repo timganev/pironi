@@ -8,9 +8,10 @@ if not exist "%PIRONI_DIR%runtime\bin\java.exe" (
 )
 
 "%PIRONI_DIR%runtime\bin\java.exe" -jar "%PIRONI_DIR%pironi.jar" ^
-  --workspace "%USERPROFILE%\Documents\PironiWorkspace" ^
+  --workspace "%USERPROFILE%" ^
   --search-roots "%USERPROFILE%" ^
   --pironi-home "%PIRONI_DIR%.pironi" ^
   --personal-context allow ^
+  --shell-scope user ^
   %*
 exit /b %ERRORLEVEL%

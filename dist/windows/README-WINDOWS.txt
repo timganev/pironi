@@ -6,25 +6,33 @@ PIRONI PORTABLE FOR WINDOWS 11
 1. Разархивирай ZIP файла в папка, в която имаш право да пишеш,
    например Documents\Pironi.
 
-2. Отвори Command Prompt в разархивираната папка.
+2. Отвори PowerShell в разархивираната папка.
 
-3. Задай API ключа само за текущия прозорец:
+3. Задай API ключа само за текущия PowerShell прозорец:
 
-   set DEEPSEEK_API_KEY=твоят-ключ
+   $env:DEEPSEEK_API_KEY = "твоят-ключ"
 
 4. Стартирай Pironi:
 
-   pironi.bat --provider deepseek --model deepseek-v4-flash --context 131072 --max-output-tokens 16384 --max-turns 30 --activity auto
+   .\pironi.bat --provider deepseek --model deepseek-v4-flash --context 131072 --max-output-tokens 16384 --max-turns 30 --activity auto
+
+PowerShell изисква .\ пред локален executable. Горната env променлива живее
+само до затварянето на прозореца. За перманентна user променлива без admin
+права изпълни веднъж и после отвори нов PowerShell:
+
+   [Environment]::SetEnvironmentVariable("DEEPSEEK_API_KEY", "твоят-ключ", "User")
 
 Без допълнителни аргументи launcher-ът използва:
 
-   workspace:    %USERPROFILE%\Documents\PironiWorkspace
-   search roots: %USERPROFILE% (read-only достъп чрез find_files/read_file)
+   workspace:    %USERPROFILE%
+   search roots: %USERPROFILE%
+   shell scope:  user
    memory:       папката .pironi до pironi.bat
    context:      .pironi\SOUL.md и .pironi\USER.md
 
-Така агентът може да намира и чете файлове от Downloads, Desktop и Documents,
-но може да променя файлове само в PironiWorkspace. Папката се създава автоматично.
+Така агентът може да намира, чете и променя файлове от Downloads, Desktop и
+Documents. При --activity auto тези операции и shell командите не искат
+потвърждение — използвай backup/OneDrive history и задавай тесни задачи.
 
 Sessions и skills също се пазят в тази portable .pironi папка. Така остават с
 Pironi, когато преместиш цялата разархивирана директория.
@@ -39,7 +47,7 @@ SOUL.md и USER.md се изпращат към избрания cloud моде�
 
 Можеш да подадеш друга workspace папка с:
 
-   --workspace "C:\Users\ТВОЕТО-ИМЕ\Documents\project"
+   .\pironi.bat --workspace "C:\Users\ТВОЕТО-ИМЕ\Documents\project" --provider deepseek --model deepseek-v4-flash --activity auto
 
 Pironi създава последната workspace папка, ако още не съществува. Кавичките са
 задължителни, когато пътят съдържа интервали.
