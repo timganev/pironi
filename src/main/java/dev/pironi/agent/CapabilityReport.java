@@ -36,6 +36,8 @@ public final class CapabilityReport {
         boolean http = tools.find("http_get").isPresent();
         boolean speed = tools.find("network_speed").isPresent();
         boolean desktop = tools.find("app_control").isPresent();
+        boolean processInspect = tools.find("process_inspect").isPresent();
+        boolean processControl = tools.find("process_control").isPresent();
         String network = speed
                 ? "available; throughput measurement through network_speed"
                 : http ? "available through http_get; throughput measurement unavailable"
@@ -53,6 +55,8 @@ public final class CapabilityReport {
                 run_command: %s
                 network: %s
                 desktop applications: %s
+                process diagnostics: %s
+                process termination: %s
                 exposed tools: %s
                 policy-disabled tools: %s
                 live configuration:
@@ -67,6 +71,10 @@ public final class CapabilityReport {
                 network,
                 desktop ? "available through allowlisted app_control"
                         : "no registered desktop application tool",
+                processInspect ? "available through process_inspect"
+                        : "no registered process inspection tool",
+                processControl ? "explicit approval required for every process_control action"
+                        : "no registered process control tool",
                 names.isBlank() ? "none" : names,
                 disabledText,
                 context.runtimeSession().indent(2).stripTrailing()

@@ -142,6 +142,8 @@ public final class PironiMain {
                 new InspectFileTool(workspace, options.searchRoots()),
                 new SystemInfoTool(workspace),
                 new AppControlTool(),
+                new dev.pironi.tool.ProcessInspectTool(),
+                new dev.pironi.tool.ProcessControlTool(),
                 new ProposeSkillTool(memory),
                 new WriteFileTool(workspace),
                 new ApplyPatchTool(workspace, checkpoints),

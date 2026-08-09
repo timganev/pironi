@@ -686,6 +686,8 @@ to later sessions without changing prompts, agent identity, or trace content.
 - `write_file`
 - `apply_patch`
 - `app_control`
+- `process_inspect`
+- `process_control`
 - `move_file`
 - `rollback_checkpoint`
 - `find_files`
@@ -722,6 +724,15 @@ and graceful `close`. It never force-terminates a process. If graceful close
 does not complete within five seconds, Pironi reports the remaining processes
 instead of escalating. Availability still depends on an active desktop session
 and an executable in a known platform location.
+
+`process_inspect` provides a bounded process inventory sorted by resident memory,
+accumulated CPU, uptime, or PID. It deliberately excludes command-line arguments
+and environment data because those often contain secrets. `process_control`
+targets one PID plus the exact executable name observed by `process_inspect`,
+guards against PID reuse, refuses critical/system/Pironi processes, and always
+requires explicit interactive approval—even with `--approval auto`. Normal GUI
+application closure should use `app_control`; `force-kill` is only for a confirmed
+disposable or unresponsive process after the impact is understood.
 
 Commands and automatic verification inherit the Java runtime that launched
 Pironi: `JAVA_HOME` is set from the active JVM and its `bin` directory is

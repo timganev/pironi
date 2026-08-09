@@ -2,6 +2,8 @@ package dev.pironi.tool;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Duration;
 
@@ -45,6 +47,29 @@ class AppControlToolTest {
         assertTrue(tool.execute(args("image-viewer", "close")).success());
         assertTrue(tool.execute(args("settings", "launch")).success());
         assertFalse(tool.execute(args("SystemSettings.exe", "close")).success());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"google chrome", "google-chrome", "microsoft edge", "code",
+            "visual studio code", "photos", "photo viewer", "imageviewer",
+            "system settings", "windows settings"})
+    void normalizesOnlyExplicitSafeAliases(String alias) {
+        assertTrue(new AppControlTool(new FakeBackend()).execute(args(alias, "status")).success());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"slack", "obsidian", "image-viewer", "settings"})
+    void rejectsUnsupportedNewWindowInsteadOfClaimingItOpened(String application) {
+        ToolResult result = new AppControlTool(new FakeBackend())
+                .execute(args(application, "new-window"));
+        assertFalse(result.success());
+        assertTrue(result.output().contains("new-window is not supported"));
+    }
+
+    @Test void launchResultDoesNotClaimThatAWindowWasObserved() {
+        ToolResult result = new AppControlTool(new FakeBackend()).execute(args("settings", "launch"));
+        assertTrue(result.success());
+        assertTrue(result.output().contains("window not verified"));
     }
 
     private com.fasterxml.jackson.databind.node.ObjectNode args(String app, String action) {

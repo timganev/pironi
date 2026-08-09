@@ -27,6 +27,9 @@ final class ToolActivityFormatter {
             case "http_get" -> "Fetching " + safeUrl(safeText(arguments, "url"));
             case "network_speed" -> "Measuring network latency and download speed";
             case "app_control" -> appControl(arguments);
+            case "process_inspect" -> "Inspecting processes by "
+                    + fallback(safeText(arguments, "sortBy"), "resource use");
+            case "process_control" -> processControl(arguments);
             case "run_command" -> summarizeCommand(safeText(arguments, "command"));
             case "propose_skill" -> "Preparing skill draft "
                     + fallback(safeText(arguments, "name"), "(unnamed)");
@@ -34,6 +37,13 @@ final class ToolActivityFormatter {
             case "system_info" -> "Inspecting runtime capabilities";
             default -> "Running tool " + safeIdentifier(tool);
         };
+    }
+
+    private static String processControl(JsonNode arguments) {
+        String action = fallback(safeText(arguments, "action"), "control");
+        String pid = fallback(safeScalar(arguments, "pid"), "unknown PID");
+        String name = fallback(safeText(arguments, "expectedName"), "unknown process");
+        return action + " " + name + " (PID " + pid + ")";
     }
 
     static String finished(String tool, boolean success, long durationMillis) {
@@ -85,6 +95,13 @@ final class ToolActivityFormatter {
         JsonNode value = arguments.get(field);
         if (value == null || !value.isTextual()) return "";
         return truncate(value.textValue().replace('\r', ' ').replace('\n', ' ').strip());
+    }
+
+    private static String safeScalar(JsonNode arguments, String field) {
+        if (arguments == null) return "";
+        JsonNode value = arguments.get(field);
+        if (value == null || (!value.isTextual() && !value.isIntegralNumber())) return "";
+        return truncate(value.asText().replace('\r', ' ').replace('\n', ' ').strip());
     }
 
     private static String safeIdentifier(String value) {

@@ -105,6 +105,28 @@ class ConsoleApprovalPolicyTest {
         assertTrue(output.toString().contains("require explicit approval"));
     }
 
+    @Test
+    void autoPromptsForExplicitActionsAndBatchModeDeniesThem() {
+        Tool explicit = new ExplicitTool();
+        ConsoleApprovalPolicy interactive = new ConsoleApprovalPolicy(
+                ApprovalMode.AUTO,
+                new BufferedReader(new StringReader("yes\n")),
+                new PrintStream(new ByteArrayOutputStream()),
+                true
+        );
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        ConsoleApprovalPolicy batch = new ConsoleApprovalPolicy(
+                ApprovalMode.AUTO,
+                new BufferedReader(new StringReader("yes\n")),
+                new PrintStream(output),
+                false
+        );
+
+        assertEquals(ApprovalDecision.ALLOW, interactive.decide(explicit, arguments));
+        assertEquals(ApprovalDecision.DENY, batch.decide(explicit, arguments));
+        assertTrue(output.toString().contains("requires explicit approval"));
+    }
+
     private ConsoleApprovalPolicy policy(String input) {
         return new ConsoleApprovalPolicy(
                 ApprovalMode.ASK,
@@ -121,5 +143,14 @@ class ConsoleApprovalPolicyTest {
             public boolean mutating() { return mutating; }
             public ToolResult execute(JsonNode ignored) { return ToolResult.success(""); }
         };
+    }
+
+    private static final class ExplicitTool implements Tool {
+        public String name() { return "explicit"; }
+        public String description() { return "test"; }
+        public String argumentSchema() { return "{}"; }
+        public boolean mutating() { return true; }
+        public boolean requiresExplicitApproval(JsonNode ignored) { return true; }
+        public ToolResult execute(JsonNode ignored) { return ToolResult.success(""); }
     }
 }

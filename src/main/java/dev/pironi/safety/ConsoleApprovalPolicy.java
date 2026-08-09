@@ -62,11 +62,21 @@ public final class ConsoleApprovalPolicy implements ApprovalPolicy {
             return ApprovalDecision.ALLOW;
         }
         return switch (mode) {
-            case AUTO -> targetsProtectedContext(arguments)
-                    ? protectedContextDecision(tool, arguments) : ApprovalDecision.ALLOW;
+            case AUTO -> tool.requiresExplicitApproval(arguments)
+                    ? explicitActionDecision(tool, arguments)
+                    : targetsProtectedContext(arguments)
+                            ? protectedContextDecision(tool, arguments) : ApprovalDecision.ALLOW;
             case READ_ONLY -> ApprovalDecision.DENY;
             case ASK -> prompt(tool, arguments);
         };
+    }
+
+    private ApprovalDecision explicitActionDecision(Tool tool, JsonNode arguments) {
+        if (promptAllowed) return prompt(tool, arguments);
+        interaction.result(
+                "Denied: this action requires explicit approval in an interactive session."
+        );
+        return ApprovalDecision.DENY;
     }
 
     private ApprovalDecision protectedContextDecision(Tool tool, JsonNode arguments) {

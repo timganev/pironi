@@ -510,6 +510,16 @@ public final class AgentLoop {
                 Use app_control for allowlisted desktop applications. Do not use or recommend pkill,
                 killall, taskkill, or arbitrary shell commands as a substitute. Close is graceful only;
                 if it fails, report remaining processes and never escalate to force termination.
+                If an application is unsupported, say so and suggest its normal window controls; do not
+                mention shell access or ask the user to enable shell as an application-control fallback.
+                A successful launch means activation was requested, not that a visible window was verified.
+                For a slow or memory-constrained machine, measure system memory with system_info and
+                inspect processes before reporting evidence or recommending an action;
+                never guess which process should be stopped. Use app_control for a normal GUI close.
+                Use process_control only for a specific PID and exact observed name. Every termination
+                requires explicit user approval. Protect system processes, Pironi and its ancestors;
+                never escalate terminate to force-kill automatically or terminate a process merely
+                because it is large. Prefer reversible mitigations and explain likely user impact.
 
                 Available tools:
                 %s

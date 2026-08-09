@@ -31,6 +31,17 @@ public final class AppControlTool implements Tool {
                             "SystemSettings.exe", "System Settings"))
     );
     private static final List<String> ACTIONS = List.of("status", "launch", "new-window", "close");
+    private static final Map<String, String> ALIASES = Map.ofEntries(
+            Map.entry("google-chrome", "chrome"),
+            Map.entry("microsoft-edge", "edge"),
+            Map.entry("visual-studio-code", "vscode"),
+            Map.entry("code", "vscode"),
+            Map.entry("photos", "image-viewer"),
+            Map.entry("photo-viewer", "image-viewer"),
+            Map.entry("imageviewer", "image-viewer"),
+            Map.entry("system-settings", "settings"),
+            Map.entry("windows-settings", "settings")
+    );
     private final Backend backend;
 
     public AppControlTool() { this(new NativeBackend()); }
@@ -82,7 +93,8 @@ public final class AppControlTool implements Tool {
                     backend.launch(request.app(), request.action().equals("new-window"));
                     yield ToolResult.success(request.app().label()
                             + (request.action().equals("new-window")
-                            ? " new window requested" : " launch requested"));
+                            ? " new window requested; window not verified"
+                            : " activation requested; window not verified"));
                 }
                 case "close" -> {
                     int before = backend.running(request.app());
@@ -105,12 +117,23 @@ public final class AppControlTool implements Tool {
 
     private static Request request(JsonNode arguments) {
         String name = ToolArguments.requiredText(arguments, "application")
-                .toLowerCase(Locale.ROOT);
+                .strip().toLowerCase(Locale.ROOT).replace(' ', '-');
+        name = ALIASES.getOrDefault(name, name);
         App app = APPS.get(name);
         if (app == null) throw new IllegalArgumentException("Unsupported application: " + name);
         String action = ToolArguments.requiredText(arguments, "action").toLowerCase(Locale.ROOT);
         if (!ACTIONS.contains(action)) throw new IllegalArgumentException("Unsupported action: " + action);
+        if (action.equals("new-window") && !supportsNewWindow(app)) {
+            throw new IllegalArgumentException("new-window is not supported for " + app.id());
+        }
         return new Request(app, action);
+    }
+
+    private static boolean supportsNewWindow(App app) {
+        return switch (app.id()) {
+            case "firefox", "chrome", "edge", "vscode", "notepad" -> true;
+            default -> false;
+        };
     }
 
     interface Backend {
@@ -180,7 +203,9 @@ public final class AppControlTool implements Tool {
             List<String> result = new ArrayList<>();
             result.add(executable.toString());
             if (newWindow && (app.id().equals("firefox") || app.id().equals("chrome")
-                    || app.id().equals("edge"))) result.add("--new-window");
+                    || app.id().equals("edge") || app.id().equals("vscode"))) {
+                result.add("--new-window");
+            }
             return List.copyOf(result);
         }
 

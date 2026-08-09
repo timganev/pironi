@@ -15,6 +15,11 @@ public interface Tool {
         return mutating();
     }
 
+    /** Actions that must never be auto-approved, even under approval=auto. */
+    default boolean requiresExplicitApproval(JsonNode arguments) {
+        return false;
+    }
+
     default String approvalPreview(JsonNode arguments) {
         return arguments.toString();
     }
