@@ -64,5 +64,27 @@ class SessionStoreTest {
         assertFalse(persisted.contains("tool-secret"));
         assertFalse(persisted.contains("checkpoint-secret"));
         assertTrue(persisted.contains("[REDACTED]"));
+        assertDoesNotThrow(() -> new ObjectMapper().readTree(
+                store.loadCheckpoint(meta.id()).orElseThrow()
+        ));
+    }
+
+    @Test void redactedCheckpointWithEscapedNewlinesRemainsValidJson() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        SessionStore store = new SessionStore(temporaryDirectory, mapper);
+        var meta = store.startSession("model", Path.of("/workspace/project"), 1000, 8);
+        var root = mapper.createObjectNode().put("version", 1);
+        root.putArray("messages").addObject()
+                .put("role", "user")
+                .put("content", "first line\nPASSWORD=secret-value\nlast line");
+
+        store.saveCheckpoint(root.toString());
+
+        String checkpoint = store.loadCheckpoint(meta.id()).orElseThrow();
+        assertFalse(checkpoint.contains("secret-value"));
+        assertEquals(
+                "first line\nPASSWORD=[REDACTED]\nlast line",
+                mapper.readTree(checkpoint).path("messages").get(0).path("content").asText()
+        );
     }
 }

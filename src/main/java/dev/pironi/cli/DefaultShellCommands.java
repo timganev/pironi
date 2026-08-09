@@ -135,6 +135,17 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
         return memory.saveLastTurnAsSkill(title);
     }
 
+    @Override public String pendingSkill() { return memory.pendingSkill(); }
+
+    @Override public String acceptSkill(String mode) {
+        if (!mode.isBlank() && !mode.equalsIgnoreCase("replace")) {
+            return "Usage: /accept-skill [replace]";
+        }
+        return memory.acceptPendingSkill(mode.equalsIgnoreCase("replace"));
+    }
+
+    @Override public String rejectSkill() { return memory.rejectPendingSkill(); }
+
     @Override public String forgetSkill(String name) {
         return skills.archive(name) ? "Skill archived: " + name : "Not found: " + name;
     }

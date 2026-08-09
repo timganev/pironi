@@ -19,6 +19,7 @@ import dev.pironi.tool.HttpGetTool;
 import dev.pironi.tool.FindFilesTool;
 import dev.pironi.tool.MoveFileTool;
 import dev.pironi.tool.ReadFileTool;
+import dev.pironi.tool.ProposeSkillTool;
 import dev.pironi.tool.RunCommandTool;
 import dev.pironi.tool.RollbackCheckpointTool;
 import dev.pironi.tool.Tool;
@@ -138,6 +139,7 @@ public final class PironiMain {
                 ),
                 new InspectFileTool(workspace, options.searchRoots()),
                 new SystemInfoTool(workspace),
+                new ProposeSkillTool(memory),
                 new WriteFileTool(workspace),
                 new ApplyPatchTool(workspace, checkpoints),
                 new MoveFileTool(workspace, checkpoints),

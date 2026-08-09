@@ -474,14 +474,31 @@ OpenRouter is a cloud provider, so `--personal-context auto` does not send
 Interactive sessions are persisted under `~/.pironi/sessions`. `/sessions`
 lists them, `/resume [ID]` schedules a saved checkpoint for the next request,
 and `/compress now` schedules semantic compression for the next request.
+If there is not yet any older eligible history, the request remains visibly
+pending instead of being discarded.
 Model-reported prompt and output token counts drive the compression threshold.
 `/new` closes the current session and starts a clean one without restarting
 Pironi or changing the selected model.
 
-Skills live under `~/.pironi/skills/NAME/SKILL.md`. `/skill NAME` activates a
-skill for subsequent agent prompts, `/skill off` clears it, and
-`/save-skill NAME` saves the last successfully completed turn as a reusable
-skill.
+Skills live under `~/.pironi/skills/NAME/SKILL.md`. Pironi performs a small
+lexical metadata scan and automatically loads at most one unambiguous relevant
+skill; it does not use embeddings or load every skill body. `/skill NAME`
+selects one explicitly, `/skill off` suppresses automatic selection for the
+session, and `/skill auto` enables it again.
+
+Learning is reviewable and never writes durable memory immediately.
+`propose_skill` can prepare an ephemeral structured draft only after an
+explicit first-party correction describes a reusable workflow. `/save-skill NAME`
+is the manual equivalent for the last verified turn. Review with
+`/pending-skill`, persist with `/accept-skill`, or discard with
+`/reject-skill`. `/new`, `/resume`, process exit and rejection clear a
+pending draft. Existing skills are never silently overwritten:
+`/accept-skill replace` requires the reviewed original hash still to match and
+archives the previous version before an atomic replacement.
+
+Skills are procedural guidance below identity, privacy, project rules and
+approval policy. They cannot authorize external messages, change `SOUL.md` or
+`USER.md`, preserve temporary location as identity, or bypass confirmation.
 
 Portable bundles include a `team-lead` skill for safe Planner/Teams CSV
 reconciliation, status reporting, calendar drafts, and Office Open XML

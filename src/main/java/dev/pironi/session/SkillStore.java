@@ -1,14 +1,23 @@
 package dev.pironi.session;
 
 import java.io.IOException;
+import java.io.BufferedReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
@@ -39,7 +48,7 @@ public final class SkillStore {
                     .filter(d -> !d.getFileName().toString().startsWith("."))
                     .forEach(dir -> {
                         Path md = dir.resolve("SKILL.md");
-                        if (Files.exists(md)) {
+                        if (isLoadable(md)) {
                             String name = dir.getFileName().toString();
                             String desc = extractDescription(md);
                             long mtime = md.toFile().lastModified();
@@ -60,9 +69,57 @@ public final class SkillStore {
         try {
             String content = Files.readString(md, StandardCharsets.UTF_8);
             if (content.length() > MAX_SKILL_CHARACTERS) return Optional.empty();
-            // Touch file for mtime tracking
-            md.toFile().setLastModified(System.currentTimeMillis());
             return Optional.of(content);
+        } catch (IOException e) {
+            return Optional.empty();
+        }
+    }
+
+    public Optional<SkillEntry> findRelevant(String task) {
+        if (task == null || task.isBlank()) return Optional.empty();
+        Set<String> query = tokens(task);
+        if (query.size() < 2) return Optional.empty();
+        try {
+            SkillEntry best = null;
+            int bestScore = 0;
+            boolean tied = false;
+            for (SkillEntry entry : list()) {
+                Set<String> exclusions = tokens(extractField(
+                        Path.of(entry.path()), "exclusions:"
+                ));
+                if (!exclusions.isEmpty() && query.stream().anyMatch(exclusions::contains)) {
+                    continue;
+                }
+                Set<String> metadata = tokens(
+                        entry.name() + " " + entry.description() + " "
+                                + extractField(Path.of(entry.path()), "triggers:")
+                );
+                int score = 0;
+                for (String token : query) if (metadata.contains(token)) score++;
+                if (score > bestScore) {
+                    best = entry;
+                    bestScore = score;
+                    tied = false;
+                } else if (score == bestScore && score > 0) {
+                    tied = true;
+                }
+            }
+            return bestScore >= 2 && !tied ? Optional.of(best) : Optional.empty();
+        } catch (IOException e) {
+            return Optional.empty();
+        }
+    }
+
+    public boolean exists(String name) {
+        return validName(name) && isLoadable(skillsDir.resolve(name).resolve("SKILL.md"));
+    }
+
+    public Optional<String> contentHash(String name) {
+        if (!validName(name)) return Optional.empty();
+        Path skill = skillsDir.resolve(name).resolve("SKILL.md");
+        if (!isLoadable(skill)) return Optional.empty();
+        try {
+            return Optional.of(sha256(Files.readAllBytes(skill)));
         } catch (IOException e) {
             return Optional.empty();
         }
@@ -74,11 +131,51 @@ public final class SkillStore {
         if (name == null || name.isBlank() || content == null || content.isBlank()) return false;
         if (content.length() > MAX_SKILL_CHARACTERS) return false;
         try {
-            Path dir = skillsDir.resolve(sanitize(name));
+            String canonical = canonicalName(name);
+            if (canonical.isBlank()) return false;
+            Path dir = skillsDir.resolve(canonical);
             Files.createDirectories(dir);
-            Files.writeString(
-                    dir.resolve("SKILL.md"), SecretRedactor.redact(content), StandardCharsets.UTF_8
+            Path skill = dir.resolve("SKILL.md");
+            if (Files.exists(skill)) return false;
+            Path temporary = Files.createTempFile(dir, ".pironi-skill-", ".tmp");
+            try {
+                Files.writeString(temporary, SecretRedactor.redact(content), StandardCharsets.UTF_8);
+                moveNewAtomically(temporary, skill);
+            } finally {
+                Files.deleteIfExists(temporary);
+            }
+            rebuildIndex();
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    public boolean replace(String name, String expectedHash, String content) {
+        if (!validName(name) || expectedHash == null || expectedHash.isBlank()
+                || content == null || content.isBlank()
+                || content.length() > MAX_SKILL_CHARACTERS) return false;
+        Path skill = skillsDir.resolve(name).resolve("SKILL.md");
+        try {
+            if (!isLoadable(skill)) return false;
+            byte[] existing = Files.readAllBytes(skill);
+            if (!sha256(existing).equals(expectedHash)) return false;
+            Path version = skillsDir.resolve(".archive").resolve("versions").resolve(
+                    name + "-" + System.currentTimeMillis() + "-" + expectedHash.substring(0, 8)
             );
+            Files.createDirectories(version);
+            Files.writeString(
+                    version.resolve("SKILL.md"),
+                    SecretRedactor.redact(new String(existing, StandardCharsets.UTF_8)),
+                    StandardCharsets.UTF_8
+            );
+            Path temporary = Files.createTempFile(skill.getParent(), ".pironi-skill-", ".tmp");
+            try {
+                Files.writeString(temporary, SecretRedactor.redact(content), StandardCharsets.UTF_8);
+                moveReplacingAtomically(temporary, skill);
+            } finally {
+                Files.deleteIfExists(temporary);
+            }
             rebuildIndex();
             return true;
         } catch (IOException e) {
@@ -180,8 +277,10 @@ public final class SkillStore {
     // ── helpers ────────────────────────────────────────────────────────
 
     private static String extractDescription(Path md) {
-        try {
-            for (String line : Files.readAllLines(md, StandardCharsets.UTF_8)) {
+        try (BufferedReader reader = Files.newBufferedReader(md, StandardCharsets.UTF_8)) {
+            String line;
+            int inspected = 0;
+            while ((line = reader.readLine()) != null && inspected++ < 40) {
                 if (line.startsWith("description:")) {
                     return line.substring("description:".length()).trim().replace("\"", "");
                 }
@@ -190,8 +289,36 @@ public final class SkillStore {
         return "(no description)";
     }
 
+    private static String extractField(Path md, String field) {
+        try (BufferedReader reader = Files.newBufferedReader(md, StandardCharsets.UTF_8)) {
+            String line;
+            int inspected = 0;
+            while ((line = reader.readLine()) != null && inspected++ < 40) {
+                if (line.startsWith(field)) {
+                    return line.substring(field.length()).trim().replace("\"", "");
+                }
+            }
+        } catch (IOException ignored) { }
+        return "";
+    }
+
+    private static boolean isLoadable(Path path) {
+        try {
+            return Files.isRegularFile(path) && Files.size(path) <= MAX_SKILL_CHARACTERS;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
     private static String sanitize(String name) {
         return name.replaceAll("[^a-zA-Z0-9_-]", "-").toLowerCase();
+    }
+
+    public static String canonicalName(String name) {
+        if (name == null) return "";
+        String canonical = sanitize(name).replaceAll("-{2,}", "-")
+                .replaceAll("^-|-$", "");
+        return canonical.matches("[a-z0-9][a-z0-9_-]*") ? canonical : "";
     }
 
     private static boolean validName(String name) {
@@ -200,5 +327,47 @@ public final class SkillStore {
 
     private static String truncate(String s, int max) {
         return s.length() <= max ? s : s.substring(0, max - 3) + "...";
+    }
+
+    private static Set<String> tokens(String value) {
+        Set<String> result = new HashSet<>();
+        for (String token : value.toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{N}]+")) {
+            if (token.length() >= 3 && !STOP_WORDS.contains(token)) result.add(token);
+        }
+        return result;
+    }
+
+    private static final Set<String> STOP_WORDS = Set.of(
+            "the", "and", "for", "with", "from", "this", "that",
+            "как", "със", "или", "при", "това", "този", "тази", "към"
+    );
+
+    private static void moveNewAtomically(Path source, Path target) throws IOException {
+        try {
+            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException e) {
+            Files.move(source, target);
+        }
+    }
+
+    private static void moveReplacingAtomically(Path source, Path target) throws IOException {
+        try {
+            Files.move(
+                    source, target,
+                    StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING
+            );
+        } catch (AtomicMoveNotSupportedException e) {
+            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    private static String sha256(byte[] value) {
+        try {
+            return HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256").digest(value)
+            );
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
     }
 }

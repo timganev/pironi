@@ -113,8 +113,9 @@ public final class SessionStore {
     public void saveCheckpoint(String compressedJson) {
         if (currentMeta == null) return;
         try {
+            JsonNode checkpoint = mapper.readTree(compressedJson);
             Files.writeString(sessionsDir.resolve(currentMeta.id() + ".ckpt.json"),
-                    SecretRedactor.redact(compressedJson),
+                    mapper.writeValueAsString(SecretRedactor.redact(checkpoint)),
                     StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new UncheckedIOException(e);

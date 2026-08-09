@@ -136,6 +136,9 @@ public final class InteractiveShell {
         String listSkills();
         String loadSkill(String name);
         String saveSkill(String title);
+        default String pendingSkill() { return "No pending skill draft."; }
+        default String acceptSkill(String mode) { return "No pending skill draft."; }
+        default String rejectSkill() { return "No pending skill draft."; }
         String forgetSkill(String name);
         String pruneSkills();
     }
@@ -318,6 +321,18 @@ public final class InteractiveShell {
                 if (shellCommands != null) println(shellCommands.saveSkill(arg));
                 else println("Skills not available.");
             }
+            case "/pending-skill" -> {
+                if (shellCommands != null) println(shellCommands.pendingSkill());
+                else println("Skills not available.");
+            }
+            case "/accept-skill" -> {
+                if (shellCommands != null) println(shellCommands.acceptSkill(arg));
+                else println("Skills not available.");
+            }
+            case "/reject-skill" -> {
+                if (shellCommands != null) println(shellCommands.rejectSkill());
+                else println("Skills not available.");
+            }
             case "/forget-skill" -> {
                 if (shellCommands != null) println(shellCommands.forgetSkill(arg));
                 else println("Skills not available.");
@@ -419,7 +434,10 @@ public final class InteractiveShell {
                 new Command("/compress", "Manage context compression (on|off|now|0.0-1.0)"),
                 new Command("/skills", "List installed skills"),
                 new Command("/skill", "Load a skill by name"),
-                new Command("/save-skill", "Save last turn as a skill"),
+                new Command("/save-skill", "Propose last turn as a skill draft"),
+                new Command("/pending-skill", "Review the pending skill draft"),
+                new Command("/accept-skill", "Persist draft; use 'replace' for reviewed updates"),
+                new Command("/reject-skill", "Discard the pending skill draft"),
                 new Command("/forget-skill", "Archive a skill"),
                 new Command("/prune-skills", "Remove stale skills"),
                 new Command("/exit", "Close this session"),

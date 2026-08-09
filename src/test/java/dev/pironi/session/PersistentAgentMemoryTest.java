@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -77,9 +78,32 @@ class PersistentAgentMemoryTest {
         assertTrue(memory.activateSkill("review").contains("activated"));
         assertTrue(memory.promptContext().contains("Check carefully"));
         memory.completed("fix bug", "tests pass");
-        assertEquals("Skill saved: lesson", memory.saveLastTurnAsSkill("lesson"));
+        assertTrue(memory.saveLastTurnAsSkill("lesson").contains("not saved"));
+        assertTrue(skills.load("lesson").isEmpty());
+        assertEquals("Skill accepted and saved: lesson", memory.acceptPendingSkill());
         assertTrue(skills.load("lesson").orElseThrow().contains("fix bug"));
         assertEquals("Active skill cleared.", memory.activateSkill("off"));
+    }
+
+    @Test void savedSkillExcludesShellConversationWrapper() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        SkillStore skills = new SkillStore(temporaryDirectory);
+        PersistentAgentMemory memory = memory(
+                new SessionStore(temporaryDirectory, mapper), skills, mapper
+        );
+        memory.completed("""
+                User: remember ORION-742
+                Pironi: acknowledged
+                Current request:
+                Use Marina as owner for the Friday status workflow
+                """, "Workflow verified");
+
+        assertTrue(memory.saveLastTurnAsSkill("status-flow").contains("not saved"));
+        assertEquals("Skill accepted and saved: status-flow", memory.acceptPendingSkill());
+        String saved = skills.load("status-flow").orElseThrow();
+        assertTrue(saved.contains("Use Marina as owner"));
+        assertFalse(saved.contains("ORION-742"));
+        assertFalse(saved.contains("acknowledged"));
     }
 
     @Test void newSessionGetsANewIdAndClearsSessionState() throws Exception {
@@ -95,6 +119,10 @@ class PersistentAgentMemoryTest {
         memory.begin("old");
         String oldId = sessions.currentMeta().id();
         memory.activateSkill("review");
+        memory.proposeSkill(
+                "temporary-draft", "Temporary workflow", List.of("Step"),
+                List.of("temporary workflow"), List.of(), "Explicit correction"
+        );
         compressor.addTokens(100, 20);
 
         String result = memory.startNewSession();
@@ -103,6 +131,7 @@ class PersistentAgentMemoryTest {
         assertNotEquals(oldId, sessions.currentMeta().id());
         assertEquals(0, compressor.usedTokens());
         assertFalse(memory.promptContext().contains("Active skill"));
+        assertEquals("No pending skill draft.", memory.pendingSkill());
         assertEquals("closed", sessions.listSessions().stream()
                 .filter(session -> session.id().equals(oldId)).findFirst().orElseThrow().status());
     }
@@ -128,6 +157,109 @@ class PersistentAgentMemoryTest {
                 ChatMessage.assistant("r4")
         ), "task"));
         assertFalse(memory.compressionPending());
+    }
+
+    @Test void proposalIsEphemeralUntilAcceptedAndCanBeRejected() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        SkillStore skills = new SkillStore(temporaryDirectory);
+        PersistentAgentMemory memory = memory(
+                new SessionStore(temporaryDirectory, mapper), skills, mapper
+        );
+        String proposed = memory.proposeSkill(
+                "weekly-status", "Prepare weekly status reports",
+                List.of("Collect owners and blockers", "Verify totals"),
+                List.of("weekly status report"), List.of("one-off incident"),
+                "The user explicitly corrected the workflow"
+        );
+
+        assertTrue(proposed.contains("not saved"));
+        assertTrue(skills.load("weekly-status").isEmpty());
+        assertTrue(memory.pendingSkill().contains("Collect owners"));
+        assertEquals("Skill draft rejected: weekly-status", memory.rejectPendingSkill());
+        assertTrue(skills.load("weekly-status").isEmpty());
+
+        memory.proposeSkill(
+                "weekly-status", "Prepare weekly status reports",
+                List.of("Collect owners and blockers"), List.of("weekly status report"),
+                List.of(), "Explicit correction"
+        );
+        assertEquals("Skill accepted and saved: weekly-status", memory.acceptPendingSkill());
+        assertTrue(skills.load("weekly-status").isPresent());
+    }
+
+    @Test void automaticSelectionLoadsOneRelevantSkillAndOffSuppressesIt() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        SkillStore skills = new SkillStore(temporaryDirectory);
+        skills.save("weekly-status", """
+                ---
+                description: Prepare weekly status report with owners and blockers
+                ---
+                Follow the verified workflow.
+                """);
+        PersistentAgentMemory memory = memory(
+                new SessionStore(temporaryDirectory, mapper), skills, mapper
+        );
+
+        memory.begin("Prepare the weekly status report with owners");
+        assertTrue(memory.promptContext().contains("weekly-status"));
+        assertEquals("Active skill cleared.", memory.activateSkill("off"));
+        memory.begin("Prepare the weekly status report with owners");
+        assertEquals("", memory.promptContext());
+        assertEquals("Automatic skill selection enabled.", memory.activateSkill("auto"));
+        memory.begin("Prepare the weekly status report with owners");
+        assertTrue(memory.promptContext().contains("weekly-status"));
+    }
+
+    @Test void draftRedactsSecretsRefusesIdentityNamesAndExistingSkillOverwrite() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        SkillStore skills = new SkillStore(temporaryDirectory);
+        skills.save("existing", "---\ndescription: Existing workflow\n---\nOriginal");
+        PersistentAgentMemory memory = memory(
+                new SessionStore(temporaryDirectory, mapper), skills, mapper
+        );
+
+        assertTrue(memory.proposeSkill(
+                "SOUL", "Change identity", List.of("Rename agent"),
+                List.of("identity"), List.of(), "User correction"
+        ).contains("not adaptive"));
+        assertTrue(memory.proposeSkill(
+                "existing", "Existing workflow", List.of("Use PASSWORD=do-not-store"),
+                List.of("existing workflow"), List.of(), "Bearer bearer-secret"
+        ).contains("not saved"));
+        String preview = memory.pendingSkill();
+        assertFalse(preview.contains("do-not-store"));
+        assertFalse(preview.contains("bearer-secret"));
+        assertTrue(preview.contains("[REDACTED]"));
+        assertTrue(memory.acceptPendingSkill().startsWith(
+                "Skill already exists and was not overwritten: existing"
+        ));
+        assertTrue(skills.load("existing").orElseThrow().contains("Original"));
+        assertEquals(
+                "Skill accepted, previous version archived, and replaced: existing",
+                memory.acceptPendingSkill(true)
+        );
+        assertTrue(skills.load("existing").orElseThrow().contains("[REDACTED]"));
+        assertTrue(Files.walk(temporaryDirectory.resolve("skills/.archive/versions"))
+                .anyMatch(path -> path.getFileName().toString().equals("SKILL.md")));
+    }
+
+    @Test void saveSkillDoesNotReplaceBetterPendingProposal() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        PersistentAgentMemory memory = memory(
+                new SessionStore(temporaryDirectory, mapper),
+                new SkillStore(temporaryDirectory), mapper
+        );
+        memory.completed("generic request", "generic answer");
+        memory.proposeSkill(
+                "quality-draft", "Specific corrected workflow",
+                List.of("First precise step", "Second precise step"),
+                List.of("specific workflow"), List.of(), "Explicit user correction"
+        );
+
+        assertTrue(memory.saveLastTurnAsSkill("generic").contains("already pending"));
+        String preview = memory.pendingSkill();
+        assertTrue(preview.contains("First precise step"));
+        assertFalse(preview.contains("generic answer"));
     }
 
     private PersistentAgentMemory memory(

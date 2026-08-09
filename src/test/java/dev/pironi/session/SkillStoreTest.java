@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.nio.file.Files;
+import java.nio.file.attribute.FileTime;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -61,5 +63,147 @@ class SkillStoreTest {
         assertTrue(promptIndex.length() <= 2_400);
         assertTrue(promptIndex.contains("Pironi Skills"));
         assertTrue(promptIndex.lines().count() <= 27);
+    }
+
+    @Test void createDoesNotSilentlyOverwriteExistingSkill() throws Exception {
+        SkillStore store = new SkillStore(temporaryDirectory);
+        assertTrue(store.save("workflow", "---\ndescription: Original\n---\nOriginal body"));
+
+        assertFalse(store.save(
+                "workflow", "---\ndescription: Replacement\n---\nReplacement body"
+        ));
+        String saved = store.load("workflow").orElseThrow();
+        assertTrue(saved.contains("Original body"));
+        assertFalse(saved.contains("Replacement body"));
+    }
+
+    @Test void readingSkillDoesNotMutateItsModificationTime() throws Exception {
+        SkillStore store = new SkillStore(temporaryDirectory);
+        assertTrue(store.save("workflow", "---\ndescription: Original\n---\nBody"));
+        Path skill = temporaryDirectory.resolve("skills/workflow/SKILL.md");
+        FileTime original = FileTime.fromMillis(1_700_000_000_000L);
+        Files.setLastModifiedTime(skill, original);
+
+        assertTrue(store.load("workflow").isPresent());
+
+        assertEquals(original, Files.getLastModifiedTime(skill));
+    }
+
+    @Test void unloadableOversizedSkillIsAbsentFromListAndPromptIndex() throws Exception {
+        SkillStore store = new SkillStore(temporaryDirectory);
+        Path directory = temporaryDirectory.resolve("skills/oversized");
+        Files.createDirectories(directory);
+        Files.writeString(
+                directory.resolve("SKILL.md"),
+                "---\ndescription: Oversized\n---\n" + "x".repeat(24_001)
+        );
+
+        assertTrue(store.list().stream().noneMatch(skill -> skill.name().equals("oversized")));
+        assertFalse(store.loadIndex().contains("oversized"));
+    }
+
+    @Test void relevanceReturnsOneStrongMatchButNoIrrelevantOrTiedSkill() throws Exception {
+        SkillStore store = new SkillStore(temporaryDirectory);
+        assertTrue(store.save("weekly-status", """
+                ---
+                description: Prepare weekly team status report with owners and blockers
+                ---
+                Body
+                """));
+        assertTrue(store.save("invoice-review", """
+                ---
+                description: Review supplier invoices and payment totals
+                ---
+                Body
+                """));
+
+        assertEquals("weekly-status", store.findRelevant(
+                "Prepare the weekly status report with owners"
+        ).orElseThrow().name());
+        assertTrue(store.findRelevant("Weather tomorrow in Sofia").isEmpty());
+
+        assertTrue(store.save("status-copy", """
+                ---
+                description: Prepare weekly team status report with owners and blockers
+                ---
+                Body
+                """));
+        assertTrue(store.findRelevant(
+                "Prepare the weekly status report with owners"
+        ).isEmpty(), "equal top scores must not select an arbitrary skill");
+    }
+
+    @Test void thousandSkillMetadataScanRemainsBounded() throws Exception {
+        SkillStore store = new SkillStore(temporaryDirectory);
+        Path root = temporaryDirectory.resolve("skills");
+        for (int index = 0; index < 1_000; index++) {
+            Path directory = Files.createDirectories(root.resolve("workflow-" + index));
+            Files.writeString(directory.resolve("SKILL.md"), """
+                    ---
+                    description: Generic archived business workflow %d
+                    ---
+                    Body that is never loaded during metadata scoring.
+                    """.formatted(index));
+        }
+        Path target = root.resolve("workflow-777/SKILL.md");
+        Files.writeString(target, """
+                ---
+                description: Reconcile quarterly supplier invoices and disputed totals
+                ---
+                Correct workflow.
+                """);
+
+        long started = System.nanoTime();
+        var relevant = store.findRelevant(
+                "Reconcile quarterly supplier invoices and disputed totals"
+        );
+        long elapsedMillis = (System.nanoTime() - started) / 1_000_000;
+
+        assertEquals("workflow-777", relevant.orElseThrow().name());
+        assertTrue(elapsedMillis < 2_000, "metadata scan took " + elapsedMillis + " ms");
+        assertTrue(store.loadIndex().length() <= 2_400);
+    }
+
+    @Test void replacementRequiresExpectedHashAndArchivesPreviousVersion() throws Exception {
+        SkillStore store = new SkillStore(temporaryDirectory);
+        assertTrue(store.save("workflow", "---\ndescription: Original\n---\nOriginal body"));
+        String expected = store.contentHash("workflow").orElseThrow();
+
+        assertFalse(store.replace(
+                "workflow", "0".repeat(64), "---\ndescription: New\n---\nNew body"
+        ));
+        assertTrue(store.load("workflow").orElseThrow().contains("Original body"));
+        assertTrue(store.replace(
+                "workflow", expected, "---\ndescription: New\n---\nNew body"
+        ));
+        assertTrue(store.load("workflow").orElseThrow().contains("New body"));
+        assertTrue(Files.walk(temporaryDirectory.resolve("skills/.archive/versions"))
+                .filter(path -> path.getFileName().toString().equals("SKILL.md"))
+                .anyMatch(path -> {
+                    try {
+                        return Files.readString(path).contains("Original body");
+                    } catch (Exception e) {
+                        return false;
+                    }
+                }));
+    }
+
+    @Test void relevanceUsesTriggersAndHonorsExclusions() throws Exception {
+        SkillStore store = new SkillStore(temporaryDirectory);
+        assertTrue(store.save("reporting", """
+                ---
+                description: Produce the approved report
+                triggers: "петъчен отчет | екипен напредък"
+                exclusions: "еднократен инцидент"
+                ---
+                Body
+                """));
+
+        assertEquals("reporting", store.findRelevant(
+                "Подготви петъчен отчет за екипен напредък"
+        ).orElseThrow().name());
+        assertTrue(store.findRelevant(
+                "Подготви петъчен отчет за еднократен инцидент"
+        ).isEmpty());
     }
 }
