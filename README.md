@@ -638,6 +638,14 @@ inside model output in IDE terminals.
 - `--status always` forces it on, which is useful in some IDE terminals.
 - `--status never` disables it.
 
+Operational activity is printed as a persistent, concise log above the live
+status line: the selected skill, tool action and safe target, completion state,
+and duration. For example, Pironi may print `• Reading README.md`,
+`• Editing src/App.java with apply_patch`, or
+`• Running curl https://example.com/data`. This log never displays model
+reasoning, file contents, HTTP credentials or query parameters, complete command
+arguments, API keys, or passwords.
+
 Status uses `stderr`; the final answer remains clean on `stdout`.
 On `/exit`, Pironi clears the reserved row and restores the normal terminal
 scroll region.
@@ -655,6 +663,12 @@ tracing and conversation memory without being printed twice.
 Interactive conversation colors distinguish speakers: user input is cyan and
 validated agent answers are green. Status, memory and approval messages retain
 their neutral UI colors. JLine generates the terminal-specific escape sequences.
+
+Use `/theme` to customize User input, Agent answer, Tool/skill activity, System
+messages, and Errors. The keyboard picker uses Up/Down, previews ten colors,
+saves with Enter, and cancels with Esc. `Reset defaults` restores the original
+palette. The selection is stored in `PIRONI_HOME/theme.properties` and applies
+to later sessions without changing prompts, agent identity, or trace content.
 
 ## Current tool set
 

@@ -114,6 +114,9 @@ public final class AgentLoop {
         int activeTurn = 0;
         try {
         messages.addAll(memory.begin(task));
+        if (!memory.activeSkillName().isBlank()) {
+            statusReporter.skill(memory.activeSkillName());
+        }
         if (messages.isEmpty()) {
             messages.add(ChatMessage.system(buildSystemPrompt()));
         } else if (messages.getFirst().role().equals("system")) {
@@ -354,6 +357,8 @@ public final class AgentLoop {
             ToolCall call = toolCalls.get(index);
             Tool tool = resolvedTools.get(index);
             ToolResult result;
+            statusReporter.toolStarted(call.name(), call.arguments());
+            long toolStarted = System.nanoTime();
             if (preflightFailed) {
                 ToolResult preflight = preflightResults.get(index);
                 result = preflight.success()
@@ -362,7 +367,6 @@ public final class AgentLoop {
                         )
                         : preflight;
             } else {
-                statusReporter.tool(call.name());
                 try {
                     result = tool.execute(call.arguments());
                 } catch (RuntimeException | LinkageError e) {
@@ -371,6 +375,10 @@ public final class AgentLoop {
                     );
                 }
             }
+            statusReporter.toolFinished(
+                    call.name(), result.success(),
+                    java.time.Duration.ofNanos(System.nanoTime() - toolStarted).toMillis()
+            );
             if (result.success()) successCount++;
             if (result.success() && tool != null && tool.mutating()) {
                 successfulMutations.add(call.name() + ": " + summarize(result.output()));

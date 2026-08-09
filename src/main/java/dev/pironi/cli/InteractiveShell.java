@@ -13,10 +13,12 @@ import org.jline.reader.UserInterruptException;
 import org.jline.terminal.Terminal;
 import org.jline.utils.AttributedString;
 import org.jline.utils.AttributedStyle;
+import dev.pironi.status.ThemeSettings;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -33,6 +35,9 @@ public final class InteractiveShell {
     private final ShellCommands shellCommands;
     private final Runnable promptRendered;
     private final ModelPicker modelPicker;
+    private final ThemePicker themePicker;
+    private final ThemeSettings theme;
+    private final ThemeStore themeStore;
 
     private final List<String> conversationHistory = new ArrayList<>();
 
@@ -42,10 +47,14 @@ public final class InteractiveShell {
             Runner runner,
             ModelCommands modelCommands,
             ShellCommands shellCommands,
-            Runnable promptRendered
+            Runnable promptRendered,
+            ThemeSettings theme,
+            ThemeStore themeStore
     ) {
         this.terminal = terminal;
-        this.lineReader = createLineReader(terminal);
+        this.theme = theme;
+        this.themeStore = themeStore;
+        this.lineReader = createLineReader(terminal, theme);
         this.fallbackInput = null;
         this.output = output;
         this.runner = runner;
@@ -53,6 +62,15 @@ public final class InteractiveShell {
         this.shellCommands = shellCommands;
         this.promptRendered = promptRendered;
         this.modelPicker = new ModelPicker(terminal, lineReader, output);
+        this.themePicker = new ThemePicker(terminal, output);
+    }
+
+    public InteractiveShell(
+            Terminal terminal, PrintStream output, Runner runner, ModelCommands modelCommands,
+            ShellCommands shellCommands, Runnable promptRendered
+    ) {
+        this(terminal, output, runner, modelCommands, shellCommands, promptRendered,
+                new ThemeSettings(), new ThemeStore(Path.of(System.getProperty("user.home"), ".pironi")));
     }
 
     InteractiveShell(
@@ -71,6 +89,9 @@ public final class InteractiveShell {
         this.shellCommands = null;
         this.promptRendered = promptRendered;
         this.modelPicker = new ModelPicker(input, output);
+        this.theme = new ThemeSettings();
+        this.themeStore = new ThemeStore(Path.of(System.getProperty("user.home"), ".pironi"));
+        this.themePicker = new ThemePicker(input, output);
     }
 
     InteractiveShell(
@@ -199,8 +220,8 @@ public final class InteractiveShell {
         } catch (IOException | RuntimeException e) {
             String detail = e.getMessage() == null || e.getMessage().isBlank()
                     ? e.getClass().getSimpleName() : e.getMessage();
-            println("Request failed: " + detail);
-            println("You can retry or change the model.");
+            printError("Request failed: " + detail);
+            printError("You can retry or change the model.");
             return null;
         }
     }
@@ -232,6 +253,15 @@ public final class InteractiveShell {
             }
             case "/provider" -> {
                 println("Current provider: " + modelCommands.currentProvider());
+            }
+            case "/theme" -> {
+                try {
+                    if (themePicker.choose(theme, themeStore)) {
+                        println("Theme saved.");
+                    }
+                } catch (IOException e) {
+                    printError("Theme selection failed: " + e.getMessage());
+                }
             }
             case "/approval" -> {
                 if (arg.isEmpty()) {
@@ -341,23 +371,31 @@ public final class InteractiveShell {
                 if (shellCommands != null) println(shellCommands.pruneSkills());
                 else println("Skills not available.");
             }
-            default -> println("Unknown command: " + cmd);
+            default -> printError("Unknown command: " + cmd);
         }
     }
 
     private void println(String text) {
         if (lineReader != null) {
-            lineReader.printAbove(text);
+            lineReader.printAbove(new AttributedString(text,
+                    theme.style(ThemeSettings.Element.SYSTEM)));
         } else {
             output.println(text);
         }
+    }
+
+    private void printError(String text) {
+        if (lineReader != null) {
+            lineReader.printAbove(new AttributedString(text,
+                    theme.style(ThemeSettings.Element.ERROR)));
+        } else output.println(text);
     }
 
     private void printAgentAnswer(String text) {
         if (lineReader != null) {
             lineReader.printAbove(new AttributedString(
                     text,
-                    AttributedStyle.DEFAULT.foreground(AttributedStyle.GREEN)
+                    theme.style(ThemeSettings.Element.AGENT)
             ));
         } else {
             output.println(text);
@@ -419,6 +457,7 @@ public final class InteractiveShell {
     private static List<Command> commands() {
         return List.of(
                 new Command("/model", "Switch or show the current model"),
+                new Command("/theme", "Customize terminal colors"),
                 new Command("/provider", "Show the current provider"),
                 new Command("/approval", "Show or change approval mode (ask|auto|read-only)"),
                 new Command("/help", "Show all slash commands"),
@@ -445,7 +484,7 @@ public final class InteractiveShell {
         );
     }
 
-    private static LineReader createLineReader(Terminal terminal) {
+    private static LineReader createLineReader(Terminal terminal, ThemeSettings theme) {
         LineReader reader = LineReaderBuilder.builder()
                 .terminal(terminal)
                 .appName("pironi")
@@ -454,7 +493,7 @@ public final class InteractiveShell {
                     public AttributedString highlight(LineReader ignored, String buffer) {
                         return new AttributedString(
                                 buffer,
-                                AttributedStyle.DEFAULT.foreground(AttributedStyle.CYAN)
+                                theme.style(ThemeSettings.Element.USER)
                         );
                     }
 

@@ -73,9 +73,8 @@ final class ModelPicker {
         if (terminal == null || lineReader == null) {
             return selectFallback(title, hint, choices);
         }
-        Status pickerStatus = Status.getExistingStatus(terminal)
-                .orElseThrow(() -> new IOException("Terminal status is not initialized"));
-        pickerStatus.suspend();
+        Status pickerStatus = Status.getExistingStatus(terminal).orElse(null);
+        if (pickerStatus != null) pickerStatus.suspend();
         Display display = new Display(terminal, false);
         display.resize(terminal.getHeight(), terminal.getWidth());
         int selected = 0;
@@ -102,7 +101,7 @@ final class ModelPicker {
             synchronized (terminal) {
                 display.update(List.of(), 0);
                 display.reset();
-                pickerStatus.restore();
+                if (pickerStatus != null) pickerStatus.restore();
                 terminal.flush();
             }
             terminal.setAttributes(originalAttributes);

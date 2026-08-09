@@ -168,6 +168,8 @@ public final class PironiMain {
                 System.getProperty("os.name", "")
         );
         boolean interactive = options.interactive() && !options.noTui();
+        ThemeStore themeStore = new ThemeStore(options.pironiHome());
+        dev.pironi.status.ThemeSettings theme = themeStore.load();
 
         Terminal terminal = null;
         if (interactive) {
@@ -185,7 +187,8 @@ public final class PironiMain {
                         options.contextSize(),
                         options.maxTurns(),
                         System.out,
-                        terminal
+                        terminal,
+                        theme
                 );
             } else {
                 status = new TerminalStatusReporter(
@@ -193,7 +196,8 @@ public final class PironiMain {
                         options.workspace(),
                         options.contextSize(),
                         options.maxTurns(),
-                        System.out
+                        System.out,
+                        theme
                 );
             }
         } else {
@@ -238,7 +242,7 @@ public final class PironiMain {
                     ),
                     options.maxTurns(),
                     4,
-                    interactive ? new FinalAnswerStreamer(System.out, terminal) : null,
+                    interactive ? new FinalAnswerStreamer(System.out, terminal, theme) : null,
                     memory
             );
 
@@ -389,7 +393,9 @@ public final class PironiMain {
                         loop::run,
                         modelCommands,
                         shellC,
-                        status::idle
+                        status::idle,
+                        theme,
+                        themeStore
                 );
                 approvalPolicy.updateInteraction(shell.approvalInteraction(
                         status::outputStarted,

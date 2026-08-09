@@ -3,6 +3,7 @@ package dev.pironi.agent;
 import org.jline.terminal.Terminal;
 import org.jline.utils.AttributedString;
 import org.jline.utils.AttributedStyle;
+import dev.pironi.status.ThemeSettings;
 
 import java.io.PrintStream;
 import java.util.function.Consumer;
@@ -15,15 +16,26 @@ public final class FinalAnswerStreamer implements Consumer<String> {
     private final PrintStream output;
     private final Terminal terminal;
     private final Consumer<Long> pauseMillis;
+    private final ThemeSettings theme;
 
     public FinalAnswerStreamer(PrintStream output, Terminal terminal) {
-        this(output, terminal, millis -> LockSupport.parkNanos(millis * 1_000_000));
+        this(output, terminal, new ThemeSettings());
+    }
+
+    public FinalAnswerStreamer(PrintStream output, Terminal terminal, ThemeSettings theme) {
+        this(output, terminal, millis -> LockSupport.parkNanos(millis * 1_000_000), theme);
     }
 
     FinalAnswerStreamer(PrintStream output, Terminal terminal, Consumer<Long> pauseMillis) {
+        this(output, terminal, pauseMillis, new ThemeSettings());
+    }
+
+    FinalAnswerStreamer(PrintStream output, Terminal terminal, Consumer<Long> pauseMillis,
+            ThemeSettings theme) {
         this.output = output;
         this.terminal = terminal;
         this.pauseMillis = pauseMillis;
+        this.theme = theme;
     }
 
     @Override public void accept(String value) {
@@ -45,7 +57,7 @@ public final class FinalAnswerStreamer implements Consumer<String> {
         if (terminal != null) {
             synchronized (terminal) {
                 terminal.writer().print(new AttributedString(
-                        chunk, AttributedStyle.DEFAULT.foreground(AttributedStyle.GREEN)
+                        chunk, theme.style(ThemeSettings.Element.AGENT)
                 ).toAnsi(terminal));
                 terminal.flush();
             }

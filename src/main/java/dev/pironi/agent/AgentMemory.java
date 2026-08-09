@@ -17,6 +17,7 @@ public interface AgentMemory {
     default String storeSummary(String summary) { return summary; }
     default void checkpoint(List<ChatMessage> messages, String task) {}
     default String promptContext() { return ""; }
+    default String activeSkillName() { return ""; }
     default void completed(String task, String answer) {}
     default void finished(boolean success) {}
 

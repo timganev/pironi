@@ -2,6 +2,7 @@ package dev.pironi.status;
 
 import dev.pironi.model.ChatMessage;
 import dev.pironi.model.ModelResponse;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.jline.terminal.Terminal;
 import org.jline.utils.AttributedString;
 import org.jline.utils.AttributedStringBuilder;
@@ -28,6 +29,7 @@ public final class TerminalStatusReporter implements StatusReporter {
     private final PrintStream output;
     private final Terminal terminal;
     private final Status terminalStatus;
+    private final ThemeSettings theme;
     private final Object outputLock = new Object();
     private volatile int lastContextPercent;
     private volatile double lastEvalTokensPerSecond;
@@ -41,7 +43,14 @@ public final class TerminalStatusReporter implements StatusReporter {
             int maxTurns,
             PrintStream output
     ) {
-        this(model, workspace, contextSize, maxTurns, output, null);
+        this(model, workspace, contextSize, maxTurns, output, null, new ThemeSettings());
+    }
+
+    public TerminalStatusReporter(
+            String model, Path workspace, int contextSize, int maxTurns,
+            PrintStream output, ThemeSettings theme
+    ) {
+        this(model, workspace, contextSize, maxTurns, output, null, theme);
     }
 
     public TerminalStatusReporter(
@@ -52,6 +61,13 @@ public final class TerminalStatusReporter implements StatusReporter {
             PrintStream output,
             Terminal terminal
     ) {
+        this(model, workspace, contextSize, maxTurns, output, terminal, new ThemeSettings());
+    }
+
+    public TerminalStatusReporter(
+            String model, Path workspace, int contextSize, int maxTurns,
+            PrintStream output, Terminal terminal, ThemeSettings theme
+    ) {
         this.model = model;
         this.workspace = workspace.getFileName() == null
                 ? workspace.toString()
@@ -60,6 +76,7 @@ public final class TerminalStatusReporter implements StatusReporter {
         this.maxTurns = maxTurns;
         this.output = output;
         this.terminal = terminal;
+        this.theme = theme;
         this.terminalStatus = createStatus(terminal);
     }
 
@@ -108,6 +125,23 @@ public final class TerminalStatusReporter implements StatusReporter {
     public void tool(String toolName) {
         render(withEvalRate("⚙ " + model + " │ " + workspace + " │ ctx ~"
                 + formatContextPercent(lastContextPercent) + " │ tool " + toolName));
+    }
+
+    @Override
+    public void skill(String skillName) {
+        activityLine("• Using skill " + activityValue(skillName));
+    }
+
+    @Override
+    public void toolStarted(String toolName, JsonNode arguments) {
+        activityLine("• " + ToolActivityFormatter.started(toolName, arguments));
+        tool(toolName);
+    }
+
+    @Override
+    public void toolFinished(String toolName, boolean success, long durationMillis) {
+        activityLine((success ? "✓ " : "✗ ")
+                + ToolActivityFormatter.finished(toolName, success, durationMillis));
     }
 
     @Override
@@ -244,6 +278,35 @@ public final class TerminalStatusReporter implements StatusReporter {
             output.println(line);
             output.flush();
         }
+    }
+
+    private void activityLine(String line) {
+        if (useJLine()) {
+            synchronized (terminal) {
+                if (closed) return;
+                terminalStatus.suspend();
+                terminal.writer().println(new AttributedString(
+                        line, theme.style(ThemeSettings.Element.ACTIVITY)
+                ).toAnsi(terminal));
+                terminalStatus.restore();
+                terminal.flush();
+            }
+            return;
+        }
+        synchronized (outputLock) {
+            if (closed) return;
+            String rendered = terminal == null ? line : new AttributedString(
+                    line, theme.style(ThemeSettings.Element.ACTIVITY)
+            ).toAnsi(terminal);
+            output.print("\r\u001B[2K" + rendered + System.lineSeparator());
+            output.flush();
+        }
+    }
+
+    private static String activityValue(String value) {
+        if (value == null) return "unknown";
+        String safe = value.replaceAll("[^a-zA-Z0-9._-]", "");
+        return safe.isBlank() ? "unknown" : safe;
     }
 
     @Override

@@ -2,6 +2,7 @@ package dev.pironi.cli;
 
 import dev.pironi.agent.AgentResult;
 import dev.pironi.status.TerminalStatusReporter;
+import dev.pironi.status.ThemeSettings;
 import org.jline.terminal.Size;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.impl.DumbTerminal;
@@ -162,6 +163,21 @@ public final class TestKeysRunner {
                         List.of()
                 ),
                 new Scenario(
+                        "theme picker selects element previews color and saves",
+                        List.of(
+                                keys("/theme\r"),
+                                waitFor(150),
+                                keys("\u001B[B\r"),
+                                waitFor(150),
+                                keys("\u001B[B\u001B[B\u001B[B\u001B[B\r"),
+                                waitFor(150),
+                                keys("/exit\r")
+                        ),
+                        List.of("Theme", "Preview text", "Theme saved.", "Session closed."),
+                        List.of("Theme selection failed", "Unknown command:"),
+                        List.of()
+                ),
+                new Scenario(
                         "multiline Cyrillic answer uses JLine-safe rendering",
                         List.of(keys("wrap\\r"), keys("/exit\\r")),
                         List.of(
@@ -243,13 +259,16 @@ public final class TestKeysRunner {
 
         PrintStream terminalOutput =
                 new PrintStream(terminalBytes, true, StandardCharsets.UTF_8);
+        ThemeSettings theme = new ThemeSettings();
+        ThemeStore themeStore = new ThemeStore(Files.createTempDirectory("pironi-theme-test-"));
         TerminalStatusReporter status = new TerminalStatusReporter(
                 "test-model",
                 Path.of("/workspace/pironi"),
                 8_192,
                 8,
                 terminalOutput,
-                terminal
+                terminal,
+                theme
         );
         InteractiveShell shell = new InteractiveShell(
                 terminal,
@@ -266,7 +285,9 @@ public final class TestKeysRunner {
                 },
                 testModelCommands(),
                 testShellCommands(),
-                status::idle
+                status::idle,
+                theme,
+                themeStore
         );
 
         Thread shellThread = Thread.ofVirtual().start(() -> {

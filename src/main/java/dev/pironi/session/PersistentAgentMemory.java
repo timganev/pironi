@@ -109,6 +109,10 @@ public final class PersistentAgentMemory implements AgentMemory {
                 + "Active skill '" + activeSkill + "':\n" + activeSkillContent;
     }
 
+    @Override public synchronized String activeSkillName() {
+        return activeSkill;
+    }
+
     @Override public synchronized void completed(String task, String answer) {
         lastTask = currentRequest(task);
         lastAnswer = answer;

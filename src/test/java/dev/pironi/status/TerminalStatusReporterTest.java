@@ -15,7 +15,9 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 class TerminalStatusReporterTest {
     @Test
@@ -68,6 +70,29 @@ class TerminalStatusReporterTest {
         assertTrue(output.contains("│ ready"));
         assertTrue(output.contains("│ 20.00 tok/s"));
         assertTrue(output.endsWith("\u001B[r\u001B[2J\u001B[H"));
+    }
+
+    @Test
+    void printsPersistentOperationalActivityWithoutReasoning() {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        TerminalStatusReporter reporter = new TerminalStatusReporter(
+                "model", Path.of("/workspace/project"), 8_192, 8,
+                new PrintStream(bytes, true, StandardCharsets.UTF_8)
+        );
+        var arguments = new ObjectMapper().createObjectNode()
+                .put("path", "README.md")
+                .put("content", "private material");
+
+        reporter.skill("team-lead");
+        reporter.toolStarted("apply_patch", arguments);
+        reporter.toolFinished("apply_patch", true, 7);
+        reporter.close();
+
+        String output = bytes.toString(StandardCharsets.UTF_8);
+        assertTrue(output.contains("• Using skill team-lead"));
+        assertTrue(output.contains("• Editing README.md with apply_patch"));
+        assertTrue(output.contains("✓ Completed apply_patch in 7 ms"));
+        assertFalse(output.contains("private material"));
     }
 
     @Test
