@@ -22,7 +22,13 @@ public final class AppControlTool implements Tool {
                     List.of("microsoft-edge", "msedge", "msedge.exe", "Microsoft Edge")),
             "obsidian", new App("obsidian", "Obsidian", List.of("obsidian", "obsidian.exe")),
             "vscode", new App("vscode", "Visual Studio Code", List.of("code", "code.exe")),
-            "notepad", new App("notepad", "Notepad", List.of("notepad", "notepad.exe"))
+            "notepad", new App("notepad", "Notepad", List.of("notepad", "notepad.exe")),
+            "slack", new App("slack", "Slack", List.of("slack", "slack.exe")),
+            "image-viewer", new App("image-viewer", "Preview",
+                    List.of("eog", "loupe", "org.gnome.Loupe", "Microsoft.Photos.exe", "Preview")),
+            "settings", new App("settings", "System Settings",
+                    List.of("gnome-control-center", "systemsettings", "systemsettings5",
+                            "SystemSettings.exe", "System Settings"))
     );
     private static final List<String> ACTIONS = List.of("status", "launch", "new-window", "close");
     private final Backend backend;
@@ -34,10 +40,11 @@ public final class AppControlTool implements Tool {
     @Override public String description() {
         return "Check, launch, open a new window, or gracefully close an allowlisted desktop "
                 + "application without arbitrary shell commands. Applications: firefox, chrome, "
-                + "edge, obsidian, vscode, notepad. Actions: status, launch, new-window, close.";
+                + "edge, obsidian, vscode, notepad, slack, image-viewer, settings. Actions: "
+                + "status, launch, new-window, close.";
     }
     @Override public String argumentSchema() {
-        return "{\"application\":\"firefox|chrome|edge|obsidian|vscode|notepad\","
+        return "{\"application\":\"firefox|chrome|edge|obsidian|vscode|notepad|slack|image-viewer|settings\","
                 + "\"action\":\"status|launch|new-window|close\"}";
     }
     @Override public boolean mutating() { return true; }
@@ -161,6 +168,14 @@ public final class AppControlTool implements Tool {
 
         private List<String> launchCommand(App app, boolean newWindow) throws IOException {
             if (mac()) return List.of("/usr/bin/open", newWindow ? "-na" : "-a", app.label());
+            if (windows() && app.id().equals("image-viewer")) {
+                return List.of(Path.of(System.getenv().getOrDefault("SystemRoot", "C:\\Windows"),
+                        "explorer.exe").toString(), "ms-photos:");
+            }
+            if (windows() && app.id().equals("settings")) {
+                return List.of(Path.of(System.getenv().getOrDefault("SystemRoot", "C:\\Windows"),
+                        "explorer.exe").toString(), "ms-settings:");
+            }
             Path executable = findExecutable(app);
             List<String> result = new ArrayList<>();
             result.add(executable.toString());
@@ -199,6 +214,12 @@ public final class AppControlTool implements Tool {
                     case "edge" -> paths.add(Path.of(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe"));
                     case "obsidian" -> { if (!local.isBlank()) paths.add(Path.of(local, "Obsidian", "Obsidian.exe")); }
                     case "vscode" -> { if (!local.isBlank()) paths.add(Path.of(local, "Programs", "Microsoft VS Code", "Code.exe")); }
+                    case "slack" -> {
+                        if (!local.isBlank()) {
+                            paths.add(Path.of(local, "slack", "slack.exe"));
+                            paths.add(Path.of(local, "Programs", "slack", "slack.exe"));
+                        }
+                    }
                     default -> { }
                 }
             } else {

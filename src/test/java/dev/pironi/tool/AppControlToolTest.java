@@ -39,6 +39,14 @@ class AppControlToolTest {
         assertTrue(result.output().contains("force-close was not attempted"));
     }
 
+    @Test void supportsCommonDesktopAndSystemApplicationsWithoutFreeFormNames() {
+        AppControlTool tool = new AppControlTool(new FakeBackend());
+        assertTrue(tool.execute(args("slack", "status")).success());
+        assertTrue(tool.execute(args("image-viewer", "close")).success());
+        assertTrue(tool.execute(args("settings", "launch")).success());
+        assertFalse(tool.execute(args("SystemSettings.exe", "close")).success());
+    }
+
     private com.fasterxml.jackson.databind.node.ObjectNode args(String app, String action) {
         return mapper.createObjectNode().put("application", app).put("action", action);
     }

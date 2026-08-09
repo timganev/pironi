@@ -716,7 +716,8 @@ auto/workspace sessions. Source changes must use
 
 `app_control` provides allowlisted desktop actions without exposing arbitrary
 shell input. Supported applications are Firefox, Chrome, Edge, Obsidian,
-VS Code, and Notepad; supported actions are `status`, `launch`, `new-window`,
+VS Code, Notepad, Slack, the system image viewer, and system Settings;
+supported actions are `status`, `launch`, `new-window`,
 and graceful `close`. It never force-terminates a process. If graceful close
 does not complete within five seconds, Pironi reports the remaining processes
 instead of escalating. Availability still depends on an active desktop session
