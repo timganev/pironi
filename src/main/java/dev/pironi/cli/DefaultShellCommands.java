@@ -80,8 +80,10 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
     }
 
     @Override public String compressStatus() {
-        return String.format("compression: %s  threshold: %.0f%%  used: %.0f/%d tokens (%.0f%%)",
+        return String.format(
+                "compression: %s  pending: %s  threshold: %.0f%%  used: %.0f/%d tokens (%.0f%%)",
                 compressor.enabled() ? "on" : "off",
+                memory.compressionPending() ? "yes" : "no",
                 compressor.threshold() * 100,
                 (double)compressor.usedTokens(), compressor.contextLimit(),
                 compressor.usagePercent());
@@ -94,7 +96,8 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
             case "on" -> compressor.setEnabled(true);
             case "now" -> {
                 memory.requestCompression();
-                message = "Compression scheduled for the next agent request.";
+                message = "Compression scheduled; if the next request has no older eligible "
+                        + "context, it remains pending.";
             }
             default -> {
                 try { compressor.setThreshold(Double.parseDouble(arg)); }

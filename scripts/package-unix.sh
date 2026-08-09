@@ -33,7 +33,13 @@ chmod +x "$bundle_dir/pironi"
 archive="${output_dir}/${bundle_name}.tar.gz"
 tar -C "$output_dir" -czf "$archive" "$bundle_name"
 if command -v sha256sum >/dev/null 2>&1; then
-  sha256sum "$archive" > "${archive}.sha256"
+  (
+    cd "$output_dir"
+    sha256sum "$(basename "$archive")"
+  ) > "${archive}.sha256"
 else
-  shasum -a 256 "$archive" > "${archive}.sha256"
+  (
+    cd "$output_dir"
+    shasum -a 256 "$(basename "$archive")"
+  ) > "${archive}.sha256"
 fi

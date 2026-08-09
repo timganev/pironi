@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -73,5 +74,66 @@ class ReadFileToolTest {
 
         assertFalse(result.success());
         assertFalse(result.output().contains("do-not-leak"));
+    }
+
+    @Test
+    void readsBoundedHeadRangeWithoutChangingDefaultReadBehavior() throws Exception {
+        Path workspaceRoot = Files.createDirectory(root.resolve("workspace"));
+        Files.writeString(workspaceRoot.resolve("rows.csv"), "one\r\ntwo\r\nтри\r\nfour\r\n");
+        ReadFileTool tool = new ReadFileTool(new Workspace(workspaceRoot), 1_000);
+
+        ToolResult defaultResult = tool.execute(
+                mapper.createObjectNode().put("path", "rows.csv")
+        );
+        ToolResult rangeResult = tool.execute(mapper.createObjectNode()
+                .put("path", "rows.csv").put("startLine", 2).put("lineCount", 2));
+
+        assertEquals("one\r\ntwo\r\nтри\r\nfour\r\n", defaultResult.output());
+        assertEquals("two\nтри", rangeResult.output());
+    }
+
+    @Test
+    void readsTailWithBoundedMemoryAndUtf8Content() throws Exception {
+        Path workspaceRoot = Files.createDirectory(root.resolve("workspace"));
+        Files.writeString(workspaceRoot.resolve("large.csv"),
+                "row-1\nrow-2\nrow-3\nред-4\nrow-5\n");
+        ReadFileTool tool = new ReadFileTool(new Workspace(workspaceRoot), 1_000);
+
+        ToolResult result = tool.execute(mapper.createObjectNode()
+                .put("path", "large.csv").put("tailLines", 2));
+
+        assertTrue(result.success());
+        assertEquals("ред-4\nrow-5", result.output());
+    }
+
+    @Test
+    void rejectsUnboundedOrAmbiguousRangeArguments() throws Exception {
+        Path workspaceRoot = Files.createDirectory(root.resolve("workspace"));
+        Files.writeString(workspaceRoot.resolve("rows.txt"), "one\ntwo\n");
+        ReadFileTool tool = new ReadFileTool(new Workspace(workspaceRoot), 1_000);
+
+        ToolResult ambiguous = tool.execute(mapper.createObjectNode()
+                .put("path", "rows.txt").put("startLine", 1).put("tailLines", 1));
+        ToolResult excessive = tool.execute(mapper.createObjectNode()
+                .put("path", "rows.txt").put("lineCount", 10_001));
+
+        assertFalse(ambiguous.success());
+        assertTrue(ambiguous.output().contains("cannot be combined"));
+        assertFalse(excessive.success());
+        assertTrue(excessive.output().contains("between 1 and 10000"));
+    }
+
+    @Test
+    void rangeOutputStillHonorsCharacterLimit() throws Exception {
+        Path workspaceRoot = Files.createDirectory(root.resolve("workspace"));
+        Files.writeString(workspaceRoot.resolve("rows.txt"), "12345\n67890\n");
+        ReadFileTool tool = new ReadFileTool(new Workspace(workspaceRoot), 7);
+
+        ToolResult result = tool.execute(mapper.createObjectNode()
+                .put("path", "rows.txt").put("tailLines", 2));
+
+        assertTrue(result.success());
+        assertTrue(result.output().startsWith("12345\n6"));
+        assertTrue(result.output().contains("[truncated after 7 characters]"));
     }
 }

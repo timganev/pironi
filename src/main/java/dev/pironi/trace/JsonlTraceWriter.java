@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import dev.pironi.model.ModelResponse;
+import dev.pironi.session.SecretRedactor;
 import dev.pironi.tool.ToolResult;
 
 import java.io.BufferedWriter;
@@ -97,7 +98,7 @@ public final class JsonlTraceWriter implements TraceWriter {
 
     private void write(ObjectNode event) {
         try {
-            writer.write(objectMapper.writeValueAsString(event));
+            writer.write(objectMapper.writeValueAsString(SecretRedactor.redact(event)));
             writer.newLine();
             writer.flush();
         } catch (IOException e) {

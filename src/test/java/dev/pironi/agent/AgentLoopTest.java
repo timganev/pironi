@@ -32,6 +32,23 @@ class AgentLoopTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
+    void systemPromptIncludesDynamicRegionalContextWithoutInventingLocation() throws Exception {
+        RecordingModelClient model = new RecordingModelClient(
+                "{\"thought\":\"done\",\"toolCalls\":[],\"finalAnswer\":\"ok\"}"
+        );
+
+        assertTrue(loop(model, List.of()).run("weather").success());
+        String system = model.requests.getFirst().getFirst().content();
+        assertTrue(system.contains("time-zone:"));
+        assertTrue(system.contains("locale:"));
+        assertTrue(system.contains("geographic-location: unknown"));
+        assertTrue(system.contains("not proof"));
+        assertTrue(system.contains("IP geolocation describes a network exit"));
+        assertTrue(system.contains("claim high confidence"));
+        assertTrue(system.contains("regular text file is not a symbolic link"));
+    }
+
+    @Test
     void repairsProtocolThenFinishes() throws Exception {
         RecordingModelClient model = new RecordingModelClient(
                 "not json",
@@ -454,6 +471,29 @@ class AgentLoopTest {
         assertTrue(result.success(), result.output());
         assertEquals(5, result.turns());
         assertTrue(model.requests.get(4).getLast().content().contains("Finalization-only grace turn"));
+        assertTrue(model.requests.get(4).getLast().content().contains("Do not call tools"));
+    }
+
+    @Test
+    void usesFinalizationGraceAfterRepeatedToolFailure() throws Exception {
+        Tool blocked = new Tool() {
+            public String name() { return "blocked"; }
+            public String description() { return "always fails"; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return false; }
+            public ToolResult execute(JsonNode arguments) {
+                return ToolResult.failure("Operation is outside the allowed workspace");
+            }
+        };
+        String call = "{\"thought\":\"try\",\"toolCalls\":[{\"name\":\"blocked\",\"arguments\":{}}],\"finalAnswer\":null}";
+        RecordingModelClient model = new RecordingModelClient(call, call, call, call,
+                "{\"thought\":\"explain\",\"toolCalls\":[],\"finalAnswer\":\"Cannot modify the path outside the workspace.\"}");
+
+        AgentResult result = loop(model, List.of(blocked)).run("edit external file");
+
+        assertTrue(result.success(), result.output());
+        assertEquals(5, result.turns());
+        assertTrue(model.requests.get(4).getLast().content().contains("failed"));
         assertTrue(model.requests.get(4).getLast().content().contains("Do not call tools"));
     }
 

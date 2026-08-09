@@ -64,6 +64,25 @@ class PironiMainTest {
     }
 
     @Test
+    void readOnlyRegistryDoesNotAdvertiseMutatingTools() {
+        var configured = PironiMain.configuredTools(
+                List.of(tool("read_file", false), tool("write_file", true),
+                        tool("run_command", true)),
+                Set.of()
+        );
+
+        var readOnly = PironiMain.toolsForApproval(
+                configured, dev.pironi.safety.ApprovalMode.READ_ONLY
+        );
+
+        assertEquals(List.of("read_file"), readOnly.all().stream().map(Tool::name).toList());
+        assertEquals(3, PironiMain.toolsForApproval(
+                configured, dev.pironi.safety.ApprovalMode.AUTO
+        ).all().size());
+        assertEquals(true, configured.find("write_file").isPresent());
+    }
+
+    @Test
     void autoActivityDisablesWorkspaceShellUnlessExplicitlyAllowed() {
         CliOptions options = CliOptions.parse(
                 new String[]{"--activity", "auto", "--model", "test"}, Map.of()
@@ -107,6 +126,10 @@ class PironiMainTest {
     }
 
     private static Tool tool(String name) {
+        return tool(name, false);
+    }
+
+    private static Tool tool(String name, boolean mutating) {
         return new Tool() {
             @Override
             public String name() {
@@ -125,7 +148,7 @@ class PironiMainTest {
 
             @Override
             public boolean mutating() {
-                return false;
+                return mutating;
             }
 
             @Override

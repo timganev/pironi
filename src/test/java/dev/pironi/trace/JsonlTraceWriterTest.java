@@ -2,6 +2,7 @@ package dev.pironi.trace;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.pironi.model.ModelResponse;
+import dev.pironi.tool.ToolResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -9,6 +10,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class JsonlTraceWriterTest {
     @TempDir Path root;
@@ -33,5 +36,50 @@ class JsonlTraceWriterTest {
         assertEquals("HTTP 400: unavailable", response.path("fallbackReason").asText());
         assertEquals("model_error", error.path("type").asText());
         assertEquals("HTTP 400", error.path("error").asText());
+    }
+
+    @Test
+    void redactsAllTracePayloadsWhileKeepingEveryJsonLineValid() throws Exception {
+        Path trace = root.resolve("redacted-trace.jsonl");
+        ObjectMapper mapper = new ObjectMapper();
+        var arguments = mapper.createObjectNode()
+                .put("api_key", "argument-secret")
+                .put("authorization", "Bearer auth-secret")
+                .put("path", "safe.csv");
+        arguments.putObject("nested").put("password", "nested-secret");
+
+        try (JsonlTraceWriter writer = new JsonlTraceWriter(trace, mapper)) {
+            writer.modelResponse(1, new ModelResponse(
+                    "DEEPSEEK_API_KEY=model-secret", 1, 2, 3, 4,
+                    "stop", "text", 1, "", ""
+            ));
+            writer.toolResult(2, "run_command", arguments,
+                    ToolResult.success("access_token=tool-secret"));
+            writer.protocolError(3, "password: protocol-secret");
+            writer.modelError(4, "Bearer model-error-secret");
+            writer.completed(5, "checkpoint={\"token\":\"checkpoint-secret\"}");
+        }
+
+        var lines = Files.readAllLines(trace);
+        assertEquals(5, lines.size());
+        String persisted = String.join("\n", lines);
+        for (String secret : new String[] {
+                "model-secret", "argument-secret", "auth-secret", "nested-secret",
+                "tool-secret", "protocol-secret", "model-error-secret", "checkpoint-secret"
+        }) {
+            assertFalse(persisted.contains(secret), "trace leaked " + secret);
+        }
+        assertTrue(persisted.contains("[REDACTED]"));
+
+        for (String line : lines) {
+            assertTrue(mapper.readTree(line).isObject(), "each JSONL record must remain valid JSON");
+        }
+        var tool = mapper.readTree(lines.get(1));
+        assertEquals("safe.csv", tool.path("arguments").path("path").asText());
+        assertEquals("[REDACTED]", tool.path("arguments").path("api_key").asText());
+        assertEquals("[REDACTED]", tool.path("arguments").path("nested")
+                .path("password").asText());
+        assertEquals("argument-secret", arguments.path("api_key").asText(),
+                "redaction must not mutate live tool arguments");
     }
 }

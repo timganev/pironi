@@ -65,7 +65,7 @@ public final class SessionStore {
                 .put("promptTokens", promptTokens)
                 .put("outputTokens", outputTokens);
         try {
-            Files.writeString(currentPath, mapper.writeValueAsString(node) + "\n",
+            Files.writeString(currentPath, SecretRedactor.redact(mapper.writeValueAsString(node)) + "\n",
                     StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             currentMeta = currentMeta.withTokens(
                     currentMeta.totalPromptTokens() + promptTokens,
@@ -85,7 +85,7 @@ public final class SessionStore {
                 .put("tool", tool);
         if (args != null) node.set("args", args);
         try {
-            Files.writeString(currentPath, mapper.writeValueAsString(node) + "\n",
+            Files.writeString(currentPath, SecretRedactor.redact(mapper.writeValueAsString(node)) + "\n",
                     StandardCharsets.UTF_8, StandardOpenOption.APPEND);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
@@ -113,7 +113,8 @@ public final class SessionStore {
     public void saveCheckpoint(String compressedJson) {
         if (currentMeta == null) return;
         try {
-            Files.writeString(sessionsDir.resolve(currentMeta.id() + ".ckpt.json"), compressedJson,
+            Files.writeString(sessionsDir.resolve(currentMeta.id() + ".ckpt.json"),
+                    SecretRedactor.redact(compressedJson),
                     StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new UncheckedIOException(e);

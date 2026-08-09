@@ -12,6 +12,7 @@ import java.io.PrintStream;
 import java.io.StringReader;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ConsoleApprovalPolicyTest {
     private final JsonNode arguments = new ObjectMapper().createObjectNode();
@@ -54,6 +55,54 @@ class ConsoleApprovalPolicyTest {
 
         assertEquals(ApprovalMode.AUTO, policy.mode());
         assertEquals(ApprovalDecision.ALLOW, policy.decide(tool(true), arguments));
+    }
+
+    @Test
+    void autoStillRequiresExplicitApprovalForPersistentContextFiles() {
+        JsonNode protectedArguments = new ObjectMapper().createObjectNode()
+                .put("path", ".pironi/SOUL.md")
+                .put("content", "new identity");
+        ConsoleApprovalPolicy denied = new ConsoleApprovalPolicy(
+                ApprovalMode.AUTO,
+                new BufferedReader(new StringReader("n\n")),
+                new PrintStream(new ByteArrayOutputStream())
+        );
+        ConsoleApprovalPolicy allowed = new ConsoleApprovalPolicy(
+                ApprovalMode.AUTO,
+                new BufferedReader(new StringReader("yes\n")),
+                new PrintStream(new ByteArrayOutputStream())
+        );
+
+        assertEquals(ApprovalDecision.DENY, denied.decide(tool(true), protectedArguments));
+        assertEquals(ApprovalDecision.ALLOW, allowed.decide(tool(true), protectedArguments));
+        assertEquals(ApprovalDecision.DENY, denied.decide(
+                tool(true),
+                new ObjectMapper().createObjectNode()
+                        .put("patch", "*** Update File: CLAUDE.md\n@@\n-old\n+new")
+        ));
+        assertEquals(ApprovalDecision.ALLOW, denied.decide(
+                tool(true),
+                new ObjectMapper().createObjectNode().put("path", "notes.md")
+        ));
+    }
+
+    @Test
+    void nonInteractiveAutoDeniesProtectedContextWithoutReadingInput() {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        ConsoleApprovalPolicy policy = new ConsoleApprovalPolicy(
+                ApprovalMode.AUTO,
+                new BufferedReader(new StringReader("yes\n")),
+                new PrintStream(output),
+                false
+        );
+
+        ApprovalDecision decision = policy.decide(
+                tool(true),
+                new ObjectMapper().createObjectNode().put("path", "SOUL.md")
+        );
+
+        assertEquals(ApprovalDecision.DENY, decision);
+        assertTrue(output.toString().contains("require explicit approval"));
     }
 
     private ConsoleApprovalPolicy policy(String input) {

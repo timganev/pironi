@@ -12,6 +12,7 @@ import java.util.List;
  * Model-driven context compression. Tracks tokens, triggers semantic summarization.
  */
 public final class ContextCompressor {
+    private static final int MAX_SUMMARY_CHARACTERS = 2_400;
     private final int contextLimit;
     private final ObjectMapper mapper;
     private long runningPromptTokens;
@@ -28,8 +29,10 @@ public final class ContextCompressor {
     // ── token tracking ─────────────────────────────────────────────────
 
     public void addTokens(long prompt, long output) {
-        runningPromptTokens += prompt;
-        runningOutputTokens += output;
+        // Provider prompt usage already includes the conversation sent on this request.
+        // Summing it across requests measures API spend, not current context occupancy.
+        runningPromptTokens = Math.max(0, prompt);
+        runningOutputTokens = Math.max(0, output);
     }
 
     public long usedTokens() { return runningPromptTokens + runningOutputTokens; }
@@ -95,7 +98,7 @@ public final class ContextCompressor {
      * Stores the compressed summary and resets token counters to reflect new state.
      */
     public String storeSummary(String summary) {
-        this.lastSummary = summary;
+        this.lastSummary = boundSummary(summary);
         // Reset: system + task (~500) + summary (~300) + last 4 turns (~800) ≈ 1600 base
         runningPromptTokens = Math.min(1600, contextLimit / 2L);
         runningOutputTokens = 0;
@@ -106,7 +109,14 @@ public final class ContextCompressor {
                %s
                
                Continue from here with the recent conversation below.
-               """.formatted(summary);
+               """.formatted(lastSummary);
+    }
+
+    /** Restores only bounded working state; summaries never become identity instructions. */
+    public void restoreSummary(String summary) {
+        lastSummary = boundSummary(summary);
+        runningPromptTokens = Math.min(1600, contextLimit / 2L);
+        runningOutputTokens = 0;
     }
 
     // ── checkpoint ─────────────────────────────────────────────────────
@@ -127,5 +137,13 @@ public final class ContextCompressor {
 
     private static String truncate(String s, int max) {
         return s.length() <= max ? s : s.substring(0, max) + "...";
+    }
+
+    private static String boundSummary(String summary) {
+        if (summary == null || summary.isBlank()) return "";
+        String normalized = summary.strip();
+        return normalized.length() <= MAX_SUMMARY_CHARACTERS
+                ? normalized
+                : normalized.substring(0, MAX_SUMMARY_CHARACTERS);
     }
 }

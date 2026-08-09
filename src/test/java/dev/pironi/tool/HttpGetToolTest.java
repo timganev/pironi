@@ -38,11 +38,13 @@ class HttpGetToolTest {
 
     @Test void rejectsRedirectsErrorsAndOversizedBodies() {
         HttpGetTool redirect = new HttpGetTool((uri, timeout) ->
-                new HttpGetTool.FetchResponse(302, new byte[0]));
+                new HttpGetTool.FetchResponse(302, new byte[0], "https://example.test/final"));
         ToolResult redirected = redirect.execute(mapper.createObjectNode()
                 .put("url", "https://8.8.8.8"));
         assertFalse(redirected.success());
         assertTrue(redirected.output().contains("HTTP 302"));
+        assertTrue(redirected.output().contains("redirect blocked"));
+        assertTrue(redirected.output().contains("Location: https://example.test/final"));
 
         HttpGetTool huge = new HttpGetTool((uri, timeout) ->
                 new HttpGetTool.FetchResponse(200, new byte[HttpGetTool.MAX_BODY_BYTES + 1]));

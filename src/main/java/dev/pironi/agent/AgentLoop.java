@@ -18,6 +18,9 @@ import dev.pironi.verification.VerificationResult;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.stream.Collectors;
 import java.util.function.Consumer;
 
@@ -124,6 +127,7 @@ public final class AgentLoop {
         int protocolErrors = 0;
         int unknownToolErrors = 0;
         List<String> successfulMutations = new ArrayList<>();
+        List<String> recentToolOutcomes = new ArrayList<>();
         for (int turn = 1; turn <= maxTurns; turn++) {
             activeTurn = turn;
             int remainingTurns = maxTurns - turn + 1;
@@ -169,6 +173,8 @@ public final class AgentLoop {
             if (!decision.toolCalls().isEmpty()) {
                 var result = executeTools(turn, decision.toolCalls());
                 successfulMutations.addAll(result.successfulMutations());
+                recentToolOutcomes.clear();
+                recentToolOutcomes.addAll(result.outcomes());
                 messages.add(ChatMessage.user(result.userMessage()));
                 if (result.unknownCount() > 0) {
                     unknownToolErrors++;
@@ -207,7 +213,9 @@ public final class AgentLoop {
         }
 
         statusReporter.idle();
-        AgentResult finalized = finalizeAfterTurnLimit(messages, task, successfulMutations);
+        AgentResult finalized = finalizeAfterTurnLimit(
+                messages, task, successfulMutations, recentToolOutcomes
+        );
         if (finalized != null) return finalized;
         memory.checkpoint(messages, task);
         memory.finished(false);
@@ -244,12 +252,15 @@ public final class AgentLoop {
     private AgentResult finalizeAfterTurnLimit(
             List<ChatMessage> messages,
             String task,
-            List<String> successfulMutations
+            List<String> successfulMutations,
+            List<String> recentToolOutcomes
     ) throws InterruptedException {
-        if (successfulMutations.isEmpty()) return null;
+        if (successfulMutations.isEmpty() && recentToolOutcomes.isEmpty()) return null;
         int finalTurn = maxTurns + 1;
-        messages.add(ChatMessage.user("Finalization-only grace turn. Successful mutations already exist: "
-                + String.join("; ", successfulMutations)
+        String evidence = successfulMutations.isEmpty()
+                ? "The most recent tool outcomes were: " + String.join("; ", recentToolOutcomes)
+                : "Successful mutations already exist: " + String.join("; ", successfulMutations);
+        messages.add(ChatMessage.user("Finalization-only grace turn. " + evidence
                 + ". Do not call tools. Return a compact finalAnswer that accurately reports what exists "
                 + "and any remaining limitation."));
         try {
@@ -338,6 +349,7 @@ public final class AgentLoop {
 
         int successCount = 0;
         List<String> successfulMutations = new ArrayList<>();
+        List<String> outcomes = new ArrayList<>();
         for (int index = 0; index < toolCalls.size(); index++) {
             ToolCall call = toolCalls.get(index);
             Tool tool = resolvedTools.get(index);
@@ -363,6 +375,9 @@ public final class AgentLoop {
             if (result.success() && tool != null && tool.mutating()) {
                 successfulMutations.add(call.name() + ": " + summarize(result.output()));
             }
+            outcomes.add(call.name() + " "
+                    + (result.success() ? "succeeded: " : "failed: ")
+                    + summarize(result.output()));
 
             traceWriter.toolResult(turn, call.name(), call.arguments(), result);
             memory.recordTool(call.name(), call.arguments(), result.output());
@@ -390,6 +405,7 @@ public final class AgentLoop {
         return new ToolExecutionResult(
                 unknownCount,
                 List.copyOf(successfulMutations),
+                List.copyOf(outcomes),
                 trustedInstruction + "\n<tool_output untrusted>\n"
                         + envelope + "\n</tool_output untrusted>"
         );
@@ -398,6 +414,7 @@ public final class AgentLoop {
     private record ToolExecutionResult(
             int unknownCount,
             List<String> successfulMutations,
+            List<String> outcomes,
             String userMessage
     ) {
     }
@@ -481,6 +498,9 @@ public final class AgentLoop {
                 verification before accepting finalAnswer. Do not duplicate that verification with
                 run_command unless automatic verification fails and you need targeted diagnostics.
                 A failed tool result is feedback: correct the call instead of stopping.
+                Never simulate an unavailable filesystem primitive with a different artifact.
+                For example, a regular text file is not a symbolic link. If no registered safe tool
+                can create the requested primitive, explain the limitation and do not create a substitute.
                 Choose the narrowest native tool that directly answers the question. Use inspect_file
                 instead of shell commands for binary/large-file metadata and system_info instead of
                 OS-specific commands for hardware/runtime facts. Do not list a directory merely to
@@ -498,12 +518,34 @@ public final class AgentLoop {
                 "Current runtime session (authoritative)",
                 agentContext.runtimeSession()
         );
+        appendContext(prompt, "Current time and regional context", runtimeRegionalContext());
         appendContext(prompt, "Runtime capabilities (authoritative)", capabilities.render());
         appendContext(prompt, "Identity from SOUL.md", agentContext.soul());
         appendContext(prompt, "User profile from USER.md", agentContext.userProfile());
         appendContext(prompt, "Project instructions from CLAUDE.md", agentContext.projectInstructions());
         appendContext(prompt, "Session skills", memory.promptContext());
         return prompt.toString();
+    }
+
+    private static String runtimeRegionalContext() {
+        ZonedDateTime now = ZonedDateTime.now();
+        Locale locale = Locale.getDefault();
+        return """
+                date-time: %s
+                time-zone: %s
+                locale: %s
+                geographic-location: unknown unless explicitly supplied by the user or verified
+                note: timezone and locale are hints, not proof of the user's current city or country
+                location-priority: explicit task, session-confirmed location, approximate network location,
+                then an optional saved default; ask only when the requested result needs greater precision
+                network-location-warning: IP geolocation describes a network exit and may be wrong because
+                of VPNs, corporate routing, mobile carriers, or travel; label it approximate and never
+                claim high confidence in the user's physical location from IP evidence alone
+                """.formatted(
+                now.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                now.getZone().getId(),
+                locale.toLanguageTag()
+        ).strip();
     }
 
     private void compressIfNeeded(List<ChatMessage> messages, String task)

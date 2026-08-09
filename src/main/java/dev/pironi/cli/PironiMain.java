@@ -155,9 +155,10 @@ public final class PironiMain {
                 )
         );
         Set<String> effectiveDeniedTools = autoSafeDeniedTools(options);
-        ToolRegistry tools = configuredTools(
+        ToolRegistry configuredRegistry = configuredTools(
                 availableTools, effectiveDeniedTools, options.allowTools()
         );
+        ToolRegistry tools = toolsForApproval(configuredRegistry, options.approvalMode());
 
         boolean statusEnabled = statusEnabled(
                 options.statusMode(),
@@ -216,7 +217,8 @@ public final class PironiMain {
             ConsoleApprovalPolicy approvalPolicy = new ConsoleApprovalPolicy(
                     options.approvalMode(),
                     input,
-                    System.out
+                    System.out,
+                    interactive
             );
             AgentLoop loop = new AgentLoop(
                     modelClient,
@@ -320,6 +322,7 @@ public final class PironiMain {
                                         .withApprovalMode(mode);
                                 lastSession.save(updated);
                                 approvalPolicy.updateMode(mode);
+                                tools.setReadOnly(mode == ApprovalMode.READ_ONLY);
                                 currentOptions.set(updated);
                                 agentContext.updateRuntimeSession(
                                         runtimeSessionDescription(updated)
@@ -485,6 +488,11 @@ public final class PironiMain {
         boolean windows = osName.toLowerCase(java.util.Locale.ROOT).contains("win");
         return mode == StatusMode.ALWAYS
                 || (mode == StatusMode.AUTO && consolePresent && !windows);
+    }
+
+    static ToolRegistry toolsForApproval(ToolRegistry configured, ApprovalMode mode) {
+        configured.setReadOnly(mode == ApprovalMode.READ_ONLY);
+        return configured;
     }
 
     static ToolRegistry configuredTools(

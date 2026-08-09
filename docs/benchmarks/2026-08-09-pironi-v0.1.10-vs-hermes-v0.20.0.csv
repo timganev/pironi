@@ -1,0 +1,11 @@
+run,order,harness,exit_code,wall_seconds,peak_rss_kib,input_tokens,output_tokens,exact_result
+1,1,pironi,0,3.62,141068,4338,68,true
+1,2,hermes,0,5.28,172148,23924,28,true
+2,1,hermes,0,5.30,171924,22132,31,true
+2,2,pironi,0,2.70,141864,4338,53,true
+3,1,pironi,0,2.92,135184,4338,59,true
+3,2,hermes,0,4.86,171552,20340,21,true
+4,1,hermes,0,6.05,172600,20340,54,true
+4,2,pironi,0,3.18,136236,4338,76,true
+5,1,pironi,0,2.85,136956,4337,75,true
+5,2,hermes,0,4.99,172372,20340,27,true

@@ -15,7 +15,8 @@ import java.util.stream.Stream;
  * Filesystem-based skill store. SKILL.md files with YAML frontmatter.
  */
 public final class SkillStore {
-    private static final int MAX_INDEX_TOKENS = 30;
+    private static final int MAX_PROMPT_INDEX_CHARACTERS = 2_400;
+    private static final int MAX_PROMPT_INDEX_ENTRIES = 24;
     private static final int MAX_SKILL_CHARACTERS = 24_000;
 
     private final Path skillsDir;
@@ -75,7 +76,9 @@ public final class SkillStore {
         try {
             Path dir = skillsDir.resolve(sanitize(name));
             Files.createDirectories(dir);
-            Files.writeString(dir.resolve("SKILL.md"), content, StandardCharsets.UTF_8);
+            Files.writeString(
+                    dir.resolve("SKILL.md"), SecretRedactor.redact(content), StandardCharsets.UTF_8
+            );
             rebuildIndex();
             return true;
         } catch (IOException e) {
@@ -147,10 +150,19 @@ public final class SkillStore {
 
     public String loadIndex() {
         try {
-            Path index = skillsDir.resolve("INDEX.md");
-            if (!Files.exists(index) || Files.size(index) < 10) return "";
-            // Return only first line per skill to keep prompt footprint tiny
-            return Files.readString(index, StandardCharsets.UTF_8);
+            List<SkillEntry> available = list();
+            if (available.isEmpty()) return "";
+            StringBuilder compact = new StringBuilder("# Pironi Skills\n\n");
+            int count = 0;
+            for (SkillEntry entry : available) {
+                if (count >= MAX_PROMPT_INDEX_ENTRIES) break;
+                String line = "- **" + entry.name() + "**: "
+                        + truncate(entry.description(), 80) + "\n";
+                if (compact.length() + line.length() > MAX_PROMPT_INDEX_CHARACTERS) break;
+                compact.append(line);
+                count++;
+            }
+            return compact.toString();
         } catch (IOException e) {
             return "";
         }

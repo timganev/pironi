@@ -42,4 +42,27 @@ class SessionStoreTest {
         assertTrue(store.readSessionMessages("../escape").isEmpty());
         assertFalse(Files.exists(temporaryDirectory.resolve("escape.ckpt.json")));
     }
+
+    @Test void redactsSecretsFromTurnsToolsAndCheckpoints() throws Exception {
+        SessionStore store = new SessionStore(temporaryDirectory, new ObjectMapper());
+        var meta = store.startSession("model", Path.of("/workspace/project"), 1000, 8);
+        store.appendTurn(ChatMessage.user(
+                "DEEPSEEK_API_KEY=deep-secret password: hunter2"), 1, 1);
+        var args = new ObjectMapper().createObjectNode()
+                .put("authorization", "Bearer bearer-secret");
+        store.appendToolResult("run_command", args, "OPENAI_API_KEY=tool-secret");
+        store.saveCheckpoint("""
+                {"version":1,"messages":[{"role":"user",
+                "content":"token=checkpoint-secret"}]}
+                """);
+
+        String persisted = String.join("\n", store.readSessionMessages(meta.id()))
+                + store.loadCheckpoint(meta.id()).orElseThrow();
+        assertFalse(persisted.contains("deep-secret"));
+        assertFalse(persisted.contains("hunter2"));
+        assertFalse(persisted.contains("bearer-secret"));
+        assertFalse(persisted.contains("tool-secret"));
+        assertFalse(persisted.contains("checkpoint-secret"));
+        assertTrue(persisted.contains("[REDACTED]"));
+    }
 }

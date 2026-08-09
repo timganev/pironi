@@ -4,15 +4,20 @@ import com.fasterxml.jackson.databind.JsonNode;
 import dev.pironi.safety.Workspace;
 
 import java.io.IOException;
+import java.io.BufferedReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
 public final class ReadFileTool implements Tool {
+    private static final int DEFAULT_RANGE_LINES = 200;
+    private static final int MAX_RANGE_LINES = 10_000;
     private final Workspace workspace;
     private final int maxCharacters;
     private final List<Path> allowedRoots;
@@ -55,12 +60,16 @@ public final class ReadFileTool implements Tool {
     @Override
     public String description() {
         return "Read a UTF-8 text file inside the workspace or a configured read-only search "
-                + "root. Absolute paths are accepted only below those roots.";
+                + "root. Absolute paths are accepted only below those roots. For large files, "
+                + "use 1-based startLine with lineCount, or tailLines, to return a bounded "
+                + "line range without loading the whole file.";
     }
 
     @Override
     public String argumentSchema() {
-        return "{\"path\":\"string, required\"}";
+        return "{\"path\":\"string, required\",\"startLine\":\"integer 1..2147483647, optional\","
+                + "\"lineCount\":\"integer 1..10000, optional\","
+                + "\"tailLines\":\"integer 1..10000, optional; exclusive with startLine/lineCount\"}";
     }
 
     @Override
@@ -79,6 +88,27 @@ public final class ReadFileTool implements Tool {
             if (!Files.isRegularFile(file)) {
                 return ToolResult.failure("Not a regular file: " + path);
             }
+            boolean hasStart = arguments.hasNonNull("startLine");
+            boolean hasCount = arguments.hasNonNull("lineCount");
+            boolean hasTail = arguments.hasNonNull("tailLines");
+            if (hasTail && (hasStart || hasCount)) {
+                return ToolResult.failure("tailLines cannot be combined with startLine or lineCount");
+            }
+            if (hasTail) {
+                int tailLines = ToolArguments.optionalPositiveInt(
+                        arguments, "tailLines", 1, MAX_RANGE_LINES
+                );
+                return ToolResult.success(readTail(file, tailLines));
+            }
+            if (hasStart || hasCount) {
+                int startLine = ToolArguments.optionalPositiveInt(
+                        arguments, "startLine", 1, Integer.MAX_VALUE
+                );
+                int lineCount = ToolArguments.optionalPositiveInt(
+                        arguments, "lineCount", DEFAULT_RANGE_LINES, MAX_RANGE_LINES
+                );
+                return ToolResult.success(readRange(file, startLine, lineCount));
+            }
             String content = Files.readString(file, StandardCharsets.UTF_8);
             if (content.length() > maxCharacters) {
                 return ToolResult.success(content.substring(0, maxCharacters)
@@ -88,6 +118,56 @@ public final class ReadFileTool implements Tool {
         } catch (IllegalArgumentException | IOException e) {
             return ToolResult.failure(e.getMessage());
         }
+    }
+
+    private String readRange(Path file, int startLine, int lineCount) throws IOException {
+        StringBuilder output = new StringBuilder(Math.min(maxCharacters, 8_192));
+        try (BufferedReader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+            String line;
+            int currentLine = 0;
+            int returned = 0;
+            while ((line = reader.readLine()) != null) {
+                currentLine++;
+                if (currentLine < startLine) continue;
+                if (returned >= lineCount) break;
+                if (!appendBoundedLine(output, line)) return truncated(output);
+                returned++;
+            }
+        }
+        return output.toString();
+    }
+
+    private String readTail(Path file, int tailLines) throws IOException {
+        Deque<String> tail = new ArrayDeque<>(tailLines);
+        try (BufferedReader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (tail.size() == tailLines) tail.removeFirst();
+                tail.addLast(line);
+            }
+        }
+        StringBuilder output = new StringBuilder(Math.min(maxCharacters, 8_192));
+        for (String line : tail) {
+            if (!appendBoundedLine(output, line)) return truncated(output);
+        }
+        return output.toString();
+    }
+
+    private boolean appendBoundedLine(StringBuilder output, String line) {
+        int separator = output.isEmpty() ? 0 : 1;
+        if (output.length() + separator + line.length() > maxCharacters) {
+            int remaining = maxCharacters - output.length() - separator;
+            if (separator == 1 && output.length() < maxCharacters) output.append('\n');
+            if (remaining > 0) output.append(line, 0, remaining);
+            return false;
+        }
+        if (separator == 1) output.append('\n');
+        output.append(line);
+        return true;
+    }
+
+    private String truncated(StringBuilder output) {
+        return output + "\n[truncated after " + maxCharacters + " characters]";
     }
 
     private Path resolve(String supplied) throws IOException {

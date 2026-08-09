@@ -31,7 +31,11 @@ public final class HttpGetTool implements Tool {
                     request, HttpResponse.BodyHandlers.ofInputStream()
             );
             try (InputStream body = response.body()) {
-                return new FetchResponse(response.statusCode(), body.readNBytes(MAX_BODY_BYTES + 1));
+                return new FetchResponse(
+                        response.statusCode(),
+                        body.readNBytes(MAX_BODY_BYTES + 1),
+                        response.headers().firstValue("Location").orElse("")
+                );
             }
         };
     }
@@ -60,7 +64,12 @@ public final class HttpGetTool implements Tool {
             int seconds = ToolArguments.optionalPositiveInt(arguments, "timeoutSeconds", 15, 30);
             FetchResponse response = fetcher.fetch(uri, Duration.ofSeconds(seconds));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                return ToolResult.failure("HTTP " + response.statusCode());
+                String redirect = response.statusCode() >= 300 && response.statusCode() < 400
+                        ? "; redirect blocked"
+                                + (response.location().isBlank() ? ""
+                                : "; Location: " + truncate(response.location(), 1_000))
+                        : "";
+                return ToolResult.failure("HTTP " + response.statusCode() + redirect);
             }
             if (response.body().length > MAX_BODY_BYTES) {
                 return ToolResult.failure("HTTP response exceeds " + MAX_BODY_BYTES + " bytes");
@@ -98,10 +107,23 @@ public final class HttpGetTool implements Tool {
         return bytes.length == 16 && (bytes[0] & 0xfe) == 0xfc;
     }
 
+    private static String truncate(String value, int max) {
+        return value.length() <= max ? value : value.substring(0, max);
+    }
+
     @FunctionalInterface
     interface Fetcher {
         FetchResponse fetch(URI uri, Duration timeout) throws Exception;
     }
 
-    record FetchResponse(int statusCode, byte[] body) {}
+    record FetchResponse(int statusCode, byte[] body, String location) {
+        FetchResponse(int statusCode, byte[] body) {
+            this(statusCode, body, "");
+        }
+
+        FetchResponse {
+            if (body == null) body = new byte[0];
+            if (location == null) location = "";
+        }
+    }
 }

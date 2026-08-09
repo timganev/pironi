@@ -30,4 +30,36 @@ class SkillStoreTest {
         assertFalse(store.save("name", ""));
         assertFalse(store.save("huge", "x".repeat(24_001)));
     }
+
+    @Test void redactsSecretsBeforePersistingSkill() throws Exception {
+        SkillStore store = new SkillStore(temporaryDirectory);
+        assertTrue(store.save("safe-process", """
+                ---
+                description: Safe process
+                ---
+                Use DEEPSEEK_API_KEY=never-store-this and password: also-secret.
+                """));
+
+        String content = store.load("safe-process").orElseThrow();
+        assertFalse(content.contains("never-store-this"));
+        assertFalse(content.contains("also-secret"));
+        assertTrue(content.contains("[REDACTED]"));
+    }
+
+    @Test void promptIndexStaysBoundedWhenManySkillsExist() throws Exception {
+        SkillStore store = new SkillStore(temporaryDirectory);
+        for (int index = 0; index < 100; index++) {
+            assertTrue(store.save("skill-" + index, """
+                    ---
+                    description: A reusable business workflow with enough descriptive text
+                    ---
+                    Body
+                    """));
+        }
+
+        String promptIndex = store.loadIndex();
+        assertTrue(promptIndex.length() <= 2_400);
+        assertTrue(promptIndex.contains("Pironi Skills"));
+        assertTrue(promptIndex.lines().count() <= 27);
+    }
 }

@@ -19,6 +19,24 @@ class ContextCompressorTest {
         assertEquals(500, compressor.usedTokens());
     }
 
+    @Test void tracksCurrentContextInsteadOfCumulativeProviderSpend() {
+        ContextCompressor compressor = new ContextCompressor(1000, new ObjectMapper());
+        compressor.addTokens(300, 20);
+        compressor.addTokens(340, 20);
+        compressor.addTokens(380, 20);
+
+        assertEquals(400, compressor.usedTokens());
+        assertFalse(compressor.shouldCompress());
+    }
+
+    @Test void boundsModelGeneratedSummary() {
+        ContextCompressor compressor = new ContextCompressor(10_000, new ObjectMapper());
+        String stored = compressor.storeSummary("x".repeat(20_000));
+
+        assertTrue(compressor.lastSummary().length() <= 2_400);
+        assertFalse(stored.contains("x".repeat(2_401)));
+    }
+
     @Test void buildsPromptOnlyWhenThereIsOldHistory() {
         ContextCompressor compressor = new ContextCompressor(10_000, new ObjectMapper());
         assertNull(compressor.buildCompressionPrompt(List.of(

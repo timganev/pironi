@@ -23,8 +23,9 @@ Choose the setup that matches the machine:
 
 Portable archives contain a trimmed Java 25 runtime. Maven is needed only when
 building or testing Pironi from source. Each tagged release provides
-`windows-x64.zip`, `linux-x64.tar.gz`, and `macos-arm64.tar.gz` bundles with
-SHA-256 checksum files.
+`pironi-VERSION-windows-x64.zip`, `pironi-VERSION-linux-x64.tar.gz`, and
+`pironi-VERSION-macos-arm64.tar.gz`, each with an adjacent `.sha256` checksum
+file.
 
 ### Windows 11 without admin rights
 
@@ -43,6 +44,17 @@ cannot be installed:
 $env:DEEPSEEK_API_KEY = "your-key"
 .\pironi.bat --provider deepseek --model deepseek-v4-flash --context 131072 --max-output-tokens 16384 --max-turns 30 --activity auto
 ```
+
+Optionally verify the downloaded archive against its adjacent checksum file
+before extracting it:
+
+```powershell
+(Get-FileHash .\pironi-VERSION-windows-x64.zip -Algorithm SHA256).Hash.ToLower()
+Get-Content .\pironi-VERSION-windows-x64.zip.sha256
+```
+
+The hexadecimal values must match. Replace `VERSION` with the release tag shown
+in the downloaded filename, for example `v0.1.9`.
 
 For a scripted one-shot task containing Cyrillic, quotes, or other Unicode,
 save the prompt as UTF-8 and pass its path instead of putting the prompt on the
@@ -125,6 +137,12 @@ export DEEPSEEK_API_KEY='your-key'
 ```
 
 The published macOS portable archive is ARM64 and targets Apple Silicon.
+Before extracting, compare the hexadecimal values printed by these commands:
+
+```bash
+shasum -a 256 pironi-VERSION-macos-arm64.tar.gz
+awk '{print $1}' pironi-VERSION-macos-arm64.tar.gz.sha256
+```
 
 ### Linux with full administrative access
 
@@ -140,92 +158,80 @@ export DEEPSEEK_API_KEY='your-key'
 With full administrative access, move the extracted directory under
 `/opt/pironi` and symlink its `pironi` launcher into `/usr/local/bin` if desired.
 
-For Linux ARM64, replace `x64` with `aarch64` in the Adoptium API URL.
+Before extracting, compare the hexadecimal values printed by these commands:
+
+```bash
+sha256sum pironi-VERSION-linux-x64.tar.gz
+awk '{print $1}' pironi-VERSION-linux-x64.tar.gz.sha256
+```
+
+There is currently no published Linux ARM64 portable bundle. It can be built
+locally by running `scripts/package-unix.sh` with an ARM64 JDK 25; do not use an
+x64 release on an ARM64 machine.
 
 ## Harness baseline: Pironi vs Hermes
 
-This baseline was repeated on 2026-08-07 on the same machine, against the same
-direct DeepSeek endpoint, with `deepseek-v4-flash`. Each harness was started
-three times in a new one-shot session with the exact prompt `хей`, an empty
-workspace, and no requested project or personal context. The table reports the
-median, followed by the observed range where useful. Wall time includes process
-startup, request latency, generation, parsing, and shutdown.
+This baseline was repeated on 2026-08-09 with Pironi `v0.1.10` and Hermes
+`0.20.0 (2026.8.3)`, using the same
+machine, direct DeepSeek endpoint, and `deepseek-v4-flash`. Each
+harness ran five times in alternating order with a fresh workspace and disabled
+personal context. The neutral prompt was
+`Отговори на български само с: Здравей`; all ten runs returned exactly
+`Здравей`. Wall time includes startup, provider latency, validation,
+output and shutdown.
 
 | Metric | Pironi | Hermes |
 | --- | ---: | ---: |
-| Harness | Pironi | Hermes |
-| Representative result | `Привет! Чем могу помочь?` | `Хей, Тим. На линия съм. С какво да помогна?` |
-| Wall time | 3.57 s (3.57–3.67) | 6.22 s (5.84–6.42) |
-| Peak RSS | 132 MiB (129–132) | 127 MiB (126–127) |
-| Uncached input | 1,134 | 16,335 (15,567–21,967) |
-| Cache read | not reported | 5,632 (0–6,400) |
-| Effective prompt | 1,134 | 21,967 |
-| Output | 125 (116–141) | 94 (78–98) |
-| Total tokens | 1,259 | 22,061 |
+| Wall time, median (range) | 2.92 s (2.70–3.62) | 5.28 s (4.86–6.05) |
+| Peak RSS, median (range) | 133.7 MiB (132.0–138.5) | 168.1 MiB (167.5–168.6) |
+| Provider input tokens, median (range) | 4,338 (4,337–4,338) | 20,340 (20,340–23,924) |
+| Provider output tokens, median (range) | 68 (53–76) | 28 (21–54) |
 | API calls | 1 | 1 |
+| Exact requested result | 5/5 | 5/5 |
 
-For this deliberately tiny request, Pironi's median was 2.65 seconds (about
-43%) faster and its effective prompt was about 19.4 times smaller. Its total
-token count was about 94% lower. The result measures harness overhead, not
-general model quality: Hermes supplied a much larger built-in prompt/tool
-environment and consistently produced the more appropriate Bulgarian response,
-while all three Pironi runs interpreted `хей` as Russian. Output-token
-accounting may include provider-side reasoning differently, so effective input
-is the more useful token comparison.
-
-Pironi has become heavier at the prompt level since the 2026-07-24 baseline:
-its input grew from 472 to 1,134 tokens, or about 2.4 times, as capabilities and
-protocol guidance were added. That increase is real, but it did not make Pironi
-heavier than Hermes in this test. Pironi still sent about 95% fewer effective
-prompt tokens and finished sooner. Process memory tells a different story: the
-Java process used about 4% more peak RSS than Hermes at the median. Latency is
-provider-sensitive, so the small three-run sample should be treated as a local
-startup-and-request baseline, not a general performance ranking.
+For this deliberately tiny request, Pironi used about 79% fewer input tokens,
+about 20% less peak process memory, and finished about 45% sooner at the
+median. This measures harness overhead for one controlled request, not general
+agent quality. Hermes intentionally includes a much broader built-in
+environment, while Pironi optimizes for a small, selectively loaded harness.
+Provider output accounting can include reasoning differently, so input tokens,
+wall time and verified task outcomes are the most useful comparison here.
 
 The measured software footprints differ substantially:
 
-| Metric                   |                                                 Pironi |                                                                              Hermes |
-| ------------------------ | -----------------------------------------------------: | ----------------------------------------------------------------------------------: |
-| Harness                  |                                Pironi `0.1.0-SNAPSHOT` |                                                                     Hermes `0.17.0` |
-| Implementation           |                                                Java 25 |                                      Python 3.11 core with TypeScript UI components |
-| Measured local footprint |                         3.8 MiB shaded JAR (4.0 MB) |                                                    7.1 GiB installation (7.6 GB) |
-| Source-only footprint    | about 471 KiB, excluding `.git`, `target`, `build`, IDE data, and traces | about 122 MiB, excluding `.git`, `venv`, `node_modules`, build, and generated output |
+| Artifact measured on the benchmark host | Pironi | Hermes |
+| --- | ---: | ---: |
+| Standalone application | 3.9 MiB shaded JAR | n/a |
+| Runnable environment | 97 MiB unpacked Linux portable | 880 MiB checkout excluding `.git` |
+| Compressed portable | 34 MiB Linux archive | n/a |
+| Source tree without dependency/runtime directories | below 1 MiB | 186 MiB |
 
-The footprint figures are not perfectly symmetrical. Pironi's JAR does not
-bundle the Java runtime, while the measured Hermes checkout contains a 5.4 GB
-Python virtual environment and 1.2 GB `node_modules` directory. Hermes also
-implements gateways, messaging integrations, plugins, skills, browser and
-desktop UI features that Pironi intentionally does not provide.
+The footprints are not feature-equivalent. Hermes additionally provides
+gateways, messaging integrations, plugins, browser/desktop features and a much
+larger bundled skill environment. Sanitized per-run measurements are committed
+in `docs/benchmarks/2026-08-09-pironi-v0.1.10-vs-hermes-v0.20.0.csv`.
 
-Commands used for each baseline run (with a fresh directory per repetition):
+### Reproduce the harness comparison
+
+On Linux, `scripts/benchmark-harnesses.sh` performs five alternating runs of
+each harness. Every run receives a fresh workspace and Pironi home. The script
+records exact command versions, the Pironi Git commit, host metadata, raw
+stdout/stderr, `/usr/bin/time` measurements, Pironi JSONL traces, Hermes usage
+JSON, and a summary CSV. It never reads or writes an API key itself; configure
+both harnesses for the selected provider before running it.
 
 ```bash
-# Hermes: safe mode disables custom rules, memory, plugins, and MCP servers.
-hermes --safe-mode \
-  --provider deepseek \
-  --model deepseek-v4-flash \
-  -z 'хей'
-
-# Pironi: empty workspace, no personal context, no TUI/status output.
-java -jar target/pironi-0.1.0-SNAPSHOT.jar \
-  --provider deepseek \
-  --model deepseek-v4-flash \
-  --no-interactive \
-  --workspace /tmp/empty-pironi-workspace \
-  --pironi-home /tmp/empty-pironi-home \
-  --trace /tmp/empty-pironi-workspace/trace.jsonl \
-  --approval read-only \
-  --status never \
-  --personal-context deny \
-  --max-turns 2 \
-  --task 'хей'
+mvn clean package
+BENCH_PROVIDER=deepseek \
+BENCH_MODEL=deepseek-v4-flash \
+scripts/benchmark-harnesses.sh
 ```
 
-Hermes usage came from sessions `20260807_140129_bf87c4`,
-`20260807_140135_9eccc7`, and `20260807_140141_10f715` in its local session
-database. Pironi usage came from the corresponding `model_response` trace
-events. `/usr/bin/time` supplied wall time and peak RSS. Minion remains excluded
-from the comparison at the user's request.
+Results are written below `build/benchmarks`, which is not a release artifact.
+Compare median wall time and peak RSS together with provider-reported prompt,
+cache-read, output-token, and API-call fields. Alternate ordering reduces the
+effect of warm provider caches, but a five-run local sample remains a startup
+and request baseline rather than a general model-quality ranking.
 
 ## Requirements for building from source
 
@@ -491,11 +497,21 @@ change files or external state. In auto mode, opt in explicitly with an exact
 
 ## Context files and privacy
 
-Pironi can load:
+Pironi can load layered context without requiring one monolithic memory file:
 
-- `~/.pironi/SOUL.md` for agent identity and behavior;
-- `~/.pironi/USER.md` for personal preferences;
-- `WORKSPACE/CLAUDE.md` for project instructions.
+- `SOUL.md` for agent identity and behavior;
+- `USER.md` for personal preferences;
+- `CLAUDE.md` for project instructions.
+
+For `SOUL.md` and `USER.md`, Pironi starts with
+`%USERPROFILE%\.pironi` on Windows or `~/.pironi` on Unix, then loads the
+configured `--pironi-home`, followed by `.pironi` directories from the user
+home down to the selected workspace. `CLAUDE.md` is loaded along the directory
+lineage from the user home down to the workspace. When a workspace is outside
+the user home, its directory cascade contains only that workspace; the global
+and configured personal homes still participate. Layers are ordered global to
+local, and the nearer layer wins when instructions conflict. Duplicate paths
+are loaded only once.
 
 For a long `CLAUDE.md`, place this marker after the instructions that must be
 sent to the model on every turn:
@@ -586,10 +602,14 @@ above the status row. After a task, the row remains visible as `ready`.
 model. During tool execution the same line shows the tool name.
 
 After each Ollama turn the status line also retains the measured generation
-rate from `eval_count / eval_duration`, for example `│ 19.99 tok/s`. It updates
+rate from `eval_count / eval_duration`, for example `│ 19.99 tok/s`. This is
+the provider's model-generation rate. It updates
 when the next response completes and resets after a model change. Providers
 without eval timing metadata use `completion_tokens / request duration` and
 mark the end-to-end estimate with `~`, for example `│ ~12.40 tok/s`.
+The approximate cloud value includes network and provider latency and therefore
+must not be compared directly with Ollama's generation-only value. Use the
+reproducible wall-time benchmark above when comparing complete harnesses.
 
 Normal output and the ANSI status frame share one `PrintStream`; every frame is
 written as one operation to prevent status fragments from being interleaved
@@ -606,11 +626,14 @@ On `/exit`, Pironi clears the reserved row and restores the normal terminal
 scroll region.
 
 Ollama responses use NDJSON transport streaming, but Pironi buffers the protocol
-envelope and prints `finalAnswer` only after the complete JSON has parsed and
-automatic verification has passed. This prevents a plausible answer from being
-shown before a truncated or malformed envelope is detected. `thought` and raw
-protocol JSON stay hidden, and the completed answer is retained for tracing and
-conversation memory without being printed twice.
+envelope until the complete JSON has parsed and automatic verification has
+passed. This prevents a plausible answer from being shown before a truncated or
+malformed envelope is detected. In an interactive session, the validated final
+answer is then rendered progressively in small paced chunks for readability;
+this is presentation streaming after validation, not exposure of unvalidated
+provider tokens. One-shot mode writes the validated answer directly. `thought`
+and raw protocol JSON stay hidden, and the completed answer is retained for
+tracing and conversation memory without being printed twice.
 
 Interactive conversation colors distinguish speakers: user input is cyan and
 validated agent answers are green. Status, memory and approval messages retain

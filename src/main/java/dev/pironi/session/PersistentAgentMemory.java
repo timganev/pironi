@@ -26,6 +26,7 @@ public final class PersistentAgentMemory implements AgentMemory {
     private String activeSkillContent = "";
     private String lastTask = "";
     private String lastAnswer = "";
+    private String resumedFrom = "";
     private boolean compressionRequested;
 
     public PersistentAgentMemory(SessionStore sessions, ContextCompressor compressor,
@@ -65,13 +66,13 @@ public final class PersistentAgentMemory implements AgentMemory {
     }
 
     @Override public synchronized boolean shouldCompress() {
-        boolean result = compressionRequested || compressor.shouldCompress();
-        compressionRequested = false;
-        return result;
+        return compressionRequested || compressor.shouldCompress();
     }
 
     @Override public synchronized String compressionPrompt(List<ChatMessage> messages, String task) {
-        return compressor.buildCompressionPrompt(messages, task);
+        String prompt = compressor.buildCompressionPrompt(messages, task);
+        if (prompt != null) compressionRequested = false;
+        return prompt;
     }
 
     @Override public synchronized String storeSummary(String summary) {
@@ -84,6 +85,7 @@ public final class PersistentAgentMemory implements AgentMemory {
         root.put("task", task);
         root.put("summary", compressor.lastSummary());
         root.put("activeSkill", activeSkill);
+        if (!resumedFrom.isBlank()) root.put("resumedFrom", resumedFrom);
         var array = root.putArray("messages");
         for (ChatMessage message : messages) {
             array.addObject().put("role", message.role()).put("content", message.content());
@@ -114,8 +116,9 @@ public final class PersistentAgentMemory implements AgentMemory {
     }
 
     public synchronized String resume(String id) {
-        var checkpoint = sessions.loadCheckpoint(id == null || id.isBlank()
-                ? sessions.latestSessionId().orElse("") : id);
+        String sourceId = id == null || id.isBlank()
+                ? sessions.latestSessionId().orElse("") : id;
+        var checkpoint = sessions.loadCheckpoint(sourceId);
         if (checkpoint.isEmpty()) return "No checkpoint found";
         try {
             JsonNode root = mapper.readTree(checkpoint.get());
@@ -134,8 +137,18 @@ public final class PersistentAgentMemory implements AgentMemory {
                 }
             }
             pendingResume = List.copyOf(restored);
+            activeSkill = "";
+            activeSkillContent = "";
             String skill = root.path("activeSkill").asText("");
             if (!skill.isBlank()) activateSkill(skill);
+            compressor.restoreSummary(root.path("summary").asText(""));
+            if (sessions.currentMeta() != null) sessions.updateStatus("closed");
+            sessions.startSession(model, workspace, contextLimit, maxTurns);
+            resumedFrom = sourceId;
+            ObjectNode resumedCheckpoint = (ObjectNode) root.deepCopy();
+            resumedCheckpoint.put("resumedFrom", resumedFrom);
+            sessions.saveCheckpoint(resumedCheckpoint.toString());
+            sessions.saveMeta();
             return "Session scheduled for resume: " + restored.size() + " messages";
         } catch (Exception e) {
             return "Invalid checkpoint: " + e.getMessage();
@@ -143,6 +156,8 @@ public final class PersistentAgentMemory implements AgentMemory {
     }
 
     public synchronized void requestCompression() { compressionRequested = true; }
+
+    public synchronized boolean compressionPending() { return compressionRequested; }
 
     public synchronized String startNewSession() {
         if (sessions.currentMeta() != null) sessions.updateStatus("closed");
@@ -155,6 +170,7 @@ public final class PersistentAgentMemory implements AgentMemory {
         lastTask = "";
         lastAnswer = "";
         compressionRequested = false;
+        resumedFrom = "";
         return "New session started: " + session.id();
     }
 

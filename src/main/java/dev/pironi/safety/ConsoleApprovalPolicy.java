@@ -7,13 +7,28 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 public final class ConsoleApprovalPolicy implements ApprovalPolicy {
+    private static final Pattern PROTECTED_CONTEXT = Pattern.compile(
+            "(?i)(?:^|[/\\\\\"'\\s:])(?:SOUL|USER|CLAUDE)\\.md(?:$|[/\\\\\"'\\s])"
+    );
     private volatile ApprovalMode mode;
     private volatile Interaction interaction;
+    private final boolean promptAllowed;
 
     public ConsoleApprovalPolicy(ApprovalMode mode, BufferedReader input, PrintStream output) {
+        this(mode, input, output, true);
+    }
+
+    public ConsoleApprovalPolicy(
+            ApprovalMode mode,
+            BufferedReader input,
+            PrintStream output,
+            boolean promptAllowed
+    ) {
         this.mode = mode;
+        this.promptAllowed = promptAllowed;
         this.interaction = new Interaction() {
             @Override
             public String request(String toolName, String preview) throws IOException {
@@ -47,10 +62,25 @@ public final class ConsoleApprovalPolicy implements ApprovalPolicy {
             return ApprovalDecision.ALLOW;
         }
         return switch (mode) {
-            case AUTO -> ApprovalDecision.ALLOW;
+            case AUTO -> targetsProtectedContext(arguments)
+                    ? protectedContextDecision(tool, arguments) : ApprovalDecision.ALLOW;
             case READ_ONLY -> ApprovalDecision.DENY;
             case ASK -> prompt(tool, arguments);
         };
+    }
+
+    private ApprovalDecision protectedContextDecision(Tool tool, JsonNode arguments) {
+        if (promptAllowed) return prompt(tool, arguments);
+        interaction.result(
+                "Denied: persistent context files require explicit approval in an "
+                        + "interactive session."
+        );
+        return ApprovalDecision.DENY;
+    }
+
+    private static boolean targetsProtectedContext(JsonNode arguments) {
+        return arguments != null
+                && PROTECTED_CONTEXT.matcher(arguments.toString()).find();
     }
 
     private ApprovalDecision prompt(Tool tool, JsonNode arguments) {
