@@ -353,7 +353,7 @@ public final class AgentLoop {
                 statusReporter.tool(call.name());
                 try {
                     result = tool.execute(call.arguments());
-                } catch (RuntimeException e) {
+                } catch (RuntimeException | LinkageError e) {
                     result = ToolResult.failure(
                             "Tool failed with " + e.getClass().getSimpleName() + ": " + e.getMessage()
                     );

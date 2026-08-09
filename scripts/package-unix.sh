@@ -20,7 +20,7 @@ fi
 
 rm -rf "$bundle_dir"
 mkdir -p "$bundle_dir"
-jlink --add-modules java.se,jdk.crypto.ec \
+jlink --add-modules java.se,jdk.crypto.ec,jdk.management \
   --strip-debug --no-header-files --no-man-pages \
   --output "$bundle_dir/runtime"
 cp "$jar_path" "$bundle_dir/pironi.jar"

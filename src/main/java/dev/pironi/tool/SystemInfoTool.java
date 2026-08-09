@@ -21,8 +21,16 @@ public final class SystemInfoTool implements Tool {
             Runtime runtime = Runtime.getRuntime(); FileStore store = Files.getFileStore(workspace.root());
             long physicalTotal = -1, physicalFree = -1;
             var bean = ManagementFactory.getOperatingSystemMXBean();
-            if (bean instanceof com.sun.management.OperatingSystemMXBean os) {
-                physicalTotal = os.getTotalMemorySize(); physicalFree = os.getFreeMemorySize();
+            try {
+                Class<?> extended = Class.forName("com.sun.management.OperatingSystemMXBean");
+                if (extended.isInstance(bean)) {
+                    physicalTotal = ((Number) extended.getMethod("getTotalMemorySize")
+                            .invoke(bean)).longValue();
+                    physicalFree = ((Number) extended.getMethod("getFreeMemorySize")
+                            .invoke(bean)).longValue();
+                }
+            } catch (ReflectiveOperationException | LinkageError ignored) {
+                // Optional on minimal or non-HotSpot runtimes; report unknown below.
             }
             return ToolResult.success("os=" + System.getProperty("os.name") + "\narch=" + System.getProperty("os.arch")
                     + "\nlogicalProcessors=" + runtime.availableProcessors() + "\nphysicalMemoryBytes=" + value(physicalTotal)

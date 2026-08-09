@@ -19,7 +19,7 @@ if (Test-Path -LiteralPath $bundleDir) {
 }
 New-Item -ItemType Directory -Path $bundleDir -Force | Out-Null
 
-& jlink --add-modules java.se,jdk.crypto.ec --strip-debug --no-header-files --no-man-pages --output (Join-Path $bundleDir "runtime")
+& jlink --add-modules java.se,jdk.crypto.ec,jdk.management --strip-debug --no-header-files --no-man-pages --output (Join-Path $bundleDir "runtime")
 if ($LASTEXITCODE -ne 0) {
     throw "jlink failed with exit code $LASTEXITCODE"
 }

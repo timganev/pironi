@@ -116,6 +116,24 @@ class AgentLoopTest {
     }
 
     @Test
+    void convertsToolLinkageErrorIntoRecoverableToolFailure() throws Exception {
+        Tool broken = new Tool() {
+            public String name() { return "broken"; }
+            public String description() { return "broken"; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return false; }
+            public ToolResult execute(JsonNode arguments) { throw new NoClassDefFoundError("optional/module"); }
+        };
+        RecordingModelClient model = new RecordingModelClient(
+                "{\"thought\":\"try\",\"toolCalls\":[{\"name\":\"broken\",\"arguments\":{}}],\"finalAnswer\":null}",
+                "{\"thought\":\"report\",\"toolCalls\":[],\"finalAnswer\":\"Tool unavailable\"}"
+        );
+        AgentResult result = loop(model, List.of(broken)).run("test");
+        assertTrue(result.success());
+        assertTrue(model.requests.get(1).getLast().content().contains("NoClassDefFoundError"));
+    }
+
+    @Test
     void failedBatchPreflightPreventsPartialMutation() throws Exception {
         java.util.concurrent.atomic.AtomicInteger executions = new java.util.concurrent.atomic.AtomicInteger();
         Tool valid = new Tool() {
