@@ -26,6 +26,7 @@ final class ToolActivityFormatter {
             case "inspect_file" -> "Inspecting " + fallback(path, "a file");
             case "http_get" -> "Fetching " + safeUrl(safeText(arguments, "url"));
             case "network_speed" -> "Measuring network latency and download speed";
+            case "app_control" -> appControl(arguments);
             case "run_command" -> summarizeCommand(safeText(arguments, "command"));
             case "propose_skill" -> "Preparing skill draft "
                     + fallback(safeText(arguments, "name"), "(unnamed)");
@@ -53,6 +54,17 @@ final class ToolActivityFormatter {
             }
         }
         return "Running command " + safeIdentifier(executable);
+    }
+
+    private static String appControl(JsonNode arguments) {
+        String app = fallback(safeText(arguments, "application"), "application");
+        return switch (safeText(arguments, "action")) {
+            case "status" -> "Checking " + app + " status";
+            case "launch" -> "Launching " + app;
+            case "new-window" -> "Opening a new " + app + " window";
+            case "close" -> "Closing " + app + " gracefully";
+            default -> "Controlling " + app;
+        };
     }
 
     private static String safeUrl(String value) {

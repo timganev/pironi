@@ -35,6 +35,7 @@ public final class CapabilityReport {
         boolean shellImplemented = implementedTools.contains("run_command");
         boolean http = tools.find("http_get").isPresent();
         boolean speed = tools.find("network_speed").isPresent();
+        boolean desktop = tools.find("app_control").isPresent();
         String network = speed
                 ? "available; throughput measurement through network_speed"
                 : http ? "available through http_get; throughput measurement unavailable"
@@ -51,6 +52,7 @@ public final class CapabilityReport {
                 host shell: %s
                 run_command: %s
                 network: %s
+                desktop applications: %s
                 exposed tools: %s
                 policy-disabled tools: %s
                 live configuration:
@@ -63,6 +65,8 @@ public final class CapabilityReport {
                         : shellImplemented ? "implemented but not exposed; see policy-disabled tools"
                         : "not implemented",
                 network,
+                desktop ? "available through allowlisted app_control"
+                        : "no registered desktop application tool",
                 names.isBlank() ? "none" : names,
                 disabledText,
                 context.runtimeSession().indent(2).stripTrailing()

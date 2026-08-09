@@ -507,6 +507,9 @@ public final class AgentLoop {
                 Before calling tools, check that their documented capability can produce the requested
                 measurement or artifact. Do not retry alternate endpoints after a tool limitation proves
                 the approach cannot work. Use network_speed for throughput; http_get cannot measure Mbps.
+                Use app_control for allowlisted desktop applications. Do not use or recommend pkill,
+                killall, taskkill, or arbitrary shell commands as a substitute. Close is graceful only;
+                if it fails, report remaining processes and never escalate to force termination.
 
                 Available tools:
                 %s

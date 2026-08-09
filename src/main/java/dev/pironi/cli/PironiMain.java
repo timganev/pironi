@@ -14,6 +14,7 @@ import dev.pironi.safety.ApprovalMode;
 import dev.pironi.safety.CheckpointManager;
 import dev.pironi.safety.Workspace;
 import dev.pironi.tool.ApplyPatchTool;
+import dev.pironi.tool.AppControlTool;
 import dev.pironi.tool.ListFilesTool;
 import dev.pironi.tool.HttpGetTool;
 import dev.pironi.tool.FindFilesTool;
@@ -140,6 +141,7 @@ public final class PironiMain {
                 ),
                 new InspectFileTool(workspace, options.searchRoots()),
                 new SystemInfoTool(workspace),
+                new AppControlTool(),
                 new ProposeSkillTool(memory),
                 new WriteFileTool(workspace),
                 new ApplyPatchTool(workspace, checkpoints),

@@ -685,6 +685,7 @@ to later sessions without changing prompts, agent identity, or trace content.
 - `system_info`
 - `write_file`
 - `apply_patch`
+- `app_control`
 - `move_file`
 - `rollback_checkpoint`
 - `find_files`
@@ -712,6 +713,15 @@ at startup. It does not restrict filesystem access through `run_command`.
 second automatic build after a successful command. It is absent from default
 auto/workspace sessions. Source changes must use
 `apply_patch`, which does trigger automatic verification.
+
+`app_control` provides allowlisted desktop actions without exposing arbitrary
+shell input. Supported applications are Firefox, Chrome, Edge, Obsidian,
+VS Code, and Notepad; supported actions are `status`, `launch`, `new-window`,
+and graceful `close`. It never force-terminates a process. If graceful close
+does not complete within five seconds, Pironi reports the remaining processes
+instead of escalating. Availability still depends on an active desktop session
+and an executable in a known platform location.
+
 Commands and automatic verification inherit the Java runtime that launched
 Pironi: `JAVA_HOME` is set from the active JVM and its `bin` directory is
 prepended to `PATH`. Starting Pironi with Java 25 therefore also makes Maven
