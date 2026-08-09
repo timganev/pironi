@@ -114,7 +114,9 @@ public final class ProcessControlTool implements Tool {
             throw new IllegalArgumentException("pid must be a positive integer");
         }
         String expected = ToolArguments.requiredText(arguments, "expectedName").strip();
-        if (!expected.equals(Path.of(expected).getFileName().toString()) || expected.length() > 100) {
+        if (expected.contains("/") || expected.contains("\\")
+                || !expected.equals(Path.of(expected).getFileName().toString())
+                || expected.length() > 100) {
             throw new IllegalArgumentException("expectedName must be a short executable filename");
         }
         String action = ToolArguments.requiredText(arguments, "action").strip().toLowerCase(Locale.ROOT);

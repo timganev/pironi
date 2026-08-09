@@ -516,6 +516,8 @@ public final class AgentLoop {
                 For a slow or memory-constrained machine, measure system memory with system_info and
                 inspect processes before reporting evidence or recommending an action;
                 never guess which process should be stopped. Use app_control for a normal GUI close.
+                When the user provides a PID or exact executable name, use the matching process_inspect
+                filter directly instead of paging through unrelated sorted process lists.
                 Use process_control only for a specific PID and exact observed name. Every termination
                 requires explicit user approval. Protect system processes, Pironi and its ancestors;
                 never escalate terminate to force-kill automatically or terminate a process merely

@@ -61,6 +61,7 @@ class ProcessControlToolTest {
         assertFalse(tool.validate(args(9005, "worker", "terminate")).success());
         assertFalse(tool.validate(args(9999, "gone", "terminate")).success());
         assertFalse(tool.validate(args(9006, "../worker", "terminate")).success());
+        assertFalse(tool.validate(args(9006, "..\\worker", "terminate")).success());
         assertFalse(tool.validate(args(9006, "worker", "kill-tree")).success());
     }
 

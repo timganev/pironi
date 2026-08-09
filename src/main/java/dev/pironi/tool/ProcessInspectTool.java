@@ -29,23 +29,33 @@ public final class ProcessInspectTool implements Tool {
     @Override public String description() {
         return "List running processes with PID, executable name, resident memory, sampled current CPU, "
                 + "accumulated CPU time, uptime, and responsiveness when the OS exposes it. Never returns command-line "
-                + "arguments or environment values. Use before proposing any process termination.";
+                + "arguments or environment values. Supports exact PID or executable-name lookup. "
+                + "Use before proposing any process termination.";
     }
     @Override public String argumentSchema() {
-        return "{\"sortBy\":\"memory|cpu|uptime|pid\",\"limit\":1-20}";
+        return "{\"sortBy\":\"optional memory|cpu|uptime|pid\",\"limit\":1-20,"
+                + "\"pid\":123,\"name\":\"optional exact executable name\"}";
     }
     @Override public boolean mutating() { return false; }
 
     @Override public ToolResult execute(JsonNode arguments) {
         try {
-            String sort = ToolArguments.requiredText(arguments, "sortBy")
-                    .strip().toLowerCase(Locale.ROOT);
+            Long pid = optionalPid(arguments);
+            String name = optionalName(arguments);
+            JsonNode sortNode = arguments == null ? null : arguments.get("sortBy");
+            String sort = sortNode == null || sortNode.isNull()
+                    ? (pid != null ? "pid" : "memory")
+                    : sortNode.isTextual() && !sortNode.textValue().isBlank()
+                            ? sortNode.textValue().strip().toLowerCase(Locale.ROOT) : "";
             if (!SORTS.contains(sort)) return ToolResult.failure("Unsupported sortBy: " + sort);
             int limit = ToolArguments.optionalPositiveInt(arguments, "limit", 10, 20);
-            List<Snapshot> snapshots = new ArrayList<>(backend.snapshots(sort));
+            List<Snapshot> snapshots = new ArrayList<>(backend.snapshots(
+                    sort.equals("cpu") || pid != null ? "cpu" : sort));
+            if (pid != null) snapshots.removeIf(process -> process.pid() != pid);
+            if (name != null) snapshots.removeIf(process -> !canonicalName(process.name()).equals(name));
             snapshots.sort(comparator(sort));
             StringBuilder output = new StringBuilder("sort=").append(sort)
-                    .append("; visibleProcesses=").append(snapshots.size()).append('\n');
+                    .append("; matchedProcesses=").append(snapshots.size()).append('\n');
             snapshots.stream().limit(limit).forEach(process -> output.append(process.render()).append('\n'));
             return ToolResult.success(output.toString().stripTrailing());
         } catch (IllegalArgumentException e) {
@@ -53,6 +63,34 @@ public final class ProcessInspectTool implements Tool {
         } catch (Exception e) {
             return ToolResult.failure("Process inspection failed: " + e.getMessage());
         }
+    }
+
+    private static Long optionalPid(JsonNode arguments) {
+        JsonNode value = arguments == null ? null : arguments.get("pid");
+        if (value == null || value.isNull()) return null;
+        if (!value.canConvertToLong() || value.longValue() <= 0) {
+            throw new IllegalArgumentException("pid must be a positive integer");
+        }
+        return value.longValue();
+    }
+
+    private static String optionalName(JsonNode arguments) {
+        JsonNode value = arguments == null ? null : arguments.get("name");
+        if (value == null || value.isNull()) return null;
+        if (!value.isTextual() || value.textValue().isBlank()) {
+            throw new IllegalArgumentException("name must be a non-blank executable filename");
+        }
+        String name = value.textValue().strip();
+        if (name.length() > 100 || name.contains("/") || name.contains("\\")
+                || !name.equals(Path.of(name).getFileName().toString())) {
+            throw new IllegalArgumentException("name must be a short executable filename");
+        }
+        return name.toLowerCase(Locale.ROOT);
+    }
+
+    private static String canonicalName(String command) {
+        try { return Path.of(command).getFileName().toString().toLowerCase(Locale.ROOT); }
+        catch (RuntimeException e) { return ""; }
     }
 
     private static Comparator<Snapshot> comparator(String sort) {
@@ -155,22 +193,25 @@ public final class ProcessInspectTool implements Tool {
             if (!System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")) {
                 return Map.of();
             }
-            String script = "Get-Process | ForEach-Object { "
-                    + "[Console]::WriteLine(('{0}{3}{1}{3}{2}' -f "
-                    + "$_.Id,$_.WorkingSet64,$_.Responding,[char]9)) }";
             Map<Long, WindowsMetrics> result = new HashMap<>();
             try {
-                Process process = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive",
-                        "-Command", script).redirectErrorStream(true).start();
+                String systemRoot = System.getenv().getOrDefault("SystemRoot", "C:\\Windows");
+                Process process = new ProcessBuilder(
+                        Path.of(systemRoot, "System32", "tasklist.exe").toString(),
+                        "/FO", "CSV", "/NH"
+                ).redirectErrorStream(true).start();
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-                        process.getInputStream(), StandardCharsets.UTF_8))) {
+                        process.getInputStream(), java.nio.charset.Charset.defaultCharset()))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
-                        String[] fields = line.split("\\t", -1);
-                        if (fields.length != 3) continue;
+                        List<String> fields = csvFields(line);
+                        if (fields.size() < 5) continue;
                         try {
-                            result.put(Long.parseLong(fields[0]), new WindowsMetrics(
-                                    Long.parseLong(fields[1]), fields[2].toLowerCase(Locale.ROOT)));
+                            long pid = Long.parseLong(fields.get(1));
+                            String digits = fields.get(4).replaceAll("[^0-9]", "");
+                            if (!digits.isBlank()) {
+                                result.put(pid, new WindowsMetrics(Long.parseLong(digits) * 1024L, ""));
+                            }
                         } catch (NumberFormatException ignored) { }
                     }
                 }
@@ -179,6 +220,26 @@ public final class ProcessInspectTool implements Tool {
                 if (Thread.currentThread().isInterrupted()) Thread.currentThread().interrupt();
             }
             return Map.copyOf(result);
+        }
+
+        static List<String> csvFields(String line) {
+            List<String> fields = new ArrayList<>();
+            StringBuilder current = new StringBuilder();
+            boolean quoted = false;
+            for (int index = 0; index < line.length(); index++) {
+                char character = line.charAt(index);
+                if (character == '"') {
+                    if (quoted && index + 1 < line.length() && line.charAt(index + 1) == '"') {
+                        current.append('"');
+                        index++;
+                    } else quoted = !quoted;
+                } else if (character == ',' && !quoted) {
+                    fields.add(current.toString());
+                    current.setLength(0);
+                } else current.append(character);
+            }
+            fields.add(current.toString());
+            return fields;
         }
     }
 
