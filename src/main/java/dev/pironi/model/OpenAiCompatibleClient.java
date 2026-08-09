@@ -127,8 +127,10 @@ public final class OpenAiCompatibleClient implements ModelClient {
         String fallbackFrom = "";
         long totalDurationNanos = 0;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            boolean plainRecovery = structured && deepSeekThinking && attempt == maxAttempts;
             String schemaFailure = null;
-            TimedResponse timed = send(messages, structured, jsonSchemaSupported);
+            TimedResponse timed = send(messages, structured && !plainRecovery, jsonSchemaSupported,
+                    plainRecovery);
             requestAttempts++;
             totalDurationNanos += timed.durationNanos();
             HttpResponse<String> response = timed.response();
@@ -136,7 +138,17 @@ public final class OpenAiCompatibleClient implements ModelClient {
                 schemaFailure = "HTTP " + response.statusCode() + ": " + safeError(response.body());
                 fallbackFrom = "json_schema";
                 jsonSchemaSupported = false;
-                timed = send(messages, true, false);
+                timed = send(messages, true, false, false);
+                requestAttempts++;
+                totalDurationNanos += timed.durationNanos();
+                response = timed.response();
+            }
+
+            if (structured && deepSeekThinking && !plainRecovery
+                    && response.statusCode() / 100 != 2 && responseFormatUnsupported(response)) {
+                fallbackFrom = schemaFailure == null ? "json_object" : "json_schema,json_object";
+                plainRecovery = true;
+                timed = send(messages, false, false, true);
                 requestAttempts++;
                 totalDurationNanos += timed.durationNanos();
                 response = timed.response();
@@ -180,7 +192,8 @@ public final class OpenAiCompatibleClient implements ModelClient {
                     totalDurationNanos,
                     0,
                     finishReason,
-                    structured ? (jsonSchemaSupported ? "json_schema" : "json_object") : "text",
+                    structured && !plainRecovery
+                            ? (jsonSchemaSupported ? "json_schema" : "json_object") : "text",
                     requestAttempts,
                     fallbackFrom,
                     schemaFailure == null ? "" : schemaFailure
@@ -189,7 +202,12 @@ public final class OpenAiCompatibleClient implements ModelClient {
         throw new IOException("Provider response retry loop ended unexpectedly");
     }
 
-    private TimedResponse send(List<ChatMessage> messages, boolean structured, boolean jsonSchema)
+    private TimedResponse send(
+            List<ChatMessage> messages,
+            boolean structured,
+            boolean jsonSchema,
+            boolean plainRecovery
+    )
             throws IOException, InterruptedException {
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("model", model);
@@ -211,6 +229,13 @@ public final class OpenAiCompatibleClient implements ModelClient {
             messageArray.addObject()
                     .put("role", message.role())
                     .put("content", message.content());
+        }
+        if (plainRecovery) {
+            messageArray.addObject()
+                    .put("role", "user")
+                    .put("content", "The provider returned empty structured responses. Reply now with "
+                            + "one compact valid JSON object containing thought, toolCalls, and finalAnswer. "
+                            + "Do not use Markdown fences.");
         }
 
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(endpoint)
@@ -248,6 +273,14 @@ public final class OpenAiCompatibleClient implements ModelClient {
                 || body.contains("must be one of")
                 || body.contains("not allowed");
         return namesSchema && saysUnsupported;
+    }
+
+    private static boolean responseFormatUnsupported(HttpResponse<String> response) {
+        if (response.statusCode() != 400 && response.statusCode() != 422) return false;
+        String body = response.body() == null ? "" : response.body().toLowerCase(Locale.ROOT);
+        return body.contains("response_format") && (body.contains("unsupported")
+                || body.contains("not supported") || body.contains("unavailable")
+                || body.contains("prompt must contain") || body.contains("not allowed"));
     }
 
     private static String responseContent(JsonNode content) throws IOException {

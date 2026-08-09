@@ -26,6 +26,8 @@ jlink --add-modules java.se,jdk.crypto.ec \
 cp "$jar_path" "$bundle_dir/pironi.jar"
 cp dist/unix/pironi "$bundle_dir/pironi"
 cp README.md "$bundle_dir/README.md"
+mkdir -p "$bundle_dir/.pironi/skills/team-lead"
+cp skills/team-lead/SKILL.md "$bundle_dir/.pironi/skills/team-lead/SKILL.md"
 chmod +x "$bundle_dir/pironi"
 
 archive="${output_dir}/${bundle_name}.tar.gz"
@@ -35,4 +37,3 @@ if command -v sha256sum >/dev/null 2>&1; then
 else
   shasum -a 256 "$archive" > "${archive}.sha256"
 fi
-

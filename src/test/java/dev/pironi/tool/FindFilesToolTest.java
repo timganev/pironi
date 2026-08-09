@@ -33,6 +33,21 @@ class FindFilesToolTest {
     }
 
     @Test
+    void acceptsAbsoluteDescendantOfAllowedSearchRoot() throws Exception {
+        Path workspace = Files.createDirectories(root.resolve("TeamLeadEval"));
+        Path expected = Files.writeString(workspace.resolve("tasks.csv"), "id,title\n1,Test\n");
+
+        ToolResult result = new FindFilesTool(List.of(root)).execute(
+                new ObjectMapper().createObjectNode()
+                        .put("root", workspace.toString())
+                        .put("name", "*.csv")
+        );
+
+        assertTrue(result.success(), result.output());
+        assertTrue(result.output().contains(expected.toRealPath().toString()));
+    }
+
+    @Test
     void excludesExplicitHiddenPath() throws Exception {
         Path visible = Files.writeString(root.resolve("visible.txt"), "ok");
         Path hidden = Files.writeString(root.resolve("trace.jsonl"), "secret");

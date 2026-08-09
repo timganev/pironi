@@ -477,6 +477,12 @@ skill for subsequent agent prompts, `/skill off` clears it, and
 `/save-skill NAME` saves the last successfully completed turn as a reusable
 skill.
 
+Portable bundles include a `team-lead` skill for safe Planner/Teams CSV
+reconciliation, status reporting, calendar drafts, and Office Open XML
+artifacts. Activate it with `/skill team-lead`. Pironi can create `.xlsx`,
+`.docx`, and `.pptx` through native Java tools without Microsoft Office,
+administrator rights, COM automation, PowerShell generators, or downloads.
+
 `run_command` is considered mutating because arbitrary shell commands can
 change files or external state. In auto mode, opt in explicitly with an exact
 `--allow-tools` list containing `run_command`, or deliberately broaden
@@ -620,6 +626,12 @@ their neutral UI colors. JLine generates the terminal-specific escape sequences.
 - `rollback_checkpoint`
 - `find_files`
 - `http_get`
+- `csv_merge`
+- `csv_sanitize`
+- `ics_create`
+- `xlsx_create`
+- `docx_create`
+- `pptx_create`
 - `run_command`
 
 Writing and moving paths are restricted to the selected workspace. Read-only
@@ -674,16 +686,14 @@ tells the model which tools, shell and network path are actually available.
 
 ### Microsoft Office documents on Windows
 
-The scoped text tools do not parse or rewrite binary Office formats. When
-`run_command` is enabled and desktop Microsoft Office is installed, Pironi can
-inspect and automate Word, Excel, and PowerPoint through PowerShell COM for
-`.doc`/`.docx`, `.xls`/`.xlsx`, and `.ppt`/`.pptx`. It must first detect the
-available application, preserve the original unless overwrite was requested,
-and verify the saved result. If Office is absent or COM automation is blocked
-by company policy, a suitable converter or a dedicated document tool is
-required. Auto mode with user-scoped shell access is powerful and has no
-transactional rollback for COM edits, so keep OneDrive/version history or a
-backup enabled.
+`xlsx_create`, `docx_create`, and `pptx_create` build real Office Open XML ZIP
+packages directly in Java. They need neither desktop Office nor COM, scripts,
+downloads, administrator rights, or a network connection. Every generated
+package is reopened and every XML/relationship part is parsed before success is
+reported. These tools create new structured documents; editing arbitrary
+existing Office layouts remains outside their scope. `csv_sanitize` protects
+formula-like cells before Excel import, `csv_merge` combines compatible exports,
+and `ics_create` produces calendar drafts without contacting Outlook or Teams.
 
 Provider finish reasons and the effective `json_schema`/`json_object` response
 format are written to the JSONL trace. `length`/`max_tokens`

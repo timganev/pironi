@@ -379,6 +379,45 @@ class AgentLoopTest {
         assertEquals("plain summary", memory.summary);
     }
 
+    @Test
+    void warnsModelToExecuteAsTurnBudgetRunsLow() throws Exception {
+        RecordingModelClient model = new RecordingModelClient(
+                "{\"thought\":\"inspect\",\"toolCalls\":[{\"name\":\"echo\",\"arguments\":{}}],\"finalAnswer\":null}",
+                "{\"thought\":\"done\",\"toolCalls\":[],\"finalAnswer\":\"ok\"}"
+        );
+        Tool echo = new Tool() {
+            public String name() { return "echo"; }
+            public String description() { return "echo"; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return false; }
+            public ToolResult execute(JsonNode arguments) { return ToolResult.success("ok"); }
+        };
+
+        loop(model, List.of(echo)).run("create report.docx");
+
+        assertTrue(model.requests.get(1).getLast().content().contains("3 turn(s) remain"));
+        assertTrue(model.requests.get(1).getLast().content().contains("Execute the smallest complete solution"));
+    }
+
+    @Test
+    void reportsSuccessfulMutationsWhenTurnLimitIsReached() throws Exception {
+        Tool writer = new Tool() {
+            public String name() { return "writer"; }
+            public String description() { return "writer"; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return true; }
+            public ToolResult execute(JsonNode arguments) { return ToolResult.success("Created outputs/report.csv"); }
+        };
+        String call = "{\"thought\":\"work\",\"toolCalls\":[{\"name\":\"writer\",\"arguments\":{}}],\"finalAnswer\":null}";
+        RecordingModelClient model = new RecordingModelClient(call, call, call, call);
+
+        AgentResult result = loop(model, List.of(writer)).run("create report");
+
+        assertTrue(!result.success());
+        assertTrue(result.output().contains("Successful mutating tool results"));
+        assertTrue(result.output().contains("outputs/report.csv"));
+    }
+
     private AgentLoop loop(ModelClient model, List<Tool> tools) {
         return loop(model, tools, new NoOpVerificationGate());
     }

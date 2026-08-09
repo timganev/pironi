@@ -28,6 +28,8 @@ Copy-Item -LiteralPath $Jar -Destination (Join-Path $bundleDir "pironi.jar")
 Copy-Item -LiteralPath "dist/windows/pironi.bat" -Destination (Join-Path $bundleDir "pironi.bat")
 Copy-Item -LiteralPath "dist/windows/README-WINDOWS.txt" -Destination (Join-Path $bundleDir "README-WINDOWS.txt")
 Copy-Item -LiteralPath "README.md" -Destination (Join-Path $bundleDir "README.md")
+New-Item -ItemType Directory -Path (Join-Path $bundleDir ".pironi\skills\team-lead") -Force | Out-Null
+Copy-Item -LiteralPath "skills/team-lead/SKILL.md" -Destination (Join-Path $bundleDir ".pironi\skills\team-lead\SKILL.md")
 
 if (Test-Path -LiteralPath $archive) {
     Remove-Item -LiteralPath $archive -Force
@@ -35,4 +37,3 @@ if (Test-Path -LiteralPath $archive) {
 Compress-Archive -LiteralPath $bundleDir -DestinationPath $archive
 $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
 Set-Content -LiteralPath "$archive.sha256" -Value "$hash  $([IO.Path]::GetFileName($archive))" -Encoding ascii
-

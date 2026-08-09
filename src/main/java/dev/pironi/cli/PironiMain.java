@@ -23,6 +23,9 @@ import dev.pironi.tool.RollbackCheckpointTool;
 import dev.pironi.tool.Tool;
 import dev.pironi.tool.ToolRegistry;
 import dev.pironi.tool.WriteFileTool;
+import dev.pironi.tool.CsvTool;
+import dev.pironi.tool.IcsCreateTool;
+import dev.pironi.tool.OfficeOpenXmlTool;
 import dev.pironi.trace.JsonlTraceWriter;
 import dev.pironi.status.NoOpStatusReporter;
 import dev.pironi.status.StatusReporter;
@@ -133,6 +136,12 @@ public final class PironiMain {
                 new WriteFileTool(workspace),
                 new ApplyPatchTool(workspace, checkpoints),
                 new MoveFileTool(workspace, checkpoints),
+                new CsvTool(workspace, CsvTool.Operation.MERGE),
+                new CsvTool(workspace, CsvTool.Operation.SANITIZE),
+                new IcsCreateTool(workspace),
+                new OfficeOpenXmlTool(workspace, OfficeOpenXmlTool.Format.XLSX),
+                new OfficeOpenXmlTool(workspace, OfficeOpenXmlTool.Format.DOCX),
+                new OfficeOpenXmlTool(workspace, OfficeOpenXmlTool.Format.PPTX),
                 new RollbackCheckpointTool(checkpoints),
                 new FindFilesTool(options.searchRoots(), hiddenAgentPaths),
                 new HttpGetTool(),

@@ -135,7 +135,11 @@ public final class FindFilesTool implements Tool {
     private Path selectedRoot(String requested) {
         if (requested.isBlank()) return allowedRoots.getFirst();
         Path normalized = canonicalize(Path.of(requested));
-        return allowedRoots.stream().filter(normalized::equals).findFirst().orElseThrow(
+        return allowedRoots.stream()
+                .filter(normalized::startsWith)
+                .findFirst()
+                .map(ignored -> normalized)
+                .orElseThrow(
                 () -> new IllegalArgumentException("Search root is not allowed: " + requested)
         );
     }

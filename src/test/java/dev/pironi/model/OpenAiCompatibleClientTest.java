@@ -378,4 +378,76 @@ class OpenAiCompatibleClientTest {
             server.stop(0);
         }
     }
+
+    @Test
+    void deepSeekRecoversFromEmptyStructuredResponsesWithPlainJsonRequest() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        List<Boolean> hasResponseFormat = new java.util.concurrent.CopyOnWriteArrayList<>();
+        AtomicReference<String> recoveryPrompt = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/chat/completions", exchange -> {
+            JsonNode request = objectMapper.readTree(exchange.getRequestBody());
+            hasResponseFormat.add(request.has("response_format"));
+            int requestNumber = requests.incrementAndGet();
+            if (requestNumber == 3) {
+                JsonNode requestMessages = request.path("messages");
+                recoveryPrompt.set(requestMessages.get(requestMessages.size() - 1)
+                        .path("content").asText());
+            }
+            String content = requestNumber < 3 ? "" :
+                    "{\"thought\":\"recovered\",\"toolCalls\":[],\"finalAnswer\":\"ok\"}";
+            byte[] response = ("{\"choices\":[{\"finish_reason\":\"stop\",\"message\":"
+                    + "{\"content\":" + objectMapper.writeValueAsString(content) + "}}]}")
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            OpenAiCompatibleClient client = OpenAiCompatibleClient.deepSeek(
+                    URI.create("http://127.0.0.1:" + server.getAddress().getPort()),
+                    "deepseek", "key", Duration.ofSeconds(5), 512
+            );
+
+            ModelResponse response = client.chat(List.of(ChatMessage.user("test")));
+
+            assertEquals("text", response.responseFormat());
+            assertEquals(3, response.requestAttempts());
+            assertEquals(List.of(true, true, false), hasResponseFormat);
+            assertTrue(recoveryPrompt.get().contains("compact valid JSON object"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void deepSeekFallsBackToPlainJsonWhenAllResponseFormatsAreUnavailable() throws Exception {
+        List<Boolean> formats = new java.util.concurrent.CopyOnWriteArrayList<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/chat/completions", exchange -> {
+            JsonNode request = objectMapper.readTree(exchange.getRequestBody());
+            boolean formatted = request.has("response_format");
+            formats.add(formatted);
+            String body = formatted
+                    ? "{\"error\":{\"message\":\"This response_format type is unavailable now\"}}"
+                    : "{\"choices\":[{\"message\":{\"content\":\"{\\\"thought\\\":\\\"ok\\\",\\\"toolCalls\\\":[],\\\"finalAnswer\\\":\\\"done\\\"}\"}}]}";
+            byte[] response = body.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(formatted ? 400 : 200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            OpenAiCompatibleClient client = OpenAiCompatibleClient.deepSeek(
+                    URI.create("http://127.0.0.1:" + server.getAddress().getPort()),
+                    "deepseek", "key", Duration.ofSeconds(5), 512
+            );
+            ModelResponse response = client.chat(List.of(ChatMessage.user("test")));
+            assertEquals("text", response.responseFormat());
+            assertEquals(List.of(true, false), formats);
+        } finally {
+            server.stop(0);
+        }
+    }
 }
