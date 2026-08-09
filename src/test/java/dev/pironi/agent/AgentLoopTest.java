@@ -11,6 +11,7 @@ import dev.pironi.tool.RunCommandTool;
 import dev.pironi.tool.Tool;
 import dev.pironi.tool.ToolRegistry;
 import dev.pironi.tool.ToolResult;
+import dev.pironi.tool.SubagentResult;
 import dev.pironi.trace.NoOpTraceWriter;
 import dev.pironi.status.NoOpStatusReporter;
 import dev.pironi.verification.NoOpVerificationGate;
@@ -148,6 +149,55 @@ class AgentLoopTest {
         AgentResult result = loop(model, List.of(broken)).run("test");
         assertTrue(result.success());
         assertTrue(model.requests.get(1).getLast().content().contains("NoClassDefFoundError"));
+    }
+
+    @Test
+    void injectsCompletedSubagentResultIntoNextTurn() throws Exception {
+        RecordingModelClient model = new RecordingModelClient(
+                "{\"thought\":\"report\",\"toolCalls\":[],\"finalAnswer\":\"data received\"}"
+        );
+        java.util.concurrent.atomic.AtomicBoolean delivered = new java.util.concurrent.atomic.AtomicBoolean(false);
+        dev.pironi.tool.SubagentGateway gateway = new dev.pironi.tool.SubagentGateway() {
+            @Override
+            public List<SubagentResult> awaitCompleted(java.time.Duration timeout) {
+                if (!delivered.getAndSet(true)) {
+                    return java.util.List.of(SubagentResult.completed(
+                            "sub_1", "weather", "Sofia: 25C, sunny"
+                    ));
+                }
+                return java.util.List.of();
+            }
+            @Override public List<String> runningHandles() { return java.util.List.of(); }
+            @Override public int activeCount() { return delivered.get() ? 0 : 1; }
+            @Override public void discardPending() { delivered.set(false); }
+        };
+        AgentLoop loopWithDrain = new AgentLoop(
+                model,
+                new DecisionParser(objectMapper),
+                objectMapper,
+                new ToolRegistry(java.util.List.of()),
+                (tool, arguments) -> ApprovalDecision.ALLOW,
+                new NoOpTraceWriter(),
+                new AgentContext("", "", ""),
+                new NoOpStatusReporter(),
+                new NoOpVerificationGate(),
+                4,
+                2,
+                null,
+                AgentMemory.none(),
+                null,
+                gateway,
+                java.time.Duration.ofSeconds(120)
+        );
+
+        AgentResult result = loopWithDrain.run("test");
+
+        assertTrue(result.success());
+        // The drained subagent result must be injected before the first model call.
+        String firstRequest = model.requests.getFirst().getLast().content();
+        assertTrue(firstRequest.contains("tool_output untrusted"));
+        assertTrue(firstRequest.contains("Sofia: 25C, sunny"));
+        assertTrue(firstRequest.contains("sub_1"));
     }
 
     @Test

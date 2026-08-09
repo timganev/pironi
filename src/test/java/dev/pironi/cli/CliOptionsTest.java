@@ -227,6 +227,34 @@ class CliOptionsTest {
     }
 
     @Test
+    void subagentTimeoutSecondsParsesAndDefaults() {
+        CliOptions options = CliOptions.parse(
+                new String[]{"--model", "deepseek-v4-pro", "--max-subagents", "3",
+                        "--subagent-timeout-seconds", "45"},
+                Map.of()
+        );
+        assertEquals(3, options.maxSubagents());
+        assertEquals(45, options.subagentTimeoutSeconds());
+    }
+
+    @Test
+    void subagentTimeoutSecondsDefaultsToOneTwenty() {
+        CliOptions options = CliOptions.parse(
+                new String[]{"--model", "deepseek-v4-pro"},
+                Map.of()
+        );
+        assertEquals(120, options.subagentTimeoutSeconds());
+    }
+
+    @Test
+    void subagentTimeoutSecondsRejectsZero() {
+        assertThrows(IllegalArgumentException.class, () -> CliOptions.parse(
+                new String[]{"--model", "deepseek-v4-pro", "--subagent-timeout-seconds", "0"},
+                Map.of()
+        ));
+    }
+
+    @Test
     void denyToolsParsesCommaSeparatedNames() {
         CliOptions options = CliOptions.parse(
                 new String[]{
@@ -340,5 +368,17 @@ class CliOptionsTest {
 
         assertEquals("deepseek-future-model", switched.model());
         assertEquals(dev.pironi.model.ProviderType.DEEPSEEK, switched.provider());
+    }
+
+    @Test
+    void maxSubagentsDefaultsToTwoAndParsesExplicitValue() {
+        CliOptions bare = CliOptions.parse(new String[0], Map.of());
+        assertEquals(2, bare.maxSubagents());
+
+        CliOptions custom = CliOptions.parse(
+                new String[]{"--model", "qwen3.6:35b-a3b", "--max-subagents", "4"},
+                Map.of()
+        );
+        assertEquals(4, custom.maxSubagents());
     }
 }

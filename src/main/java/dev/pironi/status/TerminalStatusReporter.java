@@ -34,7 +34,13 @@ public final class TerminalStatusReporter implements StatusReporter {
     private volatile int lastContextPercent;
     private volatile double lastEvalTokensPerSecond;
     private volatile boolean lastEvalRateApproximate;
+    private volatile java.util.function.Supplier<int[]> subagentCounts;
     private boolean closed;
+
+    /** Sets a supplier returning {active, max} sub-agents, rendered as "sub A/M". Null disables. */
+    public void setSubagentCounts(java.util.function.Supplier<int[]> subagentCounts) {
+        this.subagentCounts = subagentCounts;
+    }
 
     public TerminalStatusReporter(
             String model,
@@ -229,14 +235,21 @@ public final class TerminalStatusReporter implements StatusReporter {
 
     private String withEvalRate(String line) {
         double rate = lastEvalTokensPerSecond;
-        if (rate <= 0) {
-            return line;
+        if (rate > 0) {
+            line = line + String.format(
+                    Locale.ROOT,
+                    lastEvalRateApproximate ? " │ ~%.2f tok/s" : " │ %.2f tok/s",
+                    rate
+            );
         }
-        return line + String.format(
-                Locale.ROOT,
-                lastEvalRateApproximate ? " │ ~%.2f tok/s" : " │ %.2f tok/s",
-                rate
-        );
+        java.util.function.Supplier<int[]> counts = subagentCounts;
+        if (counts != null) {
+            int[] value = counts.get();
+            if (value != null && value.length == 2) {
+                line = line + " │ sub " + value[0] + "/" + value[1];
+            }
+        }
+        return line;
     }
 
     private void render(String line) {

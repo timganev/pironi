@@ -41,7 +41,9 @@ record CliOptions(
         ShellScope shellScope,
         List<Path> searchRoots,
         boolean interactive,
-        boolean noTui
+        boolean noTui,
+        int maxSubagents,
+        int subagentTimeoutSeconds
 ) {
     private static final Path DEFAULT_WORKSPACE = Path.of(
             System.getProperty("user.dir", ".")
@@ -51,7 +53,8 @@ record CliOptions(
             "provider", "base-url", "api-key-env", "model", "workspace", "task", "task-file",
             "approval", "activity", "max-turns", "context", "max-output-tokens",
             "timeout-seconds", "trace", "pironi-home", "personal-context", "status",
-            "verify-command", "deny-tools", "allow-tools", "shell-scope", "search-roots"
+            "verify-command", "deny-tools", "allow-tools", "shell-scope", "search-roots",
+            "max-subagents", "subagent-timeout-seconds"
     );
     private static final Set<String> KNOWN_OPTIONS = java.util.stream.Stream.concat(
             BOOLEAN_FLAGS.stream(), VALUE_OPTIONS.stream()
@@ -81,7 +84,9 @@ record CliOptions(
                 shellScope,
                 searchRoots,
                 interactive,
-                false
+                false,
+                maxSubagents,
+                subagentTimeoutSeconds
         );
     }
 
@@ -116,7 +121,9 @@ record CliOptions(
                 shellScope,
                 searchRoots,
                 interactive,
-                false
+                false,
+                maxSubagents,
+                subagentTimeoutSeconds
         );
     }
 
@@ -144,7 +151,9 @@ record CliOptions(
                 shellScope,
                 searchRoots,
                 interactive,
-                false
+                false,
+                maxSubagents,
+                subagentTimeoutSeconds
         );
     }
 
@@ -280,7 +289,9 @@ record CliOptions(
                 )),
                 searchRoots,
                 interactive,
-                false
+                false,
+                positiveInt(values, "max-subagents", 2),
+                positiveInt(values, "subagent-timeout-seconds", 120)
         );
     }
 

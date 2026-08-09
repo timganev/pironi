@@ -1,0 +1,205 @@
+package dev.pironi.tool;
+
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class SubagentManagerTest {
+
+    @Test
+    void spawnReturnsHandleImmediatelyAndChildCompletes() {
+        var manager = new SubagentManager(2, subtask ->
+                SubagentResult.completed("x", "weather", "data for " + subtask));
+
+        SubagentResult handle = manager.spawn("weather", "Sofia 5-day");
+
+        assertEquals("completed", handle.status());
+        assertTrue(handle.output().contains("started"), "handle should be returned immediately");
+        assertEquals(1, manager.activeCount());
+
+        // Poll until the virtual thread finishes (bounded wait).
+        SubagentManager.Completion completion = waitForCompletion(manager);
+        assertNotNull(completion);
+        assertEquals("sub_", completion.result().id().substring(0, 4),
+                "id is normalized to the real handle, not the taskRunner's hardcoded id");
+        assertTrue(completion.result().output().contains("Sofia 5-day"));
+        assertEquals(0, manager.activeCount());
+        manager.close();
+    }
+
+    @Test
+    void capRejectsSpawnBeyondLimit() {
+        var manager = new SubagentManager(1, subtask -> {
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            return SubagentResult.completed("x", "n", "done");
+        });
+
+        SubagentResult first = manager.spawn("a", "one");
+        assertEquals("completed", first.status());
+        assertEquals(1, manager.activeCount());
+
+        // Second spawn while first still active must hit the cap.
+        SubagentResult rejected = manager.spawn("b", "two");
+        assertEquals("error", rejected.status());
+        assertTrue(rejected.output().contains("limit reached"));
+
+        waitForCompletion(manager);
+        // Now the cap is free again.
+        SubagentResult accepted = manager.spawn("c", "three");
+        assertEquals("completed", accepted.status());
+        manager.close();
+    }
+
+    @Test
+    void drainCollectsAllFinishedChildren() {
+        var manager = new SubagentManager(4, subtask -> {
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            return SubagentResult.completed("id-" + subtask, subtask, "out[" + subtask + "]");
+        });
+
+        manager.spawn("one", "one");
+        manager.spawn("two", "two");
+        manager.spawn("three", "three");
+
+        List<SubagentManager.Completion> all = waitForList(manager, 3);
+        assertEquals(3, all.size());
+        assertEquals(java.util.Set.of("one", "two", "three"),
+                all.stream().map(SubagentManager.Completion::name).collect(java.util.stream.Collectors.toSet()));
+        assertEquals(0, manager.activeCount());
+        manager.close();
+    }
+
+    @Test
+    void emptyDrainReturnsEmptyList() {
+        var manager = new SubagentManager(2, subtask -> SubagentResult.completed("x", "n", "d"));
+        assertTrue(manager.drain().isEmpty());
+        assertNull(manager.poll());
+        manager.close();
+    }
+
+    @Test
+    void awaitCompletedZeroMatchesNonBlockingDrain() throws Exception {
+        var manager = new SubagentManager(2, subtask ->
+                SubagentResult.completed("x", "n", "out[" + subtask + "]"));
+        // Nothing spawned yet -> ZERO await must return immediately and empty.
+        assertTrue(manager.awaitCompleted(java.time.Duration.ZERO).isEmpty());
+        manager.close();
+    }
+
+    @Test
+    void awaitCompletedWaitsForActiveChildAndReturnsNormalizedId() throws Exception {
+        var manager = new SubagentManager(2, subtask -> {
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            return SubagentResult.completed("child", "weather", "done[" + subtask + "]");
+        });
+        manager.spawn("weather", "Sofia");
+        List<SubagentResult> ready = manager.awaitCompleted(java.time.Duration.ofSeconds(5));
+        assertEquals(1, ready.size());
+        assertEquals("sub_", ready.get(0).id().substring(0, 4));
+        assertEquals(0, manager.activeCount());
+        assertTrue(manager.runningHandles().isEmpty());
+        manager.close();
+    }
+
+    @Test
+    void discardPendingDropsStaleResults() throws Exception {
+        var manager = new SubagentManager(2, subtask -> SubagentResult.completed("x", "n", "d"));
+        manager.spawn("one", "one");
+        List<SubagentResult> ready = manager.awaitCompleted(java.time.Duration.ofSeconds(5));
+        assertEquals(1, ready.size());
+        // Discard must drop any results still queued (none here since await drained it).
+        manager.discardPending();
+        assertTrue(manager.awaitCompleted(java.time.Duration.ZERO).isEmpty());
+        manager.close();
+    }
+
+    @Test
+    void interruptDeadlineResolvesStuckChildAndClearsActive() throws Exception {
+        // A child that never returns on its own; the manager must interrupt it at the deadline.
+        var manager = new SubagentManager(1, java.time.Duration.ofMillis(400), subtask -> {
+            try {
+                Thread.sleep(10_000);
+            } catch (Throwable ignored) {
+                // interrupted by manager
+            }
+            return SubagentResult.completed("x", "stuck", "never");
+        });
+        manager.spawn("stuck", "hang");
+        assertEquals(1, manager.activeCount());
+        // A real await waits up to its deadline; the child stays active until the interrupt
+        // resolves it inside runChild.
+        manager.awaitCompleted(java.time.Duration.ofSeconds(5));
+        Thread.sleep(300); // let runChild resolve the interrupted child
+        assertEquals(0, manager.activeCount(), "deadline interrupt resolves the stuck child");
+        manager.close();
+    }
+
+    @Test
+    void runningHandlesReflectsActiveChildren() throws Exception {
+        var manager = new SubagentManager(2, subtask -> {
+            try {
+                Thread.sleep(300);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            return SubagentResult.completed("x", "weather", "done");
+        });
+        manager.spawn("weather", "Sofia");
+        // Immediately after spawn, the child is running and its handle is observable.
+        List<String> handles = manager.runningHandles();
+        assertEquals(1, handles.size());
+        assertTrue(handles.getFirst().startsWith("sub_"), "handle is the sub_ id");
+        assertTrue(handles.getFirst().contains("weather"), "handle includes the child name");
+        // Let it finish, then no handles remain.
+        manager.awaitCompleted(java.time.Duration.ofSeconds(5));
+        assertTrue(manager.runningHandles().isEmpty());
+        assertEquals(0, manager.activeCount());
+        manager.close();
+    }
+
+    private static SubagentManager.Completion waitForCompletion(SubagentManager manager) {
+        for (int i = 0; i < 200; i++) {
+            SubagentManager.Completion next = manager.poll();
+            if (next != null) return next;
+            try {
+                Thread.sleep(5);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        return null;
+    }
+
+    private static List<SubagentManager.Completion> waitForList(SubagentManager manager, int count) {
+        java.util.List<SubagentManager.Completion> out = new java.util.ArrayList<>();
+        for (int i = 0; i < 200; i++) {
+            out.addAll(manager.drain());
+            if (out.size() >= count) return out;
+            try {
+                Thread.sleep(5);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        return out;
+    }
+}

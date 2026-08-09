@@ -3,6 +3,7 @@ package dev.pironi.cli;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.pironi.agent.AgentLoop;
 import dev.pironi.agent.AgentResult;
+import dev.pironi.agent.AgentContext;
 import dev.pironi.agent.ContextFileLoader;
 import dev.pironi.agent.DecisionParser;
 import dev.pironi.agent.CapabilityReport;
@@ -11,6 +12,7 @@ import dev.pironi.model.ProviderConfig;
 import dev.pironi.model.SwitchableModelClient;
 import dev.pironi.safety.ConsoleApprovalPolicy;
 import dev.pironi.safety.ApprovalMode;
+import dev.pironi.safety.ApprovalDecision;
 import dev.pironi.safety.CheckpointManager;
 import dev.pironi.safety.Workspace;
 import dev.pironi.tool.ApplyPatchTool;
@@ -24,6 +26,9 @@ import dev.pironi.tool.ReadFileTool;
 import dev.pironi.tool.ProposeSkillTool;
 import dev.pironi.tool.RunCommandTool;
 import dev.pironi.tool.RollbackCheckpointTool;
+import dev.pironi.tool.SpawnSubagentTool;
+import dev.pironi.tool.SubagentManager;
+import dev.pironi.tool.SubagentResult;
 import dev.pironi.tool.Tool;
 import dev.pironi.tool.ToolRegistry;
 import dev.pironi.tool.WriteFileTool;
@@ -38,6 +43,8 @@ import dev.pironi.status.StatusReporter;
 import dev.pironi.status.StatusMode;
 import dev.pironi.status.TerminalStatusReporter;
 import dev.pironi.verification.ProjectVerificationGate;
+import dev.pironi.verification.VerificationGate;
+import dev.pironi.verification.NoOpVerificationGate;
 import dev.pironi.session.SessionStore;
 import dev.pironi.session.SkillStore;
 import dev.pironi.session.PersistentAgentMemory;
@@ -50,6 +57,7 @@ import java.io.InputStreamReader;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
@@ -60,6 +68,10 @@ import java.util.stream.Collectors;
 public final class PironiMain {
     private PironiMain() {
     }
+
+    /** Hard ceiling on a child sub-agent's turns, below the parent's default, so a runaway
+     *  child cannot burn tokens indefinitely. Enforced together with the manager's deadline. */
+    private static final int MAX_SUBAGENT_TURNS = 6;
 
     public static void main(String[] args) {
         int exitCode;
@@ -134,7 +146,7 @@ public final class PironiMain {
         );
 
         Set<Path> hiddenAgentPaths = Set.of(options.tracePath().toAbsolutePath().normalize());
-        List<Tool> availableTools = List.of(
+        List<Tool> availableTools = new ArrayList<>(List.of(
                 new ListFilesTool(workspace, 500, options.searchRoots(), hiddenAgentPaths),
                 new ReadFileTool(
                         workspace, 32_000, options.searchRoots(), hiddenAgentPaths
@@ -161,7 +173,38 @@ public final class PironiMain {
                 new RunCommandTool(
                         workspace, Duration.ofSeconds(90), 32_000, options.shellScope()
                 )
-        );
+        ));
+
+        // Cloud-only sub-agent support. Spawning a second local model instance would contend
+        // for CPU/RAM, so spawn_subagent is registered only for cloud providers (never Ollama).
+        dev.pironi.model.ProviderType providerType = options.provider();
+        SubagentManager subagentManager = null;
+        if (providerType != dev.pironi.model.ProviderType.OLLAMA) {
+            List<Tool> readOnlyTools = List.of(
+                    new HttpGetTool(),
+                    new ReadFileTool(workspace, 32_000, options.searchRoots(), hiddenAgentPaths),
+                    new ListFilesTool(workspace, 500, options.searchRoots(), hiddenAgentPaths),
+                    new FindFilesTool(options.searchRoots(), hiddenAgentPaths)
+            );
+            // Deliberately NO spawn_subagent here: the child is read-only and cannot spawn a
+            // grandchild, so nested delegation (parent waits child waits grandchild) cannot
+            // deadlock. A child only gathers data; the parent owns all further delegation.
+            ToolRegistry childRegistry = new ToolRegistry(readOnlyTools);
+            dev.pironi.safety.ApprovalPolicy childPolicy = (ignoredTool, ignoredArgs) -> ApprovalDecision.ALLOW;
+            subagentManager = new SubagentManager(
+                    options.maxSubagents(),
+                    Duration.ofSeconds(options.subagentTimeoutSeconds()),
+                    subtask -> runChildSubagent(
+                            modelClient, objectMapper, childRegistry, childPolicy,
+                            options, subtask
+                    )
+            );
+            availableTools.add(new SpawnSubagentTool(subagentManager));
+        } else {
+            System.out.println("Capability note: sub-agent spawning is disabled with a local "
+                    + "provider (ollama) to avoid running a second model instance on this machine.");
+        }
+        SubagentManager finalSubagentManager = subagentManager;
         Set<String> effectiveDeniedTools = autoSafeDeniedTools(options);
         ToolRegistry configuredRegistry = configuredTools(
                 availableTools, effectiveDeniedTools, options.allowTools()
@@ -208,6 +251,13 @@ public final class PironiMain {
             }
         } else {
             status = new NoOpStatusReporter();
+        }
+
+        if (status instanceof TerminalStatusReporter statusTerminal && finalSubagentManager != null) {
+            statusTerminal.setSubagentCounts(() -> new int[]{
+                    finalSubagentManager.activeCount(),
+                    finalSubagentManager.maxConcurrent()
+            });
         }
 
         try (
@@ -279,7 +329,13 @@ public final class PironiMain {
                     4,
                     interactive ? new FinalAnswerStreamer(System.out, terminal, theme) : null,
                     memory,
-                    capabilityReport
+                    capabilityReport,
+                    finalSubagentManager == null
+                            ? null
+                            : finalSubagentManager,
+                    Duration.ofSeconds(
+                            finalSubagentManager == null ? 120 : options.subagentTimeoutSeconds()
+                    )
             );
 
             if (interactive) {
@@ -447,6 +503,57 @@ public final class PironiMain {
             System.out.println("Turns: " + result.turns());
             System.out.println("Trace: " + options.tracePath().toAbsolutePath().normalize());
             return result.success() ? 0 : 1;
+        }
+    }
+
+    /**
+     * Runs a sub-task in a dedicated read-only AgentLoop inside a virtual thread. The child
+     * can only use http_get/read_file/list_files/find_files, never mutate state, so no
+     * approval prompt is required and the user is never interrupted.
+     */
+    private static SubagentResult runChildSubagent(
+            dev.pironi.model.ModelClient modelClient,
+            ObjectMapper objectMapper,
+            ToolRegistry childRegistry,
+            dev.pironi.safety.ApprovalPolicy childPolicy,
+            CliOptions options,
+            String subtask
+    ) {
+        AgentContext childContext = new AgentContext("", "", "");
+        dev.pironi.trace.CollectingTraceWriter childTrace = new dev.pironi.trace.CollectingTraceWriter();
+        // Cap the child's turns below the parent's default so a runaway child cannot
+        // burn tokens indefinitely; the manager's deadline interrupts it as a hard limit.
+        int childTurns = Math.min(options.maxTurns(), MAX_SUBAGENT_TURNS);
+        AgentLoop childLoop = new AgentLoop(
+                modelClient,
+                new DecisionParser(objectMapper),
+                objectMapper,
+                childRegistry,
+                childPolicy,
+                childTrace,
+                childContext,
+                new dev.pironi.status.NoOpStatusReporter(),
+                new NoOpVerificationGate(),
+                childTurns,
+                4
+        );
+        try {
+            AgentResult result = childLoop.run(subtask);
+            SubagentResult base = result.success()
+                    ? SubagentResult.completed(
+                            "child",
+                            "subagent",
+                            "finalAnswer: " + result.output()
+                    )
+                    : SubagentResult.error("child", "subagent", "no finalAnswer: " + result.output());
+            return new SubagentResult(base.id(), base.name(), base.status(), base.output(),
+                    childTrace.lines());
+        } catch (Exception e) {
+            return new SubagentResult(
+                    "child", "subagent", "error",
+                    e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(),
+                    childTrace.lines()
+            );
         }
     }
 
