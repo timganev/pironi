@@ -418,6 +418,27 @@ class AgentLoopTest {
         assertTrue(result.output().contains("outputs/report.csv"));
     }
 
+    @Test
+    void usesOneFinalizationOnlyGraceTurnAfterSuccessfulMutation() throws Exception {
+        Tool writer = new Tool() {
+            public String name() { return "writer"; }
+            public String description() { return "writer"; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return true; }
+            public ToolResult execute(JsonNode arguments) { return ToolResult.success("Created outputs/report.md"); }
+        };
+        String call = "{\"thought\":\"work\",\"toolCalls\":[{\"name\":\"writer\",\"arguments\":{}}],\"finalAnswer\":null}";
+        RecordingModelClient model = new RecordingModelClient(call, call, call, call,
+                "{\"thought\":\"finalize\",\"toolCalls\":[],\"finalAnswer\":\"Created outputs/report.md\"}");
+
+        AgentResult result = loop(model, List.of(writer)).run("create report");
+
+        assertTrue(result.success(), result.output());
+        assertEquals(5, result.turns());
+        assertTrue(model.requests.get(4).getLast().content().contains("Finalization-only grace turn"));
+        assertTrue(model.requests.get(4).getLast().content().contains("Do not call tools"));
+    }
+
     private AgentLoop loop(ModelClient model, List<Tool> tools) {
         return loop(model, tools, new NoOpVerificationGate());
     }

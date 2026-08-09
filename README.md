@@ -620,6 +620,8 @@ their neutral UI colors. JLine generates the terminal-specific escape sequences.
 
 - `list_files`
 - `read_file`
+- `inspect_file`
+- `system_info`
 - `write_file`
 - `apply_patch`
 - `move_file`

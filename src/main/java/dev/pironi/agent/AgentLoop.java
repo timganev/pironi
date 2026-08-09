@@ -207,6 +207,8 @@ public final class AgentLoop {
         }
 
         statusReporter.idle();
+        AgentResult finalized = finalizeAfterTurnLimit(messages, task, successfulMutations);
+        if (finalized != null) return finalized;
         memory.checkpoint(messages, task);
         memory.finished(false);
         String partial = successfulMutations.isEmpty() ? "" :
@@ -236,6 +238,38 @@ public final class AgentLoop {
             memory.finished(false);
         } catch (RuntimeException statusFailure) {
             primaryFailure.addSuppressed(statusFailure);
+        }
+    }
+
+    private AgentResult finalizeAfterTurnLimit(
+            List<ChatMessage> messages,
+            String task,
+            List<String> successfulMutations
+    ) throws InterruptedException {
+        if (successfulMutations.isEmpty()) return null;
+        int finalTurn = maxTurns + 1;
+        messages.add(ChatMessage.user("Finalization-only grace turn. Successful mutations already exist: "
+                + String.join("; ", successfulMutations)
+                + ". Do not call tools. Return a compact finalAnswer that accurately reports what exists "
+                + "and any remaining limitation."));
+        try {
+            ModelResponse response;
+            try (var ignored = statusReporter.thinking(finalTurn, List.copyOf(messages))) {
+                response = modelClient.chat(List.copyOf(messages));
+            }
+            statusReporter.modelResponse(response); memory.addTokens(response);
+            traceWriter.modelResponse(finalTurn, response);
+            AgentDecision decision = decisionParser.parse(response.content());
+            if (!decision.toolCalls().isEmpty() || !decision.isFinished()) return null;
+            VerificationResult verification = verifyChanges(finalTurn);
+            if (!verification.success()) return null;
+            traceWriter.completed(finalTurn, decision.finalAnswer());
+            memory.completed(task, decision.finalAnswer()); memory.checkpoint(messages, task); memory.finished(true);
+            boolean streamed = emitValidatedAnswer(decision.finalAnswer()); statusReporter.idle();
+            return new AgentResult(true, decision.finalAnswer(), finalTurn, streamed);
+        } catch (IOException | ProtocolException | RuntimeException e) {
+            traceWriter.modelError(finalTurn, "Finalization grace failed: " + e.getMessage());
+            return null;
         }
     }
 
@@ -447,6 +481,12 @@ public final class AgentLoop {
                 verification before accepting finalAnswer. Do not duplicate that verification with
                 run_command unless automatic verification fails and you need targeted diagnostics.
                 A failed tool result is feedback: correct the call instead of stopping.
+                Choose the narrowest native tool that directly answers the question. Use inspect_file
+                instead of shell commands for binary/large-file metadata and system_info instead of
+                OS-specific commands for hardware/runtime facts. Do not list a directory merely to
+                reconfirm a successful exact-path result. For web requests, prefer compact endpoints
+                and responses. Distinguish observed HTTP status from documented policy; never invent
+                a rejection cause that the tool result did not report.
                 For tasks that request file artifacts, create a minimal valid artifact during the
                 first half of the turn budget. Execute generators immediately; improve them only
                 after a real output exists. Reserve the final turns for validation and finalAnswer.

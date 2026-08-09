@@ -6,6 +6,7 @@ import dev.pironi.agent.AgentResult;
 import dev.pironi.agent.ContextFileLoader;
 import dev.pironi.agent.DecisionParser;
 import dev.pironi.agent.CapabilityReport;
+import dev.pironi.agent.FinalAnswerStreamer;
 import dev.pironi.model.ProviderConfig;
 import dev.pironi.model.SwitchableModelClient;
 import dev.pironi.safety.ConsoleApprovalPolicy;
@@ -26,6 +27,8 @@ import dev.pironi.tool.WriteFileTool;
 import dev.pironi.tool.CsvTool;
 import dev.pironi.tool.IcsCreateTool;
 import dev.pironi.tool.OfficeOpenXmlTool;
+import dev.pironi.tool.InspectFileTool;
+import dev.pironi.tool.SystemInfoTool;
 import dev.pironi.trace.JsonlTraceWriter;
 import dev.pironi.status.NoOpStatusReporter;
 import dev.pironi.status.StatusReporter;
@@ -133,6 +136,8 @@ public final class PironiMain {
                 new ReadFileTool(
                         workspace, 32_000, options.searchRoots(), hiddenAgentPaths
                 ),
+                new InspectFileTool(workspace, options.searchRoots()),
+                new SystemInfoTool(workspace),
                 new WriteFileTool(workspace),
                 new ApplyPatchTool(workspace, checkpoints),
                 new MoveFileTool(workspace, checkpoints),
@@ -229,7 +234,7 @@ public final class PironiMain {
                     ),
                     options.maxTurns(),
                     4,
-                    null,
+                    interactive ? new FinalAnswerStreamer(System.out, terminal) : null,
                     memory
             );
 
