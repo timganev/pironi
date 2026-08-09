@@ -4,39 +4,67 @@ import dev.pironi.tool.PlatformShell;
 import dev.pironi.tool.ToolRegistry;
 
 import java.util.stream.Collectors;
+import java.util.Collection;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 
 /** Authoritative capability manifest generated from the live tool registry. */
 public final class CapabilityReport {
     private final ToolRegistry tools;
     private final AgentContext context;
+    private final Set<String> implementedTools;
+    private final Map<String, String> disabledReasons;
 
     public CapabilityReport(ToolRegistry tools, AgentContext context) {
+        this(tools, context, tools.all().stream().map(tool -> tool.name()).toList(), Map.of());
+    }
+
+    public CapabilityReport(ToolRegistry tools, AgentContext context,
+            Collection<String> implementedTools, Map<String, String> disabledReasons) {
         this.tools = tools;
         this.context = context;
+        this.implementedTools = Set.copyOf(implementedTools);
+        this.disabledReasons = Map.copyOf(disabledReasons);
     }
 
     public String render() {
         String names = tools.all().stream().map(tool -> tool.name())
                 .sorted().collect(Collectors.joining(", "));
-        boolean shell = tools.find("run_command").isPresent();
+        boolean shellExposed = tools.find("run_command").isPresent();
+        boolean shellImplemented = implementedTools.contains("run_command");
         boolean http = tools.find("http_get").isPresent();
-        String network = http
-                ? "available through http_get"
-                : shell ? "inherited through run_command; verify with a real request"
+        boolean speed = tools.find("network_speed").isPresent();
+        String network = speed
+                ? "available; throughput measurement through network_speed"
+                : http ? "available through http_get; throughput measurement unavailable"
+                : shellExposed ? "inherited through run_command; verify with a real request"
                 : "no registered network-capable tool";
+        TreeSet<String> disabled = new TreeSet<>(implementedTools);
+        tools.all().forEach(tool -> disabled.remove(tool.name()));
+        String disabledText = disabled.isEmpty() ? "none" : disabled.stream()
+                .map(name -> name + " — " + disabledReasons.getOrDefault(
+                        name, "disabled by current approval/tool policy"))
+                .collect(Collectors.joining("\n  ", "\n  ", ""));
         return """
                 platform: %s (%s)
-                shell: %s
+                host shell: %s
+                run_command: %s
                 network: %s
-                tools: %s
+                exposed tools: %s
+                policy-disabled tools: %s
                 live configuration:
                 %s
                 """.formatted(
                 System.getProperty("os.name", "unknown"),
                 System.getProperty("os.arch", "unknown"),
-                shell ? PlatformShell.name() : "unavailable",
+                PlatformShell.name(),
+                shellExposed ? "exposed as a tool"
+                        : shellImplemented ? "implemented but not exposed; see policy-disabled tools"
+                        : "not implemented",
                 network,
                 names.isBlank() ? "none" : names,
+                disabledText,
                 context.runtimeSession().indent(2).stripTrailing()
         ).strip();
     }

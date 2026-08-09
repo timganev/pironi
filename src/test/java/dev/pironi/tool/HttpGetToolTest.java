@@ -54,6 +54,18 @@ class HttpGetToolTest {
         assertTrue(oversized.output().contains("exceeds"));
     }
 
+    @Test void truncatesHtmlBeforeItBloatsTheAgentPrompt() {
+        byte[] html = ("<html>" + "x".repeat(20_000)).getBytes(StandardCharsets.UTF_8);
+        HttpGetTool tool = new HttpGetTool((uri, timeout) ->
+                new HttpGetTool.FetchResponse(200, html, "", "text/html; charset=utf-8"));
+
+        ToolResult result = tool.execute(mapper.createObjectNode().put("url", "https://8.8.8.8"));
+
+        assertTrue(result.success());
+        assertTrue(result.output().contains("HTML excerpt truncated"));
+        assertTrue(result.output().length() < 9_000);
+    }
+
     private void assertFailureContains(HttpGetTool tool, String url, String expected) {
         ToolResult result = tool.execute(mapper.createObjectNode().put("url", url));
         assertFalse(result.success());

@@ -25,7 +25,7 @@ class CapabilityReportTest {
         String report = new CapabilityReport(new ToolRegistry(List.of(command)), context).render();
 
         assertTrue(report.contains("network: inherited through run_command"));
-        assertTrue(report.contains("tools: run_command"));
+        assertTrue(report.contains("exposed tools: run_command"));
         assertTrue(report.contains("approval: auto"));
     }
 
@@ -34,6 +34,18 @@ class CapabilityReportTest {
                 new ToolRegistry(List.of()), new AgentContext("", "", "")
         ).render();
         assertTrue(report.contains("network: no registered network-capable tool"));
-        assertTrue(report.contains("shell: unavailable"));
+        assertTrue(report.contains("run_command: not implemented"));
+    }
+
+    @Test void distinguishesHostShellFromPolicyDisabledRunCommand() {
+        AgentContext context = new AgentContext("", "", "");
+        String report = new CapabilityReport(
+                new ToolRegistry(List.of()), context,
+                List.of("run_command", "http_get"),
+                java.util.Map.of("run_command", "blocked by auto-safe workspace policy")
+        ).render();
+        assertTrue(report.contains("host shell: "));
+        assertTrue(report.contains("run_command: implemented but not exposed"));
+        assertTrue(report.contains("run_command — blocked by auto-safe workspace policy"));
     }
 }

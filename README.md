@@ -471,6 +471,13 @@ OpenRouter is a cloud provider, so `--personal-context auto` does not send
 - `--activity auto` is a convenience override for `--approval auto`, including
   when `--approval ask` also appears in the command.
 
+Pironi distinguishes the host shell from the `run_command` tool. With the
+default workspace shell scope, auto-safe mode may keep `run_command`
+policy-disabled even though Bash, PowerShell, or CMD exists on the machine. The
+startup capability note and `/capabilities` show the exact reason and recovery;
+the agent receives the same manifest and must not describe a policy-disabled
+tool as a missing host capability.
+
 Interactive sessions are persisted under `~/.pironi/sessions`. `/sessions`
 lists them, `/resume [ID]` schedules a saved checkpoint for the next request,
 and `/compress now` schedules semantic compression for the next request.
@@ -682,6 +689,7 @@ to later sessions without changing prompts, agent identity, or trace content.
 - `rollback_checkpoint`
 - `find_files`
 - `http_get`
+- `network_speed`
 - `csv_merge`
 - `csv_sanitize`
 - `ics_create`

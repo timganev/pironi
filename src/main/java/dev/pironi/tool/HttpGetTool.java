@@ -14,6 +14,7 @@ import java.time.Duration;
 /** Bounded HTTPS fetch tool that rejects local/private destinations and redirects. */
 public final class HttpGetTool implements Tool {
     static final int MAX_BODY_BYTES = 64 * 1024;
+    static final int MAX_HTML_BYTES = 8 * 1024;
     private final Fetcher fetcher;
 
     public HttpGetTool() {
@@ -34,7 +35,8 @@ public final class HttpGetTool implements Tool {
                 return new FetchResponse(
                         response.statusCode(),
                         body.readNBytes(MAX_BODY_BYTES + 1),
-                        response.headers().firstValue("Location").orElse("")
+                        response.headers().firstValue("Location").orElse(""),
+                        response.headers().firstValue("Content-Type").orElse("")
                 );
             }
         };
@@ -74,8 +76,14 @@ public final class HttpGetTool implements Tool {
             if (response.body().length > MAX_BODY_BYTES) {
                 return ToolResult.failure("HTTP response exceeds " + MAX_BODY_BYTES + " bytes");
             }
+            byte[] body = response.body();
+            boolean htmlTruncated = response.contentType().toLowerCase().contains("text/html")
+                    && body.length > MAX_HTML_BYTES;
+            int visibleBytes = htmlTruncated ? MAX_HTML_BYTES : body.length;
             return ToolResult.success("HTTP " + response.statusCode() + "\n"
-                    + new String(response.body(), StandardCharsets.UTF_8));
+                    + new String(body, 0, visibleBytes, StandardCharsets.UTF_8)
+                    + (htmlTruncated ? "\n[HTML excerpt truncated after " + MAX_HTML_BYTES
+                    + " bytes; use a compact data endpoint]" : ""));
         } catch (IllegalArgumentException e) {
             return ToolResult.failure(e.getMessage());
         } catch (Exception e) {
@@ -116,14 +124,19 @@ public final class HttpGetTool implements Tool {
         FetchResponse fetch(URI uri, Duration timeout) throws Exception;
     }
 
-    record FetchResponse(int statusCode, byte[] body, String location) {
+    record FetchResponse(int statusCode, byte[] body, String location, String contentType) {
         FetchResponse(int statusCode, byte[] body) {
-            this(statusCode, body, "");
+            this(statusCode, body, "", "");
+        }
+
+        FetchResponse(int statusCode, byte[] body, String location) {
+            this(statusCode, body, location, "");
         }
 
         FetchResponse {
             if (body == null) body = new byte[0];
             if (location == null) location = "";
+            if (contentType == null) contentType = "";
         }
     }
 }

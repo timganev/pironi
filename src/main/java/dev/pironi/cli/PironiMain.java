@@ -18,6 +18,7 @@ import dev.pironi.tool.ListFilesTool;
 import dev.pironi.tool.HttpGetTool;
 import dev.pironi.tool.FindFilesTool;
 import dev.pironi.tool.MoveFileTool;
+import dev.pironi.tool.NetworkSpeedTool;
 import dev.pironi.tool.ReadFileTool;
 import dev.pironi.tool.ProposeSkillTool;
 import dev.pironi.tool.RunCommandTool;
@@ -152,6 +153,7 @@ public final class PironiMain {
                 new RollbackCheckpointTool(checkpoints),
                 new FindFilesTool(options.searchRoots(), hiddenAgentPaths),
                 new HttpGetTool(),
+                new NetworkSpeedTool(),
                 new RunCommandTool(
                         workspace, Duration.ofSeconds(90), 32_000, options.shellScope()
                 )
@@ -216,7 +218,36 @@ public final class PironiMain {
                     options.pironiHome()
             );
             agentContext.updateRuntimeSession(runtimeSessionDescription(options));
-            CapabilityReport capabilityReport = new CapabilityReport(tools, agentContext);
+            java.util.Map<String, String> disabledReasons = new java.util.HashMap<>();
+            for (Tool tool : availableTools) {
+                if (tools.find(tool.name()).isPresent()) continue;
+                String reason;
+                if (options.approvalMode() == ApprovalMode.READ_ONLY && tool.mutating()) {
+                    reason = "disabled by approval=read-only";
+                } else if (tool.name().equals("run_command")
+                        && options.approvalMode() == ApprovalMode.AUTO
+                        && options.shellScope() == dev.pironi.tool.ShellScope.WORKSPACE
+                        && options.allowTools().isEmpty()
+                        && !options.denyTools().contains("run_command")) {
+                    reason = "blocked by auto-safe workspace policy; use --shell-scope user "
+                            + "or explicitly allow run_command";
+                } else if (!options.allowTools().isEmpty()) {
+                    reason = "not included by --allow-tools";
+                } else {
+                    reason = "disabled by --deny-tools";
+                }
+                disabledReasons.put(tool.name(), reason);
+            }
+            CapabilityReport capabilityReport = new CapabilityReport(
+                    tools, agentContext,
+                    availableTools.stream().map(Tool::name).toList(), disabledReasons
+            );
+            if (interactive && disabledReasons.containsKey("run_command")) {
+                System.out.println("Capability note: host shell "
+                        + dev.pironi.tool.PlatformShell.name()
+                        + " is available, but run_command is "
+                        + disabledReasons.get("run_command") + ".");
+            }
             RuntimeDoctor runtimeDoctor = new RuntimeDoctor(
                     options.workspace(), options.pironiHome(), capabilityReport
             );
@@ -243,7 +274,8 @@ public final class PironiMain {
                     options.maxTurns(),
                     4,
                     interactive ? new FinalAnswerStreamer(System.out, terminal, theme) : null,
-                    memory
+                    memory,
+                    capabilityReport
             );
 
             if (interactive) {

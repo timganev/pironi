@@ -25,6 +25,7 @@ final class ToolActivityFormatter {
             case "find_files" -> "Searching files under " + fallback(path, "the workspace");
             case "inspect_file" -> "Inspecting " + fallback(path, "a file");
             case "http_get" -> "Fetching " + safeUrl(safeText(arguments, "url"));
+            case "network_speed" -> "Measuring network latency and download speed";
             case "run_command" -> summarizeCommand(safeText(arguments, "command"));
             case "propose_skill" -> "Preparing skill draft "
                     + fallback(safeText(arguments, "name"), "(unnamed)");

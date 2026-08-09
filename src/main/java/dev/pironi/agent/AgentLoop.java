@@ -93,6 +93,27 @@ public final class AgentLoop {
             Consumer<String> liveOutput,
             AgentMemory memory
     ) {
+        this(modelClient, decisionParser, objectMapper, toolRegistry, approvalPolicy,
+                traceWriter, agentContext, statusReporter, verificationGate, maxTurns,
+                maxProtocolErrors, liveOutput, memory, null);
+    }
+
+    public AgentLoop(
+            ModelClient modelClient,
+            DecisionParser decisionParser,
+            ObjectMapper objectMapper,
+            ToolRegistry toolRegistry,
+            ApprovalPolicy approvalPolicy,
+            TraceWriter traceWriter,
+            AgentContext agentContext,
+            StatusReporter statusReporter,
+            VerificationGate verificationGate,
+            int maxTurns,
+            int maxProtocolErrors,
+            Consumer<String> liveOutput,
+            AgentMemory memory,
+            CapabilityReport capabilityReport
+    ) {
         this.modelClient = modelClient;
         this.decisionParser = decisionParser;
         this.objectMapper = objectMapper;
@@ -106,7 +127,8 @@ public final class AgentLoop {
         this.maxProtocolErrors = maxProtocolErrors;
         this.liveOutput = liveOutput;
         this.memory = memory == null ? AgentMemory.none() : memory;
-        this.capabilities = new CapabilityReport(toolRegistry, agentContext);
+        this.capabilities = capabilityReport == null
+                ? new CapabilityReport(toolRegistry, agentContext) : capabilityReport;
     }
 
     public AgentResult run(String task) throws IOException, InterruptedException {
@@ -479,6 +501,12 @@ public final class AgentLoop {
                 Use the Runtime capabilities section as authoritative. For requests requiring current
                 external information, use an available network-capable tool before claiming that internet
                 or API access is unavailable. Report the actual tool failure if access does not work.
+                Distinguish host capabilities from exposed tools and policy restrictions. Never say that
+                the machine has no shell when Runtime capabilities says run_command is implemented but
+                policy-disabled; state the exact policy reason and recovery shown there instead.
+                Before calling tools, check that their documented capability can produce the requested
+                measurement or artifact. Do not retry alternate endpoints after a tool limitation proves
+                the approach cannot work. Use network_speed for throughput; http_get cannot measure Mbps.
 
                 Available tools:
                 %s
@@ -520,7 +548,8 @@ public final class AgentLoop {
                 instead of shell commands for binary/large-file metadata and system_info instead of
                 OS-specific commands for hardware/runtime facts. Do not list a directory merely to
                 reconfirm a successful exact-path result. For web requests, prefer compact endpoints
-                and responses. Distinguish observed HTTP status from documented policy; never invent
+                and responses. Do not fetch website UI pages when a compact data endpoint or native tool
+                answers the task. Distinguish observed HTTP status from documented policy; never invent
                 a rejection cause that the tool result did not report.
                 For tasks that request file artifacts, create a minimal valid artifact during the
                 first half of the turn budget. Execute generators immediately; improve them only
