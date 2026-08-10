@@ -18,6 +18,7 @@ import dev.pironi.safety.Workspace;
 import dev.pironi.tool.ApplyPatchTool;
 import dev.pironi.tool.AppControlTool;
 import dev.pironi.tool.ListFilesTool;
+import dev.pironi.tool.HeaderResolver;
 import dev.pironi.tool.HttpGetTool;
 import dev.pironi.tool.FindFilesTool;
 import dev.pironi.tool.MoveFileTool;
@@ -146,6 +147,7 @@ public final class PironiMain {
         );
 
         Set<Path> hiddenAgentPaths = Set.of(options.tracePath().toAbsolutePath().normalize());
+        HeaderResolver headerResolver = buildHeaderResolver(options);
         List<Tool> availableTools = new ArrayList<>(List.of(
                 new ListFilesTool(workspace, 500, options.searchRoots(), hiddenAgentPaths),
                 new ReadFileTool(
@@ -168,7 +170,7 @@ public final class PironiMain {
                 new OfficeOpenXmlTool(workspace, OfficeOpenXmlTool.Format.PPTX),
                 new RollbackCheckpointTool(checkpoints),
                 new FindFilesTool(options.searchRoots(), hiddenAgentPaths),
-                new HttpGetTool(),
+                new HttpGetTool(headerResolver),
                 new NetworkSpeedTool(),
                 new RunCommandTool(
                         workspace, Duration.ofSeconds(90), 32_000, options.shellScope()
@@ -190,7 +192,7 @@ public final class PironiMain {
                 : dev.pironi.agent.SubagentEvents.NOOP;
         if (providerType != dev.pironi.model.ProviderType.OLLAMA) {
             List<Tool> readOnlyTools = List.of(
-                    new HttpGetTool(),
+                    new HttpGetTool(headerResolver),
                     new ReadFileTool(workspace, 32_000, options.searchRoots(), hiddenAgentPaths),
                     new ListFilesTool(workspace, 500, options.searchRoots(), hiddenAgentPaths),
                     new FindFilesTool(options.searchRoots(), hiddenAgentPaths)
@@ -740,6 +742,22 @@ public final class PironiMain {
      */
     static String sessionBanner(String sessionId) {
         return "Session: " + sessionId + "  |  continue with: /resume " + sessionId;
+    }
+
+    /**
+     * Builds the HTTP header resolver for {@code http_get}. Exposes the configured provider API
+     * key under the {@code PIRONI_API_KEY} placeholder and restricts {@code Authorization}
+     * headers to a small set of trusted API hosts (DeepSeek today). The model substitutes the
+     * placeholder; Pironi substitutes the real value and never echoes it back into tool output.
+     */
+    private static HeaderResolver buildHeaderResolver(CliOptions options) {
+        Set<String> authorizationHosts = new HashSet<>(Set.of("api.deepseek.com"));
+        java.util.Map<String, String> placeholders = new java.util.LinkedHashMap<>();
+        String apiKey = options.apiKey();
+        if (apiKey != null && !apiKey.isBlank()) {
+            placeholders.put("PIRONI_API_KEY", apiKey);
+        }
+        return new HeaderResolver(placeholders, authorizationHosts);
     }
 
     private static void printUsage() {

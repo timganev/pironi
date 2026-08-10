@@ -28,4 +28,19 @@ final class ToolArguments {
         }
         return result;
     }
+
+    /**
+     * Returns the value of an optional object field, or {@code null} when absent/null.
+     * Throws when the field is present but not a JSON object.
+     */
+    static JsonNode optionalObject(JsonNode arguments, String field) {
+        JsonNode value = arguments.get(field);
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        if (!value.isObject()) {
+            throw new IllegalArgumentException(field + " must be an object of header-name to header-value pairs");
+        }
+        return value;
+    }
 }

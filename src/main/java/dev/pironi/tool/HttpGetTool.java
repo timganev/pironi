@@ -10,24 +10,40 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
 
 /** Bounded HTTPS fetch tool that rejects local/private destinations and redirects. */
 public final class HttpGetTool implements Tool {
     static final int MAX_BODY_BYTES = 64 * 1024;
     static final int MAX_HTML_BYTES = 8 * 1024;
+    private static final String[] BLOCKED_HEADERS = {
+            "host", "content-length", "transfer-encoding", "connection"
+    };
     private final Fetcher fetcher;
+    private final HeaderResolver headerResolver;
 
     public HttpGetTool() {
+        this(HeaderResolver.EMPTY);
+    }
+
+    public HttpGetTool(HeaderResolver headerResolver) {
+        this.headerResolver = headerResolver == null ? HeaderResolver.EMPTY : headerResolver;
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
-        this.fetcher = (uri, timeout) -> {
-            HttpRequest request = HttpRequest.newBuilder(uri)
+        this.fetcher = (uri, timeout, headers) -> {
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(uri)
                     .timeout(timeout)
                     .header("Accept", "application/json, text/plain;q=0.9, */*;q=0.1")
-                    .header("User-Agent", "Pironi/0.1")
-                    .GET().build();
+                    .header("User-Agent", "Pironi/0.1");
+            if (headers != null) {
+                headers.forEach(requestBuilder::header);
+            }
+            HttpRequest request = requestBuilder.GET().build();
             HttpResponse<InputStream> response = client.send(
                     request, HttpResponse.BodyHandlers.ofInputStream()
             );
@@ -43,6 +59,12 @@ public final class HttpGetTool implements Tool {
     }
 
     HttpGetTool(Fetcher fetcher) {
+        this(HeaderResolver.EMPTY, fetcher);
+    }
+
+    /** Test seam: injects a fake fetcher while exercising the real header resolution. */
+    HttpGetTool(HeaderResolver headerResolver, Fetcher fetcher) {
+        this.headerResolver = headerResolver == null ? HeaderResolver.EMPTY : headerResolver;
         this.fetcher = fetcher;
     }
 
@@ -50,11 +72,15 @@ public final class HttpGetTool implements Tool {
 
     @Override public String description() {
         return "Fetch current external information over HTTPS. Redirects, credentials, "
-                + "localhost and private network destinations are blocked; responses are bounded.";
+                + "localhost and private network destinations are blocked; responses are bounded. "
+                + "Optional headers object is supported; Authorization headers are resolved from "
+                + "Pironi-managed placeholders (e.g. \"Bearer PIRONI_API_KEY\") and only for trusted "
+                + "API hosts.";
     }
 
     @Override public String argumentSchema() {
-        return "{\"url\":\"https URL, required\",\"timeoutSeconds\":\"integer, optional, max 30\"}";
+        return "{\"url\":\"https URL, required\",\"timeoutSeconds\":\"integer, optional, max 30\","
+                + "\"headers\":\"object, optional, e.g. {\\\"Authorization\\\":\\\"Bearer PIRONI_API_KEY\\\"}\"}";
     }
 
     @Override public boolean mutating() { return false; }
@@ -64,7 +90,9 @@ public final class HttpGetTool implements Tool {
             URI uri = URI.create(ToolArguments.requiredText(arguments, "url"));
             validate(uri);
             int seconds = ToolArguments.optionalPositiveInt(arguments, "timeoutSeconds", 15, 30);
-            FetchResponse response = fetcher.fetch(uri, Duration.ofSeconds(seconds));
+            Map<String, String> resolvedHeaders = resolveHeaders(uri, arguments);
+            FetchResponse response = fetcher.fetch(
+                    uri, Duration.ofSeconds(seconds), resolvedHeaders);
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 String redirect = response.statusCode() >= 300 && response.statusCode() < 400
                         ? "; redirect blocked"
@@ -80,7 +108,9 @@ public final class HttpGetTool implements Tool {
             boolean htmlTruncated = response.contentType().toLowerCase().contains("text/html")
                     && body.length > MAX_HTML_BYTES;
             int visibleBytes = htmlTruncated ? MAX_HTML_BYTES : body.length;
-            return ToolResult.success("HTTP " + response.statusCode() + "\n"
+            String headerNote = resolvedHeaders.isEmpty() ? ""
+                    : "[" + resolvedHeaders.size() + " headers applied]\n";
+            return ToolResult.success(headerNote + "HTTP " + response.statusCode() + "\n"
                     + new String(body, 0, visibleBytes, StandardCharsets.UTF_8)
                     + (htmlTruncated ? "\n[HTML excerpt truncated after " + MAX_HTML_BYTES
                     + " bytes; use a compact data endpoint]" : ""));
@@ -89,6 +119,47 @@ public final class HttpGetTool implements Tool {
         } catch (Exception e) {
             return ToolResult.failure("HTTP request failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * Resolves the optional {@code headers} object against the header resolver. Every resolved
+     * value is applied to the outgoing request but never echoed into the {@code ToolResult};
+     * only the count is reported, so a substituted secret cannot leak into the trace or prompt.
+     */
+    private Map<String, String> resolveHeaders(URI uri, JsonNode arguments) {
+        JsonNode headers = ToolArguments.optionalObject(arguments, "headers");
+        if (headers == null || headers.isEmpty()) {
+            return Map.of();
+        }
+        List<String> blocked = new java.util.ArrayList<>();
+        Map<String, String> result = new java.util.LinkedHashMap<>();
+        String host = uri.getHost() == null ? "" : uri.getHost();
+        var fields = headers.fields();
+        while (fields.hasNext()) {
+            var entry = fields.next();
+            String name = entry.getKey().trim();
+            JsonNode valueNode = entry.getValue();
+            if (name.isEmpty() || !valueNode.isTextual()) {
+                throw new IllegalArgumentException(
+                        "headers must map non-blank header names to string values");
+            }
+            String lower = name.toLowerCase(Locale.ROOT);
+            if (List.of(BLOCKED_HEADERS).contains(lower)) {
+                blocked.add(lower);
+                continue;
+            }
+            java.util.Optional<String> resolved = headerResolver.resolve(host, name, valueNode.textValue());
+            if (resolved.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "header '" + name + "' is not permitted for host '" + host
+                                + "'; Authorization headers require a placeholder on a trusted API host");
+            }
+            result.put(name, resolved.get());
+        }
+        if (!blocked.isEmpty()) {
+            throw new IllegalArgumentException("header names are not allowed: " + blocked);
+        }
+        return result;
     }
 
     private static void validate(URI uri) throws Exception {
@@ -121,7 +192,7 @@ public final class HttpGetTool implements Tool {
 
     @FunctionalInterface
     interface Fetcher {
-        FetchResponse fetch(URI uri, Duration timeout) throws Exception;
+        FetchResponse fetch(URI uri, Duration timeout, Map<String, String> headers) throws Exception;
     }
 
     record FetchResponse(int statusCode, byte[] body, String location, String contentType) {
