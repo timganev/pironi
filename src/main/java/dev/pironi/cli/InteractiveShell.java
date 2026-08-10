@@ -43,6 +43,9 @@ public final class InteractiveShell {
     private Runnable onShutdown = () -> { };
     private volatile boolean userWriting;
     private final Object autoTurnLock = new Object();
+    /** Holds the last auto-turn answer that completed while the user was typing;
+     * flushed to the screen when readLine() returns. */
+    private volatile String pendingAutoTurnResult;
 
     public InteractiveShell(
             Terminal terminal,
@@ -181,6 +184,18 @@ public final class InteractiveShell {
             userWriting = true;  // entering readLine — user is about to type
             String line = readLine();
             userWriting = false; // user pressed Enter, now processing the task
+
+            // If an auto-turn completed while the user was typing (or idle), flush the result now.
+            if (pendingAutoTurnResult != null) {
+                String answer = pendingAutoTurnResult;
+                pendingAutoTurnResult = null;
+                // Only show if it hasn't already been streamed (auto-turn may stream long answers).
+                println(""); // blank line before auto-turn result
+                printAgentAnswer(answer);
+                conversationHistory.add("Pironi: " + answer);
+                while (conversationHistory.size() > 8) conversationHistory.removeFirst();
+            }
+
             if (line == null) break;
             line = line.strip();
             if (line.isBlank()) continue;
@@ -234,17 +249,28 @@ public final class InteractiveShell {
     public Runnable autoTurnCallback() {
         return () -> {
             synchronized (autoTurnLock) {
-                if (userWriting) return; // user is typing — let them send manually
+                if (userWriting) {
+                    // User is typing — defer the result display until they press Enter.
+                    // The auto-turn will still run (below) but the output is buffered.
+                }
             }
             Thread.ofVirtual().name("pironi-auto-turn").start(() -> {
                 try {
                     AgentResult result = runner.run(
                             "[системно известие] Провери дали има нови резултати от под-агенти и ги представи на потребителя.");
                     if (result == null) return;
-                    if (!result.streamed()) printAgentAnswer(result.output());
+                    String answer = result.output();
+                    if (answer == null || answer.isBlank()) return;
                     conversationHistory.add("User: [auto-turn]");
-                    conversationHistory.add("Pironi: " + result.output());
+                    conversationHistory.add("Pironi: " + answer);
                     while (conversationHistory.size() > 8) conversationHistory.removeFirst();
+                    // Always buffer the answer — streaming from a virtual thread is unreliable
+                    // with JLine, so we show it via the REPL loop or printAgentAnswer.
+                    if (userWriting) {
+                        pendingAutoTurnResult = answer;
+                    } else {
+                        printAgentAnswer(answer);
+                    }
                 } catch (Exception ignored) {
                     // auto-turn failures are silent; user retries on next message
                 }
