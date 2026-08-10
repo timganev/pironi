@@ -20,12 +20,13 @@ public final class SpawnSubagentTool implements Tool {
     @Override public String name() { return "spawn_subagent"; }
 
     @Override public String description() {
-        return "Offload a data-gathering sub-task to a sub-agent running the same cloud model in "
-                + "a virtual thread, so this main agent stays responsive and the user can keep typing. "
-                + "Use only for multi-step or research-heavy work that would otherwise block a reply for a "
-                + "while (several tool calls, several HTTP fetches). The child is read-only: it can only run "
-                + "http_get, read_file, list_files and find_files. Returns immediately with a handle; Pironi "
-                + "waits for the child before your next turn, so never repeat the delegated work yourself.";
+        return "ALWAYS use this when you need multiple http_get calls (e.g. fetching several URLs "
+                + "or querying the same API with different parameters). It spawns a background child "
+                + "agent that runs the fetches in parallel and delivers the collected results before "
+                + "your next turn. The child is read-only (http_get, read_file, list_files, "
+                + "find_files). NEVER perform the same http_get calls yourself after spawning — the "
+                + "child does the work and its result will be injected into the conversation. "
+                + "Effective for: weather, prices, multi-city lookups, multi-URL scraping.";
     }
 
     @Override public String argumentSchema() {
@@ -59,7 +60,9 @@ public final class SpawnSubagentTool implements Tool {
             SubagentResult spawned = manager.spawn(name, task);
             return spawned.status().equals("error")
                     ? ToolResult.failure(spawned.output())
-                    : ToolResult.success(spawned.output());
+                    : ToolResult.success(
+                            "Агент «" + name + "» е стартиран във фонов режим; "
+                                    + "резултатът ще пристигне по-късно, продължи разговора.");
         } catch (IllegalArgumentException e) {
             return ToolResult.failure(e.getMessage());
         }

@@ -40,6 +40,9 @@ public final class InteractiveShell {
     private final ThemeStore themeStore;
 
     private final List<String> conversationHistory = new ArrayList<>();
+    private Runnable onShutdown = () -> { };
+    private volatile boolean userWriting;
+    private final Object autoTurnLock = new Object();
 
     public InteractiveShell(
             Terminal terminal,
@@ -175,7 +178,9 @@ public final class InteractiveShell {
         }
 
         while (true) {
+            userWriting = true;  // entering readLine — user is about to type
             String line = readLine();
+            userWriting = false; // user pressed Enter, now processing the task
             if (line == null) break;
             line = line.strip();
             if (line.isBlank()) continue;
@@ -211,7 +216,40 @@ public final class InteractiveShell {
                 conversationHistory.removeFirst();
             }
         }
+        onShutdown.run();
         return 0;
+    }
+
+    /** Hook the CLI body wires up so running sub-agents are drained/stopped at exit. */
+    public InteractiveShell onShutdown(Runnable shutdown) {
+        if (shutdown != null) this.onShutdown = shutdown;
+        return this;
+    }
+
+    /**
+     * When a sub-agent finishes, this callback triggers a model turn automatically so the
+     * user does not need to press Enter to see the collected result. The turn runs in a
+     * virtual thread and its output is printed above the prompt (via printAbove).
+     */
+    public Runnable autoTurnCallback() {
+        return () -> {
+            synchronized (autoTurnLock) {
+                if (userWriting) return; // user is typing — let them send manually
+            }
+            Thread.ofVirtual().name("pironi-auto-turn").start(() -> {
+                try {
+                    AgentResult result = runner.run(
+                            "[системно известие] Провери дали има нови резултати от под-агенти и ги представи на потребителя.");
+                    if (result == null) return;
+                    if (!result.streamed()) printAgentAnswer(result.output());
+                    conversationHistory.add("User: [auto-turn]");
+                    conversationHistory.add("Pironi: " + result.output());
+                    while (conversationHistory.size() > 8) conversationHistory.removeFirst();
+                } catch (Exception ignored) {
+                    // auto-turn failures are silent; user retries on next message
+                }
+            });
+        };
     }
 
     private AgentResult runTask(String task) throws InterruptedException {
@@ -382,6 +420,14 @@ public final class InteractiveShell {
         } else {
             output.println(text);
         }
+    }
+
+    /**
+     * Public entry used by the sub-agent events sink to render notifications (spawn/done)
+     * above the prompt. Thread-safe: JLine synchronizes {@code printAbove} internally.
+     */
+    void printAbove(String text) {
+        println(text);
     }
 
     private void printError(String text) {

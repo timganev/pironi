@@ -16,6 +16,16 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PironiMainTest {
     @Test
+    void sessionBannerCarriesIdAndResumeCommand() {
+        String banner = PironiMain.sessionBanner("20260810-120000-project-abc12345");
+        assertEquals(
+                "Session: 20260810-120000-project-abc12345"
+                        + "  |  continue with: /resume 20260810-120000-project-abc12345",
+                banner
+        );
+    }
+
+    @Test
     void automaticStatusRequiresAnInteractiveConsole() {
         assertEquals(false, PironiMain.statusEnabled(StatusMode.AUTO, false, "Linux"));
         assertEquals(true, PironiMain.statusEnabled(StatusMode.AUTO, true, "Linux"));

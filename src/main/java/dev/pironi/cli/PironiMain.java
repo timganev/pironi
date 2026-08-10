@@ -179,6 +179,15 @@ public final class PironiMain {
         // for CPU/RAM, so spawn_subagent is registered only for cloud providers (never Ollama).
         dev.pironi.model.ProviderType providerType = options.provider();
         SubagentManager subagentManager = null;
+        // Mutable printer cell: in interactive mode it is re-pointed to the JLine shell's
+        // printAbove once that shell exists (later in startup); before that and in batch
+        // mode it writes to stderr so stdout stays machine-clean.
+        boolean interactiveNow = options.interactive() && !options.noTui();
+        final java.util.function.Consumer<String>[] subPrinter = new java.util.function.Consumer[]{
+                interactiveNow ? System.out::println : System.err::println};
+        dev.pironi.agent.SubagentEvents subEvents = interactiveNow
+                ? new dev.pironi.agent.InteractiveSubagentEvents(s -> subPrinter[0].accept(s))
+                : dev.pironi.agent.SubagentEvents.NOOP;
         if (providerType != dev.pironi.model.ProviderType.OLLAMA) {
             List<Tool> readOnlyTools = List.of(
                     new HttpGetTool(),
@@ -194,9 +203,10 @@ public final class PironiMain {
             subagentManager = new SubagentManager(
                     options.maxSubagents(),
                     Duration.ofSeconds(options.subagentTimeoutSeconds()),
-                    subtask -> runChildSubagent(
+                    subEvents,
+                    (name, subtask) -> runChildSubagent(
                             modelClient, objectMapper, childRegistry, childPolicy,
-                            options, subtask
+                            options, name, subtask
                     )
             );
             availableTools.add(new SpawnSubagentTool(subagentManager));
@@ -305,6 +315,13 @@ public final class PironiMain {
             RuntimeDoctor runtimeDoctor = new RuntimeDoctor(
                     options.workspace(), options.pironiHome(), capabilityReport
             );
+            // Print the session id + resume command so a crashed/closed CLI can be picked
+            // up again. Session is created lazily here (idempotent) before the loop runs.
+            String sessionId = memory.currentSessionId();
+            if (interactive) {
+                System.out.println(sessionBanner(sessionId));
+            }
+            // (headless --no-interactive keeps stdout clean for machine consumption)
             ConsoleApprovalPolicy approvalPolicy = new ConsoleApprovalPolicy(
                     options.approvalMode(),
                     input,
@@ -335,7 +352,8 @@ public final class PironiMain {
                             : finalSubagentManager,
                     Duration.ofSeconds(
                             finalSubagentManager == null ? 120 : options.subagentTimeoutSeconds()
-                    )
+                    ),
+                    interactive
             );
 
             if (interactive) {
@@ -489,11 +507,23 @@ public final class PironiMain {
                         theme,
                         themeStore
                 );
+                // Re-point the sub-agent notification printer to the live JLine shell so
+                // "пускам агент…" / "агент приключи" render above the prompt.
+                subPrinter[0] = shell::printAbove;
+                // Wire the auto-turn callback so completed child results trigger a model response
+                // immediately, without the user needing to press Enter.
+                if (subEvents instanceof dev.pironi.agent.InteractiveSubagentEvents ise) {
+                    ise.setAutoTurn(shell.autoTurnCallback());
+                }
                 approvalPolicy.updateInteraction(shell.approvalInteraction(
                         status::outputStarted,
                         status::outputFinished
                 ));
-                int exitCode = shell.run(options.task());
+                int exitCode = shell.onShutdown(() -> {
+                    if (finalSubagentManager != null) {
+                        finalSubagentManager.shutdownGracefully(Duration.ofSeconds(10));
+                    }
+                }).run(options.task());
                 System.out.println("Trace: " + options.tracePath().toAbsolutePath().normalize());
                 return exitCode;
             }
@@ -517,6 +547,7 @@ public final class PironiMain {
             ToolRegistry childRegistry,
             dev.pironi.safety.ApprovalPolicy childPolicy,
             CliOptions options,
+            String name,
             String subtask
     ) {
         AgentContext childContext = new AgentContext("", "", "");
@@ -539,20 +570,19 @@ public final class PironiMain {
         );
         try {
             AgentResult result = childLoop.run(subtask);
-            SubagentResult base = result.success()
-                    ? SubagentResult.completed(
-                            "child",
-                            "subagent",
-                            "finalAnswer: " + result.output()
-                    )
-                    : SubagentResult.error("child", "subagent", "no finalAnswer: " + result.output());
-            return new SubagentResult(base.id(), base.name(), base.status(), base.output(),
-                    childTrace.lines());
+            String output = result.success()
+                    ? "finalAnswer: " + result.output()
+                    : "no finalAnswer: " + result.output();
+            return result.success()
+                    ? SubagentResult.completed("child", name, output)
+                    : SubagentResult.error("child", name, output);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt(); // don't swallow the interrupt signal
+            return SubagentResult.cancelled("child", name, SubagentResult.CancelReason.DISCARDED);
         } catch (Exception e) {
-            return new SubagentResult(
-                    "child", "subagent", "error",
-                    e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(),
-                    childTrace.lines()
+            return SubagentResult.error(
+                    "child", name,
+                    e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()
             );
         }
     }
@@ -702,6 +732,14 @@ public final class PironiMain {
                 options.shellScope().name().toLowerCase(),
                 options.searchRoots()
         );
+    }
+
+    /**
+     * One-line banner printed at startup in interactive mode so a crashed/closed CLI can be
+     * resumed with {@code /resume <id>}.
+     */
+    static String sessionBanner(String sessionId) {
+        return "Session: " + sessionId + "  |  continue with: /resume " + sessionId;
     }
 
     private static void printUsage() {

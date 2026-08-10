@@ -160,6 +160,10 @@ class AgentLoopTest {
         dev.pironi.tool.SubagentGateway gateway = new dev.pironi.tool.SubagentGateway() {
             @Override
             public List<SubagentResult> awaitCompleted(java.time.Duration timeout) {
+                return drainCompleted();
+            }
+            @Override
+            public List<SubagentResult> drainCompleted() {
                 if (!delivered.getAndSet(true)) {
                     return java.util.List.of(SubagentResult.completed(
                             "sub_1", "weather", "Sofia: 25C, sunny"
@@ -187,17 +191,22 @@ class AgentLoopTest {
                 AgentMemory.none(),
                 null,
                 gateway,
-                java.time.Duration.ofSeconds(120)
+                java.time.Duration.ofSeconds(120),
+                false
         );
 
         AgentResult result = loopWithDrain.run("test");
 
         assertTrue(result.success());
         // The drained subagent result must be injected before the first model call.
-        String firstRequest = model.requests.getFirst().getLast().content();
-        assertTrue(firstRequest.contains("tool_output untrusted"));
-        assertTrue(firstRequest.contains("Sofia: 25C, sunny"));
-        assertTrue(firstRequest.contains("sub_1"));
+        // Search across ALL messages in the first request (not just the last one).
+        assertTrue(model.requests.getFirst().stream()
+                .anyMatch(m -> m.content().contains("[системно известие")),
+                "[системно известие] must appear in any message of the first request");
+        assertTrue(model.requests.getFirst().stream()
+                .anyMatch(m -> m.content().contains("Sofia: 25C, sunny")));
+        assertTrue(model.requests.getFirst().stream()
+                .anyMatch(m -> m.content().contains("weather")));
     }
 
     @Test

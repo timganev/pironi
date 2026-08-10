@@ -122,7 +122,7 @@ class AgentLoopSubagentTest {
         // With spawn_subagent registered -> prompt contains the delegation discipline block.
         AgentLoop withTool = buildLoop(model, gateway, List.of(), java.time.Duration.ofSeconds(5));
         assertTrue(withTool.run("t").success());
-        assertTrue(model.requests.getFirst().getFirst().content().contains("Delegation:"));
+        assertTrue(model.requests.getFirst().getFirst().content().contains("spawn_subagent rule"));
 
         // Without spawn_subagent -> prompt must not contain it (e.g. local/Ollama profile).
         RecordingModel model2 = new RecordingModel(
@@ -138,11 +138,11 @@ class AgentLoopSubagentTest {
                 new AgentContext("", "", ""),
                 new NoOpStatusReporter(),
                 new NoOpVerificationGate(),
-                5, 2, null, AgentMemory.none(), null, gateway, java.time.Duration.ofSeconds(5)
+                5, 2, null, AgentMemory.none(), null, gateway, java.time.Duration.ofSeconds(5), false
         );
         assertTrue(withoutTool.run("t").success());
         org.junit.jupiter.api.Assertions.assertFalse(
-                model2.requests.getFirst().getFirst().content().contains("Delegation:"),
+                model2.requests.getFirst().getFirst().content().contains("spawn_subagent rule"),
                 "delegation block must be absent when spawn_subagent is not registered"
         );
     }
@@ -180,7 +180,8 @@ class AgentLoopSubagentTest {
                 AgentMemory.none(),
                 null,
                 gateway,
-                timeout
+                timeout,
+                false
         );
     }
 

@@ -136,6 +136,24 @@ class PersistentAgentMemoryTest {
                 .filter(session -> session.id().equals(oldId)).findFirst().orElseThrow().status());
     }
 
+    @Test void currentSessionIdCreatesSeamlessIdempotentSession() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        SessionStore sessions = new SessionStore(temporaryDirectory, mapper);
+        SkillStore skills = new SkillStore(temporaryDirectory);
+        ContextCompressor compressor = new ContextCompressor(10_000, mapper);
+        PersistentAgentMemory memory = new PersistentAgentMemory(
+                sessions, compressor, skills, mapper, "model",
+                Path.of("/workspace/project"), 10_000, 8
+        );
+        // No session exists yet -> currentSessionId must lazily create one.
+        String firstId = memory.currentSessionId();
+        assertFalse(firstId.isBlank());
+        // Calling again must return the SAME id (idempotent, no duplicate session).
+        assertEquals(firstId, memory.currentSessionId());
+        assertEquals(1, sessions.listSessions().size());
+        assertEquals("active", sessions.listSessions().getFirst().status());
+    }
+
     @Test void manualCompressionRemainsPendingUntilHistoryIsEligible() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         PersistentAgentMemory memory = memory(

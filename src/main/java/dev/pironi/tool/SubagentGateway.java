@@ -24,6 +24,11 @@ public interface SubagentGateway {
     /** Number of children currently active (spawned but not finished). */
     int activeCount();
 
+    /** Non-blocking drain of ready child results, oldest first. Empty when none finished. */
+    default java.util.List<SubagentResult> drainCompleted() {
+        return java.util.List.of();
+    }
+
     /** Drop any stale results from a previous run so they don't leak into a new task. */
     void discardPending();
 }

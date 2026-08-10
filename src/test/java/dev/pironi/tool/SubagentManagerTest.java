@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -13,7 +14,7 @@ class SubagentManagerTest {
 
     @Test
     void spawnReturnsHandleImmediatelyAndChildCompletes() {
-        var manager = new SubagentManager(2, subtask ->
+        var manager = new SubagentManager(2, (ignoredName, subtask) ->
                 SubagentResult.completed("x", "weather", "data for " + subtask));
 
         SubagentResult handle = manager.spawn("weather", "Sofia 5-day");
@@ -34,7 +35,7 @@ class SubagentManagerTest {
 
     @Test
     void capRejectsSpawnBeyondLimit() {
-        var manager = new SubagentManager(1, subtask -> {
+        var manager = new SubagentManager(1, (ignoredName, subtask) -> {
             try {
                 Thread.sleep(50);
             } catch (InterruptedException ignored) {
@@ -61,7 +62,7 @@ class SubagentManagerTest {
 
     @Test
     void drainCollectsAllFinishedChildren() {
-        var manager = new SubagentManager(4, subtask -> {
+        var manager = new SubagentManager(4, (ignoredName, subtask) -> {
             try {
                 Thread.sleep(10);
             } catch (InterruptedException ignored) {
@@ -84,7 +85,7 @@ class SubagentManagerTest {
 
     @Test
     void emptyDrainReturnsEmptyList() {
-        var manager = new SubagentManager(2, subtask -> SubagentResult.completed("x", "n", "d"));
+        var manager = new SubagentManager(2, (ignoredName, subtask) -> SubagentResult.completed("x", "n", "d"));
         assertTrue(manager.drain().isEmpty());
         assertNull(manager.poll());
         manager.close();
@@ -92,16 +93,16 @@ class SubagentManagerTest {
 
     @Test
     void awaitCompletedZeroMatchesNonBlockingDrain() throws Exception {
-        var manager = new SubagentManager(2, subtask ->
+        var manager = new SubagentManager(2, (ignoredName, subtask) ->
                 SubagentResult.completed("x", "n", "out[" + subtask + "]"));
-        // Nothing spawned yet -> ZERO await must return immediately and empty.
-        assertTrue(manager.awaitCompleted(java.time.Duration.ZERO).isEmpty());
+        // Nothing spawned yet -> non-blocking drain must return immediately and empty.
+        assertTrue(manager.drainCompleted().isEmpty());
         manager.close();
     }
 
     @Test
     void awaitCompletedWaitsForActiveChildAndReturnsNormalizedId() throws Exception {
-        var manager = new SubagentManager(2, subtask -> {
+        var manager = new SubagentManager(2, (ignoredName, subtask) -> {
             try {
                 Thread.sleep(20);
             } catch (InterruptedException ignored) {
@@ -120,20 +121,20 @@ class SubagentManagerTest {
 
     @Test
     void discardPendingDropsStaleResults() throws Exception {
-        var manager = new SubagentManager(2, subtask -> SubagentResult.completed("x", "n", "d"));
+        var manager = new SubagentManager(2, (ignoredName, subtask) -> SubagentResult.completed("x", "n", "d"));
         manager.spawn("one", "one");
         List<SubagentResult> ready = manager.awaitCompleted(java.time.Duration.ofSeconds(5));
         assertEquals(1, ready.size());
         // Discard must drop any results still queued (none here since await drained it).
         manager.discardPending();
-        assertTrue(manager.awaitCompleted(java.time.Duration.ZERO).isEmpty());
+        assertTrue(manager.drainCompleted().isEmpty());
         manager.close();
     }
 
     @Test
     void interruptDeadlineResolvesStuckChildAndClearsActive() throws Exception {
         // A child that never returns on its own; the manager must interrupt it at the deadline.
-        var manager = new SubagentManager(1, java.time.Duration.ofMillis(400), subtask -> {
+        var manager = new SubagentManager(1, java.time.Duration.ofMillis(400), (ignoredName, subtask) -> {
             try {
                 Thread.sleep(10_000);
             } catch (Throwable ignored) {
@@ -153,7 +154,7 @@ class SubagentManagerTest {
 
     @Test
     void runningHandlesReflectsActiveChildren() throws Exception {
-        var manager = new SubagentManager(2, subtask -> {
+        var manager = new SubagentManager(2, (ignoredName, subtask) -> {
             try {
                 Thread.sleep(300);
             } catch (InterruptedException ignored) {
@@ -171,6 +172,94 @@ class SubagentManagerTest {
         manager.awaitCompleted(java.time.Duration.ofSeconds(5));
         assertTrue(manager.runningHandles().isEmpty());
         assertEquals(0, manager.activeCount());
+        manager.close();
+    }
+
+    @Test
+    void discardPendingDoesNotInterruptRunningChild() throws Exception {
+        // Regression for the 0ms InterruptedException bug: a routine pending-drain at the start
+        // of a new parent run must NOT kill an in-flight child.
+        java.util.concurrent.atomic.AtomicBoolean childInterrupted = new java.util.concurrent.atomic.AtomicBoolean(false);
+        java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        var manager = new SubagentManager(2, (ignoredName, subtask) -> {
+            entered.countDown();
+            try {
+                release.await(2, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                childInterrupted.set(true);
+                Thread.currentThread().interrupt();
+            }
+            return SubagentResult.completed("x", "weather", "done");
+        });
+        manager.spawn("weather", "Sofia");
+        assertTrue(entered.await(2, java.util.concurrent.TimeUnit.SECONDS), "child entered");
+        // This is what the loop calls at the start of every new turn/run.
+        manager.discardPending();
+        // The child must still be alive (not interrupted).
+        assertFalse(childInterrupted.get(), "discardPending must not interrupt the child");
+        release.countDown();
+        List<SubagentResult> ready = manager.awaitCompleted(java.time.Duration.ofSeconds(2));
+        assertEquals(1, ready.size());
+        assertEquals("completed", ready.get(0).status());
+        manager.close();
+    }
+
+    @Test
+    void cancelChildOnNewHandleIsAbsorbedWithoutStickyInterrupt() throws Exception {
+        // Simulate the NEW-state cancellation that used to kill the child via a sticky flag.
+        java.util.concurrent.atomic.AtomicBoolean sawInterrupted = new java.util.concurrent.atomic.AtomicBoolean(false);
+        var manager = new SubagentManager(2, (ignoredName, subtask) -> {
+            // If the pre-start interrupt leaked, the child would see isInterrupted()==true here.
+            if (Thread.currentThread().isInterrupted()) sawInterrupted.set(true);
+            return SubagentResult.completed("x", "weather", "ok");
+        });
+        // Spawn and cancel immediately via the shutdown/discard path that targets children.
+        manager.spawn("weather", "Sofia");
+        manager.discardPendingResults();
+        Thread.sleep(100);
+        assertFalse(sawInterrupted.get(), "child must not start with a sticky pre-start interrupt");
+        assertEquals(0, manager.activeCount(), "cancelled child no longer counts as active");
+        manager.close();
+    }
+
+    @Test
+    void zeroDurationDrainDoesNotCancelActiveChild() throws Exception {
+        // Regression: a just-spawned child must NOT be killed at 0ms by the turn-start non-blocking
+        // drain (which used to trip a TIMEOUT cancel through awaitCompleted(Duration.ZERO)).
+        java.util.concurrent.CountDownLatch started = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        var manager = new SubagentManager(2, (ignoredName, subtask) -> {
+            started.countDown();
+            try {
+                release.await(5, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return SubagentResult.error("x", "slow-child", "interrupted");
+            }
+            return SubagentResult.completed("x", "slow-child", "done");
+        });
+        manager.spawn("slow-child", "do work");
+        assertTrue(started.await(2, java.util.concurrent.TimeUnit.SECONDS), "child started");
+
+        // exactly what AgentLoop.drainSubagentResults does at the start of every async turn
+        assertTrue(manager.drainCompleted().isEmpty(), "active child yields no drained result");
+        assertEquals(1, manager.activeCount(), "child still active (not cancelled)");
+
+        release.countDown();
+        List<SubagentResult> ready = manager.awaitCompleted(java.time.Duration.ofSeconds(5));
+        assertEquals(1, ready.size());
+        assertEquals("completed", ready.get(0).status());
+        manager.close();
+    }
+
+    @Test
+    void zeroDurationAwaitIsRejectedAsProgrammingError() {
+        var manager = new SubagentManager(2, (ignoredName, subtask) ->
+                SubagentResult.completed("x", "n", "d"));
+        org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> manager.awaitCompleted(java.time.Duration.ZERO));
         manager.close();
     }
 

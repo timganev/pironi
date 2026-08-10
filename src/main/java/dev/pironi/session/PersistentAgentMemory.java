@@ -58,6 +58,18 @@ public final class PersistentAgentMemory implements AgentMemory {
         return result;
     }
 
+    /**
+     * Ensures a session exists and returns its id. Creates one if none is active (e.g. a
+     * fresh run before the first task is handed to the loop).
+     */
+    public synchronized String currentSessionId() {
+        if (sessions.currentMeta() == null) {
+            sessions.startSession(model, workspace, contextLimit, maxTurns);
+            sessions.saveMeta();
+        }
+        return sessions.currentMeta().id();
+    }
+
     @Override public synchronized void record(ChatMessage message, long prompt, long output) {
         sessions.appendTurn(message, prompt, output);
         sessions.saveMeta();
