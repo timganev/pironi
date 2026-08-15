@@ -168,4 +168,45 @@ class TerminalStatusReporterTest {
             assertTrue(bytes.toString(StandardCharsets.UTF_8).contains("ready"));
         }
     }
+
+    @Test
+    void statusIsClampedToTheTerminalWidth() throws Exception {
+        // The raw redraw path (used when JLine reports no scroll-region capability, as on
+        // Windows consoles) rewrites the row with a carriage return. A line wider than the
+        // window wraps first, so the redraw erases only the wrapped remainder and every refresh
+        // leaves another half-line behind - which is exactly what a narrow window shows.
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        var terminal = new org.jline.terminal.impl.ExternalTerminal(
+                "test", "xterm", new ByteArrayInputStream(new byte[0]),
+                bytes, StandardCharsets.UTF_8);
+        terminal.setSize(new Size(40, 24));
+        TerminalStatusReporter reporter = new TerminalStatusReporter(
+                "model", Path.of("/workspace/project"), 8_192, 8,
+                new PrintStream(bytes, true, StandardCharsets.UTF_8), terminal);
+
+        String wide = "x".repeat(200);
+        assertEquals(39, reporter.clampToWidth(wide).length(),
+                "one column is left spare so the terminal does not wrap on the last cell");
+        assertEquals("short", reporter.clampToWidth("short"), "short lines are untouched");
+        reporter.close();
+    }
+
+    @Test
+    void dumbTerminalGetsNoRepeatingStatusRow() throws Exception {
+        // A dumb terminal cannot rewrite a row, so a periodic status would print one line per
+        // refresh and bury the conversation.
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        var dumb = new DumbTerminal(new ByteArrayInputStream(new byte[0]), bytes);
+        TerminalStatusReporter reporter = new TerminalStatusReporter(
+                "model", Path.of("/workspace/project"), 8_192, 8,
+                new PrintStream(bytes, true, StandardCharsets.UTF_8), dumb);
+        reporter.tool("read_file");
+        reporter.tool("write_file");
+        reporter.idle();
+        reporter.close();
+
+        String rendered = bytes.toString(StandardCharsets.UTF_8);
+        long statusRows = rendered.lines().filter(l -> l.contains("ctx ~")).count();
+        assertEquals(0, statusRows, "no repeated status rows on a dumb terminal: " + rendered);
+    }
 }

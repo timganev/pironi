@@ -254,12 +254,28 @@ public final class TerminalStatusReporter implements StatusReporter {
 
     private void render(String line) {
         if (useJLine()) {
-            renderViaJLine(line);
+            renderViaJLine(clampToWidth(line));
         } else if (terminal != null && "dumb".equals(terminal.getType())) {
             renderViaDumbTerminal(line);
         } else {
-            renderViaRaw(line);
+            renderViaRaw(clampToWidth(line));
         }
+    }
+
+    /**
+     * Keeps the status within one terminal row.
+     *
+     * <p>The row is redrawn with a carriage return and an erase-line. If the text is wider than
+     * the window it wraps first, so the carriage return lands on the wrapped remainder and erases
+     * only that: every refresh leaves another half-line behind and the conversation scrolls away.
+     * Long values make this easy to hit - a long user name plus a tok/s reading is enough on a
+     * narrow window, which is why a wide terminal never shows it.
+     */
+    String clampToWidth(String line) {
+        int columns = terminal == null ? 0 : terminal.getSize().getColumns();
+        // One column spare: writing into the last cell makes some terminals wrap anyway.
+        if (columns <= 1 || line.length() <= columns - 1) return line;
+        return line.substring(0, columns - 1);
     }
 
     private boolean useJLine() {
@@ -285,12 +301,13 @@ public final class TerminalStatusReporter implements StatusReporter {
         }
     }
 
+    /**
+     * A dumb terminal cannot rewrite a row, so printing the status on every tick produces a new
+     * line per refresh and buries the conversation under near-identical rows. Activity lines are
+     * unaffected: those are a stream of distinct events rather than one row redrawn.
+     */
     private void renderViaDumbTerminal(String line) {
-        synchronized (outputLock) {
-            if (closed) return;
-            output.println(line);
-            output.flush();
-        }
+        // Intentionally nothing.
     }
 
     private void activityLine(String line) {

@@ -25,4 +25,15 @@ class FinalAnswerStreamerTest {
         assertTrue(pauses.size() >= 3);
         assertTrue(pauses.stream().allMatch(delay -> delay >= 8 && delay <= 35));
     }
+
+    @Test
+    void multiLineAnswersUseCarriageReturnsForTheTerminal() {
+        // Without CR the second line starts under the end of the first, and a twelve line
+        // answer walks diagonally off the right edge - visible on Windows terminals.
+        assertEquals("one\r\ntwo", FinalAnswerStreamer.crlf("one\ntwo"));
+        assertEquals("one\r\ntwo", FinalAnswerStreamer.crlf("one\r\ntwo"),
+                "already-normalised text must not gain a second carriage return");
+        assertEquals("no newlines here", FinalAnswerStreamer.crlf("no newlines here"));
+        assertEquals("a\r\nb\r\nc", FinalAnswerStreamer.crlf("a\nb\nc"));
+    }
 }

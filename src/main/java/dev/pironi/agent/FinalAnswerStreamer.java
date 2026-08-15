@@ -57,7 +57,7 @@ public final class FinalAnswerStreamer implements Consumer<String> {
         if (terminal != null) {
             synchronized (terminal) {
                 terminal.writer().print(new AttributedString(
-                        chunk, theme.style(ThemeSettings.Element.AGENT)
+                        crlf(chunk), theme.style(ThemeSettings.Element.AGENT)
                 ).toAnsi(terminal));
                 terminal.flush();
             }
@@ -65,5 +65,15 @@ public final class FinalAnswerStreamer implements Consumer<String> {
             output.print(chunk);
             output.flush();
         }
+    }
+
+    /**
+     * A terminal in raw mode treats a bare LF as "down one row" without returning to column one,
+     * so each line of a multi-line answer starts where the previous one ended and the text walks
+     * diagonally down the screen. Only the terminal path needs this; a plain PrintStream handles
+     * newlines itself.
+     */
+    static String crlf(String chunk) {
+        return chunk.indexOf('\n') < 0 ? chunk : chunk.replace("\r\n", "\n").replace("\n", "\r\n");
     }
 }
