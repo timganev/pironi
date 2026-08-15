@@ -1,6 +1,7 @@
 package dev.pironi.tool;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import dev.pironi.safety.AccessGrants;
 import dev.pironi.safety.Workspace;
 
 import java.io.IOException;
@@ -12,6 +13,7 @@ import java.util.List;
 import java.util.Set;
 
 public final class ListFilesTool implements Tool {
+    private volatile AccessGrants grants = new AccessGrants();
     private static final Set<String> IGNORED_DIRECTORIES = Set.of(
             ".git", ".pironi", ".idea", "target", "build", ".gradle", "node_modules"
     );
@@ -108,7 +110,7 @@ public final class ListFilesTool implements Tool {
         Path path = Path.of(supplied);
         if (!path.isAbsolute()) return workspace.resolveExisting(supplied);
         Path real = path.toRealPath();
-        for (Path root : allowedRoots) {
+        for (Path root : effectiveRoots()) {
             if (real.startsWith(root)) return real;
         }
         throw new IOException("Absolute path is outside configured search roots: " + supplied);
@@ -121,5 +123,16 @@ public final class ListFilesTool implements Tool {
             }
         }
         return false;
+    }
+
+    /** Lets the interactive shell widen this tool's reach without a restart. */
+    public void useGrants(AccessGrants sessionGrants) {
+        if (sessionGrants != null) this.grants = sessionGrants;
+    }
+
+    private java.util.List<java.nio.file.Path> effectiveRoots() {
+        java.util.List<java.nio.file.Path> all = new java.util.ArrayList<>(allowedRoots);
+        all.addAll(grants.grantedRoots());
+        return all;
     }
 }

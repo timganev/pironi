@@ -168,6 +168,8 @@ public final class InteractiveShell {
         default String rejectSkill() { return "No pending skill draft."; }
         String forgetSkill(String name);
         String pruneSkills();
+        /** Shows or changes session access: "", "allow-dir PATH", "deny-tool NAME", ... */
+        default String access(String argument) { return "Access control not available."; }
     }
 
     public int run(String initialTask) throws IOException, InterruptedException {
@@ -371,6 +373,8 @@ public final class InteractiveShell {
                 if (shellCommands != null) println(shellCommands.capabilities());
                 else println("Capabilities not available.");
             }
+            case "/access" -> println(shellCommands == null
+                    ? "Access control not available." : shellCommands.access(arg));
             case "/doctor" -> {
                 if (shellCommands != null) println(shellCommands.doctor());
                 else println("Diagnostics not available.");
@@ -537,6 +541,7 @@ public final class InteractiveShell {
                 new Command("/context", "Show current conversation context"),
                 new Command("/new", "Start a clean session"),
                 new Command("/capabilities", "Show live runtime capabilities"),
+                new Command("/access", "Show or change directory and tool access"),
                 new Command("/doctor", "Check Java, workspace, shell and network"),
                 new Command("/sessions", "List saved sessions"),
                 new Command("/resume", "Resume a saved session by ID"),

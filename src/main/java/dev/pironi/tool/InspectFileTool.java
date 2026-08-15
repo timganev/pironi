@@ -1,6 +1,7 @@
 package dev.pironi.tool;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import dev.pironi.safety.AccessGrants;
 import dev.pironi.safety.Workspace;
 
 import java.io.BufferedInputStream;
@@ -19,6 +20,7 @@ import java.util.List;
 
 /** Bounded, content-free diagnostics for binary and large files. */
 public final class InspectFileTool implements Tool {
+    private volatile AccessGrants grants = new AccessGrants();
     private static final int SAMPLE_BYTES = 4096;
     private final Workspace workspace;
     private final List<Path> readRoots;
@@ -61,12 +63,23 @@ public final class InspectFileTool implements Tool {
         Path path = Path.of(supplied);
         if (!path.isAbsolute()) return workspace.resolveExisting(supplied);
         Path real = path.toRealPath();
-        if (readRoots.stream().noneMatch(root -> real.startsWith(canonical(root)))) throw new IOException("Path is outside configured search roots: " + supplied);
+        if (effectiveRoots().stream().noneMatch(root -> real.startsWith(canonical(root)))) throw new IOException("Path is outside configured search roots: " + supplied);
         return real;
     }
     private static Path canonical(Path path) { try { return path.toRealPath(); } catch (IOException e) { return path.toAbsolutePath().normalize(); } }
     private static boolean validUtf8(byte[] bytes, int length) {
         try { StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes, 0, length)); return true; }
         catch (CharacterCodingException e) { return false; }
+    }
+
+    /** Lets the interactive shell widen this tool's reach without a restart. */
+    public void useGrants(AccessGrants sessionGrants) {
+        if (sessionGrants != null) this.grants = sessionGrants;
+    }
+
+    private java.util.List<java.nio.file.Path> effectiveRoots() {
+        java.util.List<java.nio.file.Path> all = new java.util.ArrayList<>(readRoots);
+        all.addAll(grants.grantedRoots());
+        return all;
     }
 }

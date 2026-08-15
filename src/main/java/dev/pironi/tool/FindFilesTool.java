@@ -1,5 +1,6 @@
 package dev.pironi.tool;
 
+import dev.pironi.safety.AccessGrants;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.io.IOException;
@@ -17,6 +18,7 @@ import java.util.List;
 import java.util.Set;
 
 public final class FindFilesTool implements Tool {
+    private volatile AccessGrants grants = new AccessGrants();
     private static final int MAX_VISITED = 20_000;
     private static final int MAX_CONTENT_BYTES = 2 * 1024 * 1024;
     private final List<Path> allowedRoots;
@@ -135,12 +137,23 @@ public final class FindFilesTool implements Tool {
     private Path selectedRoot(String requested) {
         if (requested.isBlank()) return allowedRoots.getFirst();
         Path normalized = canonicalize(Path.of(requested));
-        return allowedRoots.stream()
+        return effectiveRoots().stream()
                 .filter(normalized::startsWith)
                 .findFirst()
                 .map(ignored -> normalized)
                 .orElseThrow(
                 () -> new IllegalArgumentException("Search root is not allowed: " + requested)
         );
+    }
+
+    /** Lets the interactive shell widen this tool's reach without a restart. */
+    public void useGrants(AccessGrants sessionGrants) {
+        if (sessionGrants != null) this.grants = sessionGrants;
+    }
+
+    private java.util.List<java.nio.file.Path> effectiveRoots() {
+        java.util.List<java.nio.file.Path> all = new java.util.ArrayList<>(allowedRoots);
+        all.addAll(grants.grantedRoots());
+        return all;
     }
 }

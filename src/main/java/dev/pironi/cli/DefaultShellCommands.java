@@ -18,6 +18,103 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
     private final PersistentAgentMemory memory;
     private final CapabilityReport capabilities;
     private final RuntimeDoctor doctor;
+    private dev.pironi.tool.ToolRegistry registry;
+    private Runnable accessChanged = () -> { };
+
+    /** Wired after construction because the registry is assembled later in startup. */
+    void useRegistry(dev.pironi.tool.ToolRegistry toolRegistry) {
+        this.registry = toolRegistry;
+    }
+
+    /**
+     * Refreshes the runtime description the model sees. Without this a granted directory is
+     * usable but invisible: the model reads the old search-roots line, concludes it has no
+     * access and refuses without ever calling the tool.
+     */
+    void onAccessChanged(Runnable callback) {
+        if (callback != null) this.accessChanged = callback;
+    }
+
+    /**
+     * One command with sub-verbs rather than four separate slash commands: the slash menu is
+     * rendered inline and a handful of extra entries pushes the prompt off a short terminal,
+     * which silently breaks the keyboard tests.
+     */
+    @Override public String access(String argument) {
+        if (registry == null) return "Access control not available.";
+        String trimmed = argument == null ? "" : argument.trim();
+        if (trimmed.isEmpty()) return showAccess();
+        int space = trimmed.indexOf(' ');
+        String verb = space < 0 ? trimmed : trimmed.substring(0, space);
+        String rest = space < 0 ? "" : trimmed.substring(space + 1).trim();
+        return switch (verb) {
+            case "allow-dir" -> allowDirectory(rest);
+            case "deny-dir" -> denyDirectory(rest);
+            case "allow-tool" -> allowTool(rest);
+            case "deny-tool" -> denyTool(rest);
+            default -> "Usage: /access [allow-dir PATH | deny-dir PATH "
+                    + "| allow-tool NAME | deny-tool NAME]";
+        };
+    }
+
+    private String showAccess() {
+        var grants = registry.grants();
+        StringBuilder out = new StringBuilder("Granted this session:");
+        out.append("\n  directories: ").append(grants.grantedRoots().isEmpty()
+                ? "(none beyond startup --search-roots)" : grants.grantedRoots());
+        out.append("\n  blocked tools: ").append(grants.disabledTools().isEmpty()
+                ? "(none)" : grants.disabledTools().stream().sorted().toList());
+        out.append("\nChange with: /access allow-dir PATH | deny-dir PATH "
+                + "| allow-tool NAME | deny-tool NAME");
+        return out.toString();
+    }
+
+    private String allowDirectory(String path) {
+        if (registry == null) return "Access control not available.";
+        if (path == null || path.isBlank()) return "Usage: /access allow-dir PATH";
+        try {
+            java.nio.file.Path granted = registry.grants().grantRoot(java.nio.file.Path.of(path.trim()));
+            accessChanged.run();
+            return "Read access granted for this session: " + granted;
+        } catch (java.io.IOException | RuntimeException e) {
+            return "Could not grant access: " + e.getMessage();
+        }
+    }
+
+    private String denyDirectory(String path) {
+        if (registry == null) return "Access control not available.";
+        if (path == null || path.isBlank()) return "Usage: /access deny-dir PATH";
+        boolean removed = registry.grants().revokeRoot(java.nio.file.Path.of(path.trim()));
+        accessChanged.run();
+        return removed ? "Access revoked: " + path.trim()
+                : "Not granted in this session: " + path.trim();
+    }
+
+    private String allowTool(String name) {
+        if (registry == null) return "Access control not available.";
+        if (name == null || name.isBlank()) return "Usage: /access allow-tool NAME";
+        String tool = name.trim();
+        if (registry.allImplemented().stream().noneMatch(t -> t.name().equals(tool))) {
+            return "No such tool in this build: " + tool;
+        }
+        boolean enabled = registry.grants().enableTool(tool);
+        accessChanged.run();
+        return enabled
+                ? "Tool enabled for this session: " + tool
+                : "Tool was not blocked: " + tool;
+    }
+
+    private String denyTool(String name) {
+        if (registry == null) return "Access control not available.";
+        if (name == null || name.isBlank()) return "Usage: /access deny-tool NAME";
+        String tool = name.trim();
+        if (registry.allImplemented().stream().noneMatch(t -> t.name().equals(tool))) {
+            return "No such tool in this build: " + tool;
+        }
+        registry.grants().disableTool(tool);
+        accessChanged.run();
+        return "Tool blocked for this session: " + tool;
+    }
 
     DefaultShellCommands(SessionStore sessions, ContextCompressor compressor, SkillStore skills,
             PersistentAgentMemory memory, CapabilityReport capabilities, RuntimeDoctor doctor) {

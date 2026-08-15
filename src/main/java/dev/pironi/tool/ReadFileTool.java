@@ -1,6 +1,7 @@
 package dev.pironi.tool;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import dev.pironi.safety.AccessGrants;
 import dev.pironi.safety.Workspace;
 
 import java.io.IOException;
@@ -16,6 +17,7 @@ import java.util.List;
 import java.util.Set;
 
 public final class ReadFileTool implements Tool {
+    private volatile AccessGrants grants = new AccessGrants();
     private static final int DEFAULT_RANGE_LINES = 200;
     private static final int MAX_RANGE_LINES = 10_000;
     private final Workspace workspace;
@@ -185,7 +187,15 @@ public final class ReadFileTool implements Tool {
         for (Path root : allowedRoots) {
             if (Files.exists(root)) roots.add(root.toRealPath());
         }
+        for (Path root : grants.grantedRoots()) {
+            if (Files.exists(root)) roots.add(root.toRealPath());
+        }
         return roots;
+    }
+
+    /** Lets the interactive shell widen this tool's reach without a restart. */
+    public void useGrants(AccessGrants sessionGrants) {
+        if (sessionGrants != null) this.grants = sessionGrants;
     }
 
     private boolean isHidden(Path path) throws IOException {
