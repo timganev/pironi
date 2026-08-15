@@ -227,7 +227,8 @@ public final class PironiMain {
         boolean statusEnabled = statusEnabled(
                 options.statusMode(),
                 System.console() != null,
-                System.getProperty("os.name", "")
+                System.getProperty("os.name", ""),
+                System.getenv("WT_SESSION") != null
         );
         boolean interactive = options.interactive() && !options.noTui();
         ThemeStore themeStore = new ThemeStore(options.pironiHome());
@@ -673,9 +674,24 @@ public final class PironiMain {
     }
 
     static boolean statusEnabled(StatusMode mode, boolean consolePresent, String osName) {
+        return statusEnabled(mode, consolePresent, osName, false);
+    }
+
+    /**
+     * Windows was excluded wholesale when status rendering was hardened, back when the legacy
+     * conhost could not be relied on to keep a reserved line. Windows Terminal handles it fine,
+     * and excluding it cost more than it saved: the same reporter drives the activity lines, so
+     * a Windows user on AUTO saw neither a status row nor any tool activity.
+     *
+     * @param windowsTerminal true when running inside Windows Terminal (WT_SESSION is set)
+     */
+    static boolean statusEnabled(
+            StatusMode mode, boolean consolePresent, String osName, boolean windowsTerminal
+    ) {
         boolean windows = osName.toLowerCase(java.util.Locale.ROOT).contains("win");
+        boolean legacyWindowsConsole = windows && !windowsTerminal;
         return mode == StatusMode.ALWAYS
-                || (mode == StatusMode.AUTO && consolePresent && !windows);
+                || (mode == StatusMode.AUTO && consolePresent && !legacyWindowsConsole);
     }
 
     static ToolRegistry toolsForApproval(ToolRegistry configured, ApprovalMode mode) {

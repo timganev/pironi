@@ -29,7 +29,13 @@ class PironiMainTest {
     void automaticStatusRequiresAnInteractiveConsole() {
         assertEquals(false, PironiMain.statusEnabled(StatusMode.AUTO, false, "Linux"));
         assertEquals(true, PironiMain.statusEnabled(StatusMode.AUTO, true, "Linux"));
-        assertEquals(false, PironiMain.statusEnabled(StatusMode.AUTO, true, "Windows 11"));
+        // Legacy conhost: still excluded, that is what the exclusion was for.
+        assertEquals(false, PironiMain.statusEnabled(StatusMode.AUTO, true, "Windows 11", false));
+        // Windows Terminal is ANSI-capable; excluding it hid the status row AND every
+        // activity line for Windows users on the default AUTO mode.
+        assertEquals(true, PironiMain.statusEnabled(StatusMode.AUTO, true, "Windows 11", true));
+        assertEquals(false, PironiMain.statusEnabled(StatusMode.AUTO, false, "Windows 11", true),
+                "no console means no status even in Windows Terminal");
         assertEquals(true, PironiMain.statusEnabled(StatusMode.ALWAYS, false, "Windows 11"));
         assertEquals(false, PironiMain.statusEnabled(StatusMode.NEVER, true, "Linux"));
     }
