@@ -54,7 +54,7 @@ Get-Content .\pironi-VERSION-windows-x64.zip.sha256
 ```
 
 The hexadecimal values must match. Replace `VERSION` with the release tag shown
-in the downloaded filename, for example `v0.1.9`.
+in the downloaded filename, for example `v0.1.16`.
 
 For a scripted one-shot task containing Cyrillic, quotes, or other Unicode,
 save the prompt as UTF-8 and pass its path instead of putting the prompt on the

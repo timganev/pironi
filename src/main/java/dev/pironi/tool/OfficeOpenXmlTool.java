@@ -32,7 +32,9 @@ public final class OfficeOpenXmlTool implements Tool {
     }
     @Override public String argumentSchema() {
         return switch (format) {
-            case XLSX -> "{\"path\":\"relative .xlsx\",\"sheets\":[{\"name\":\"string\",\"rows\":[[\"cell\"]]}]}";
+            case XLSX -> "{\"path\":\"relative .xlsx\",\"sheets\":[{\"name\":\"string\",\"rows\":[[\"cell\"]]}]}"
+                    + " (a cell starting with '=' becomes a real formula, e.g. \"=SUM(B2:B6)\";"
+                    + " plain numbers become numeric cells; values with leading zeros stay text)";
             case DOCX -> "{\"path\":\"relative .docx\",\"title\":\"string\",\"paragraphs\":[\"string\"]}";
             case PPTX -> "{\"path\":\"relative .pptx\",\"slides\":[{\"title\":\"string\",\"bullets\":[\"string\"]}]}";
         };
@@ -106,9 +108,19 @@ public final class OfficeOpenXmlTool implements Tool {
                 rows.append("<row r=\"").append(rowNumber).append("\">");
                 int column = 1;
                 for (JsonNode cell : row) {
-                    rows.append("<c r=\"").append(columnName(column++)).append(rowNumber)
-                            .append("\" t=\"inlineStr\"><is><t xml:space=\"preserve\">")
-                            .append(esc(cell.asText())).append("</t></is></c>");
+                    String reference = columnName(column++) + rowNumber;
+                    String raw = cell.asText();
+                    if (raw.length() > 1 && raw.charAt(0) == '=') {
+                        rows.append("<c r=\"").append(reference).append("\"><f>")
+                                .append(esc(raw.substring(1))).append("</f></c>");
+                    } else if (cell.isNumber() || isSpreadsheetNumber(raw)) {
+                        rows.append("<c r=\"").append(reference).append("\"><v>")
+                                .append(esc(raw.trim())).append("</v></c>");
+                    } else {
+                        rows.append("<c r=\"").append(reference)
+                                .append("\" t=\"inlineStr\"><is><t xml:space=\"preserve\">")
+                                .append(esc(raw)).append("</t></is></c>");
+                    }
                 }
                 rows.append("</row>"); rowNumber++;
             }
@@ -117,7 +129,7 @@ public final class OfficeOpenXmlTool implements Tool {
         }
         entry(zip, "[Content_Types].xml", xml("<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>" + overrides + "</Types>"));
         entry(zip, "_rels/.rels", rootRels("xl/workbook.xml"));
-        entry(zip, "xl/workbook.xml", xml("<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets>" + sheetRefs + "</sheets></workbook>"));
+        entry(zip, "xl/workbook.xml", xml("<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets>" + sheetRefs + "</sheets><calcPr calcId=\"0\" fullCalcOnLoad=\"1\"/></workbook>"));
         entry(zip, "xl/_rels/workbook.xml.rels", xml("<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" + rels + "</Relationships>"));
     }
 
@@ -160,6 +172,19 @@ public final class OfficeOpenXmlTool implements Tool {
         return "<w:p><w:r>" + (title ? "<w:rPr><w:b/><w:sz w:val=\"32\"/></w:rPr>" : "")
                 + "<w:t xml:space=\"preserve\">" + esc(value) + "</w:t></w:r></w:p>";
     }
+    /**
+     * A cell is stored as a number only when Excel would round-trip it unchanged.
+     * Leading zeros ("007"), thousands separators, currency symbols and values
+     * beyond double precision stay text, because silently rewriting an employee
+     * id or an IBAN is worse than losing arithmetic on it.
+     */
+    private static boolean isSpreadsheetNumber(String raw) {
+        String value = raw.trim();
+        if (value.isEmpty() || value.length() > 17) return false;
+        if (!value.matches("-?(0|[1-9][0-9]*)(\\.[0-9]+)?")) return false;
+        return value.replaceAll("[-.]", "").length() <= 15;
+    }
+
     private static String rootRels(String target) { return xml("<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"" + target + "\"/></Relationships>"); }
     private static String types(String part, String type) { return xml("<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"" + part + "\" ContentType=\"" + type + "\"/></Types>"); }
     private static String xml(String body) { return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" + body; }
