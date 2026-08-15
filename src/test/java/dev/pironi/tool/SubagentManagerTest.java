@@ -209,15 +209,20 @@ class SubagentManagerTest {
     void cancelChildOnNewHandleIsAbsorbedWithoutStickyInterrupt() throws Exception {
         // Simulate the NEW-state cancellation that used to kill the child via a sticky flag.
         java.util.concurrent.atomic.AtomicBoolean sawInterrupted = new java.util.concurrent.atomic.AtomicBoolean(false);
+        java.util.concurrent.CountDownLatch flagRead = new java.util.concurrent.CountDownLatch(1);
         var manager = new SubagentManager(2, (ignoredName, subtask) -> {
             // If the pre-start interrupt leaked, the child would see isInterrupted()==true here.
             if (Thread.currentThread().isInterrupted()) sawInterrupted.set(true);
+            flagRead.countDown();
             return SubagentResult.completed("x", "weather", "ok");
         });
-        // Spawn and cancel immediately via the shutdown/discard path that targets children.
+        // Read the flag at the child's first instruction, before any cancel can reach it.
+        // Sleeping instead raced: when the child won, discardPendingResults() interrupted it
+        // legitimately as a RUNNING handle and the assertion blamed a sticky pre-start flag
+        // for what is correct cancellation behaviour.
         manager.spawn("weather", "Sofia");
+        assertTrue(flagRead.await(5, java.util.concurrent.TimeUnit.SECONDS), "child body must run");
         manager.discardPendingResults();
-        Thread.sleep(100);
         assertFalse(sawInterrupted.get(), "child must not start with a sticky pre-start interrupt");
         assertEquals(0, manager.activeCount(), "cancelled child no longer counts as active");
         manager.close();
