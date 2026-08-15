@@ -189,17 +189,20 @@ public final class SubagentManager implements AutoCloseable, SubagentGateway {
     }
 
     private void finish(ChildHandle h, SubagentResult result) {
+        // Fill in the real elapsed from spawn (banner accuracy) before it leaves the manager.
+        java.time.Duration elapsed = java.time.Duration.ofNanos(System.nanoTime() - h.startedNanos);
+        SubagentResult measured = new SubagentResult(
+                result.id(), result.name(), result.status(), result.output(), result.activity(), elapsed);
+        // Publish the result BEFORE the child stops counting as active. awaitCompleted decides
+        // whether to wait from activeIds() and the active count, so a child that is already
+        // finished but whose result is not yet queued makes it return empty and lose the result
+        // outright. Enqueueing first closes that window; a waiter simply drains it.
+        completed.add(new Completion(h.id, h.name, measured));
         synchronized (h) {
             h.state = result.isCancelled() ? State.CANCELLED
                     : (result.status().equals("error") ? State.FAILED : State.DONE);
         }
         active.decrementAndGet();
-        // Fill in the real elapsed from spawn (banner accuracy) before it leaves the manager.
-        java.time.Duration elapsed = java.time.Duration.ofNanos(System.nanoTime() - h.startedNanos);
-        SubagentResult measured = new SubagentResult(
-                result.id(), result.name(), result.status(), result.output(), result.activity(), elapsed);
-        // Enqueue BEFORE onDone: by the time the user sees the banner, the result is drainable.
-        completed.add(new Completion(h.id, h.name, measured));
         events.onDone(measured);
     }
 
@@ -226,8 +229,11 @@ public final class SubagentManager implements AutoCloseable, SubagentGateway {
         if (!waitingOn.isEmpty() && active.get() > 0) {
             // Bounded wait expired with original children still running: cancel the snapshot set.
             cancelAll("timeout", waitingOn);
-            out.addAll(drainCompleted());
         }
+        // Always drain last. A child that finished between the first drain and the loop condition
+        // leaves the queue non-empty while active has already dropped to zero, so the loop is
+        // skipped and its result would otherwise be returned to nobody.
+        out.addAll(drainCompleted());
         return out;
     }
 

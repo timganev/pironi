@@ -120,6 +120,29 @@ class SubagentManagerTest {
     }
 
     @Test
+    void aFinishedChildResultIsNeverLostToTheAwaitRace() throws Exception {
+        // Regression: finish() used to mark the child inactive before queueing its result.
+        // awaitCompleted decides whether to wait from the active set, so landing in that
+        // window returned empty and the completed child's output vanished. Rare on a fast
+        // machine, reproducible on a loaded CI runner, so repeat with an immediate child.
+        for (int attempt = 0; attempt < 300; attempt++) {
+            var manager = new SubagentManager(2,
+                    (name, subtask) -> SubagentResult.completed("x", name, "done"));
+            SubagentResult handle = manager.spawn("weather", "Sofia");
+            List<SubagentResult> ready = manager.awaitCompleted(java.time.Duration.ofSeconds(5));
+            int index = attempt;
+            // Supplier form: the message calls drainCompleted(), which empties the queue, so it
+            // must only run when the assertion actually fails.
+            assertEquals(1, ready.size(), () ->
+                    "attempt " + index + ": a completed child must always be reported"
+                            + " | spawn=" + handle.status()
+                            + " | active=" + manager.activeCount()
+                            + " | drainNow=" + manager.drainCompleted().size());
+            manager.close();
+        }
+    }
+
+    @Test
     void discardPendingDropsStaleResults() throws Exception {
         var manager = new SubagentManager(2, (ignoredName, subtask) -> SubagentResult.completed("x", "n", "d"));
         manager.spawn("one", "one");
