@@ -177,7 +177,14 @@ public final class TerminalStatusReporter implements StatusReporter {
                 terminalStatus.suspend();
                 terminal.flush();
             }
+            return;
         }
+        // The raw path leaves the status on the current row with no trailing newline, because
+        // that is what lets it be redrawn in place. Without erasing it first, the answer starts
+        // immediately after it - "… | sub 0/2Здравей" - and the half status stays in the
+        // scrollback for good. A dumb terminal draws no status at all, so there is nothing to
+        // erase and no escape sequence it could honour.
+        eraseRawStatusRow();
     }
 
     @Override
@@ -188,6 +195,16 @@ public final class TerminalStatusReporter implements StatusReporter {
                 terminalStatus.restore();
                 terminal.flush();
             }
+        }
+        // Nothing to restore on the raw path: the next refresh redraws the row.
+    }
+
+    private void eraseRawStatusRow() {
+        if (terminal != null && "dumb".equals(terminal.getType())) return;
+        synchronized (outputLock) {
+            if (closed) return;
+            output.print("\r\u001B[2K");
+            output.flush();
         }
     }
 
@@ -371,16 +388,49 @@ public final class TerminalStatusReporter implements StatusReporter {
     }
 
     static boolean supportsJLineStatus(Terminal terminal) {
-        if (terminal == null || "dumb".equals(terminal.getType())) return false;
-        var size = terminal.getSize();
-        if (size.getRows() <= 0 || size.getRows() >= 1_000
-                || size.getColumns() <= 0 || size.getColumns() >= 1_000) {
-            return false;
+        return describeStatusSupport(terminal).supported();
+    }
+
+    /** Why the pinned status row is or is not available, for {@code /doctor}. */
+    public record StatusSupport(boolean supported, String reason) {}
+
+    /**
+     * A console that reports no size is not necessarily incapable - Windows consoles have been
+     * seen returning 0x0 - so an implausible size is treated as unknown rather than as a refusal.
+     * Only a dumb terminal or missing cursor control genuinely rules out a pinned row, and when
+     * one is ruled out the status falls back to a line in the output stream, which is what makes
+     * it scroll away instead of staying at the bottom.
+     */
+    public static StatusSupport describeStatusSupport(Terminal terminal) {
+        if (terminal == null) return new StatusSupport(false, "no terminal (not interactive)");
+        if ("dumb".equals(terminal.getType())) {
+            return new StatusSupport(false, "dumb terminal: cannot address the cursor");
         }
-        return terminal.getStringCapability(InfoCmp.Capability.change_scroll_region) != null
-                && terminal.getStringCapability(InfoCmp.Capability.save_cursor) != null
-                && terminal.getStringCapability(InfoCmp.Capability.restore_cursor) != null
-                && terminal.getStringCapability(InfoCmp.Capability.cursor_address) != null;
+        String missing = missingCapabilities(terminal);
+        if (!missing.isEmpty()) {
+            return new StatusSupport(false, "terminal lacks " + missing);
+        }
+        var size = terminal.getSize();
+        boolean plausible = size.getRows() > 0 && size.getRows() < 1_000
+                && size.getColumns() > 0 && size.getColumns() < 1_000;
+        return new StatusSupport(true, plausible
+                ? "pinned row (" + size.getColumns() + "x" + size.getRows() + ")"
+                : "pinned row (terminal reported no usable size; assuming it is capable)");
+    }
+
+    private static String missingCapabilities(Terminal terminal) {
+        StringBuilder missing = new StringBuilder();
+        for (InfoCmp.Capability capability : new InfoCmp.Capability[]{
+                InfoCmp.Capability.change_scroll_region,
+                InfoCmp.Capability.save_cursor,
+                InfoCmp.Capability.restore_cursor,
+                InfoCmp.Capability.cursor_address}) {
+            if (terminal.getStringCapability(capability) == null) {
+                if (missing.length() > 0) missing.append(", ");
+                missing.append(capability.name());
+            }
+        }
+        return missing.toString();
     }
 
     private static AttributedString styledStatus(String line) {

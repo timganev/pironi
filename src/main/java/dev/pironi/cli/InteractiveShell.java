@@ -448,11 +448,24 @@ public final class InteractiveShell {
     }
 
     private void println(String text) {
-        if (lineReader != null) {
-            lineReader.printAbove(new AttributedString(text,
-                    theme.style(ThemeSettings.Element.SYSTEM)));
-        } else {
+        printAboveByLine(text, ThemeSettings.Element.SYSTEM);
+    }
+
+    /**
+     * Prints one line at a time.
+     *
+     * <p>Handing a whole multi-line block to printAbove leaves the embedded newlines untouched,
+     * and with the terminal in raw mode - which it is whenever the pinned status row is active -
+     * a bare LF moves down without returning to column one. The result is text that steps further
+     * right with every line, as /doctor and any multi-line answer showed on Windows.
+     */
+    private void printAboveByLine(String text, ThemeSettings.Element element) {
+        if (lineReader == null) {
             output.println(text);
+            return;
+        }
+        for (String line : text.split("\n", -1)) {
+            lineReader.printAbove(new AttributedString(line, theme.style(element)));
         }
     }
 
@@ -472,14 +485,7 @@ public final class InteractiveShell {
     }
 
     private void printAgentAnswer(String text) {
-        if (lineReader != null) {
-            lineReader.printAbove(new AttributedString(
-                    text,
-                    theme.style(ThemeSettings.Element.AGENT)
-            ));
-        } else {
-            output.println(text);
-        }
+        printAboveByLine(text, ThemeSettings.Element.AGENT);
     }
 
     private String readLine() throws IOException {

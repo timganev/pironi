@@ -20,6 +20,12 @@ final class RuntimeDoctor {
     private final CapabilityReport capabilities;
     private final HttpClient client;
     private final URI networkProbe;
+    private org.jline.terminal.Terminal terminal;
+
+    /** Set so /doctor can explain why the status row is or is not pinned. */
+    void useTerminal(org.jline.terminal.Terminal activeTerminal) {
+        this.terminal = activeTerminal;
+    }
 
     RuntimeDoctor(Path workspace, Path pironiHome, CapabilityReport capabilities) {
         this(workspace, pironiHome, capabilities, HttpClient.newBuilder()
@@ -43,6 +49,9 @@ final class RuntimeDoctor {
                 Workspace: %s [%s]
                 Pironi home: %s [%s]
                 Shell: %s
+                Version: %s
+                Terminal: %s
+                Status row: %s
                 Network probe: %s
 
                 %s
@@ -50,8 +59,17 @@ final class RuntimeDoctor {
                 System.getProperty("java.version"), System.getProperty("java.vendor"),
                 System.getProperty("os.name"), System.getProperty("os.arch"),
                 workspace, access(workspace), pironiHome, access(pironiHome),
-                PlatformShell.name(), networkStatus(), capabilities.render()
+                PlatformShell.name(), BuildVersion.current(), terminalDescription(),
+                dev.pironi.status.TerminalStatusReporter.describeStatusSupport(terminal).reason(),
+                networkStatus(), capabilities.render()
         ).strip();
+    }
+
+    private String terminalDescription() {
+        if (terminal == null) return "none (non-interactive)";
+        var size = terminal.getSize();
+        return terminal.getType() + " " + size.getColumns() + "x" + size.getRows()
+                + " (" + terminal.getClass().getSimpleName() + ")";
     }
 
     private String networkStatus() {

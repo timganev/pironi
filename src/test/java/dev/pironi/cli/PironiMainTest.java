@@ -12,17 +12,18 @@ import java.util.Map;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PironiMainTest {
     @Test
-    void sessionBannerCarriesIdAndResumeCommand() {
+    void sessionBannerCarriesVersionIdAndResumeCommand() {
         String banner = PironiMain.sessionBanner("20260810-120000-project-abc12345");
-        assertEquals(
-                "Session: 20260810-120000-project-abc12345"
-                        + "  |  continue with: /resume 20260810-120000-project-abc12345",
-                banner
-        );
+        // The build is named first: a screenshot of a reported problem should say which
+        // release produced it, which was previously impossible to tell.
+        assertTrue(banner.startsWith("Pironi "), banner);
+        assertTrue(banner.contains("Session: 20260810-120000-project-abc12345"), banner);
+        assertTrue(banner.contains("/resume 20260810-120000-project-abc12345"), banner);
     }
 
     @Test

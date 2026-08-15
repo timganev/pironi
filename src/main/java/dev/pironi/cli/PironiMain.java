@@ -81,6 +81,11 @@ public final class PironiMain {
     public static void main(String[] args) {
         int exitCode;
         try {
+            if (List.of(args).contains("--version") || List.of(args).contains("-V")
+                    || List.of(args).contains("-v")) {
+                System.out.println("pironi " + BuildVersion.current());
+                System.exit(0);
+            }
             if (List.of(args).contains("--help") || List.of(args).contains("-h")) {
                 printUsage();
                 System.exit(0);
@@ -341,6 +346,7 @@ public final class PironiMain {
             RuntimeDoctor runtimeDoctor = new RuntimeDoctor(
                     options.workspace(), options.pironiHome(), capabilityReport
             );
+            runtimeDoctor.useTerminal(terminal);
             // Print the session id + resume command so a crashed/closed CLI can be picked
             // up again. Session is created lazily here (idempotent) before the loop runs.
             String sessionId = memory.currentSessionId();
@@ -835,7 +841,8 @@ public final class PironiMain {
      * resumed with {@code /resume <id>}.
      */
     static String sessionBanner(String sessionId) {
-        return "Session: " + sessionId + "  |  continue with: /resume " + sessionId;
+        return "Pironi " + BuildVersion.current() + "  |  Session: " + sessionId
+                + "  |  continue with: /resume " + sessionId;
     }
 
     /**
@@ -857,6 +864,9 @@ public final class PironiMain {
     private static void printUsage() {
         System.out.println("""
                 Pironi - small Java 25 coding agent harness
+
+                Info:
+                  --version, -v                                 print the release and exit
 
                 Required:
                   --model MODEL                                 default: last used; initially qwen3.6:35b-a3b

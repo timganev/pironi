@@ -25,6 +25,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Copy-Item -LiteralPath $Jar -Destination (Join-Path $bundleDir "pironi.jar")
+# Records which build this is. Without it a user cannot tell a reported bug from a stale
+# copy, and neither can we.
+[IO.File]::WriteAllText((Join-Path $bundleDir "version.txt"), $Version, (New-Object Text.UTF8Encoding($false)))
 Copy-Item -LiteralPath "dist/windows/pironi.bat" -Destination (Join-Path $bundleDir "pironi.bat")
 Copy-Item -LiteralPath "dist/windows/README-WINDOWS.txt" -Destination (Join-Path $bundleDir "README-WINDOWS.txt")
 Copy-Item -LiteralPath "README.md" -Destination (Join-Path $bundleDir "README.md")

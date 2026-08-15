@@ -24,6 +24,8 @@ jlink --add-modules java.se,jdk.crypto.ec,jdk.management \
   --strip-debug --no-header-files --no-man-pages \
   --output "$bundle_dir/runtime"
 cp "$jar_path" "$bundle_dir/pironi.jar"
+# Records which build this is, so a reported problem can be tied to a version.
+printf '%s' "$version" > "$bundle_dir/version.txt"
 cp dist/unix/pironi "$bundle_dir/pironi"
 cp README.md "$bundle_dir/README.md"
 mkdir -p "$bundle_dir/.pironi/skills/team-lead"
