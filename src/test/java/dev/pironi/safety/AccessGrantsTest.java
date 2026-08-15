@@ -30,13 +30,14 @@ class AccessGrantsTest {
         ReadFileTool tool = new ReadFileTool(
                 new Workspace(workspaceRoot), 32_000, List.of(workspaceRoot), Set.of());
         tool.useGrants(grants);
-        String request = "{\"path\":\"" + outside.resolve("plan.md").toAbsolutePath() + "\"}";
+        com.fasterxml.jackson.databind.node.ObjectNode request = mapper.createObjectNode();
+        request.put("path", outside.resolve("plan.md").toAbsolutePath().toString());
 
-        ToolResult before = tool.execute(mapper.readTree(request));
+        ToolResult before = tool.execute(request);
         assertFalse(before.success(), "must refuse before the grant");
 
         grants.grantRoot(outside);
-        ToolResult after = tool.execute(mapper.readTree(request));
+        ToolResult after = tool.execute(request);
         assertTrue(after.success(), after.output());
         assertTrue(after.output().contains("128000"), after.output());
     }
@@ -46,12 +47,13 @@ class AccessGrantsTest {
         AccessGrants grants = new AccessGrants();
         InspectFileTool tool = new InspectFileTool(new Workspace(workspaceRoot), List.of(workspaceRoot));
         tool.useGrants(grants);
-        String request = "{\"path\":\"" + outside.resolve("plan.md").toAbsolutePath() + "\"}";
+        com.fasterxml.jackson.databind.node.ObjectNode request = mapper.createObjectNode();
+        request.put("path", outside.resolve("plan.md").toAbsolutePath().toString());
 
         Path granted = grants.grantRoot(outside);
-        assertTrue(tool.execute(mapper.readTree(request)).success());
+        assertTrue(tool.execute(request).success());
         assertTrue(grants.revokeRoot(granted), "revoke must report success");
-        assertFalse(tool.execute(mapper.readTree(request)).success(), "must refuse after revoke");
+        assertFalse(tool.execute(request).success(), "must refuse after revoke");
     }
 
     @Test void grantingANonDirectoryIsRejected() throws Exception {
