@@ -121,6 +121,10 @@ public final class PersistentAgentMemory implements AgentMemory {
                 + "Active skill '" + activeSkill + "':\n" + activeSkillContent;
     }
 
+    private volatile List<String> lastSkillDecision = List.of();
+
+    @Override public synchronized List<String> lastSkillDecision() { return lastSkillDecision; }
+
     @Override public synchronized String activeSkillName() {
         return activeSkill;
     }
@@ -339,7 +343,13 @@ public final class PersistentAgentMemory implements AgentMemory {
         if (!autoSkillSelection) return;
         activeSkill = "";
         activeSkillContent = "";
-        var relevant = skills.findRelevant(task);
+        lastSkillDecision = List.of();
+        var decision = skills.decide(task);
+        List<String> record = new java.util.ArrayList<>();
+        record.add(decision.reason());
+        record.addAll(decision.scores());
+        lastSkillDecision = List.copyOf(record);
+        var relevant = decision.chosen();
         if (relevant.isEmpty()) return;
         String name = relevant.get().name();
         skills.load(name).ifPresent(content -> {

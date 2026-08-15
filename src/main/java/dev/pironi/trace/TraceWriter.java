@@ -15,6 +15,12 @@ public interface TraceWriter extends AutoCloseable {
 
     void completed(int turn, String finalAnswer);
 
+    /**
+     * Which skill was applied for this task and why. Default no-op so existing writers and
+     * test doubles are unaffected.
+     */
+    default void skillDecision(String chosen, String reason, java.util.List<String> scores) {}
+
     @Override
     default void close() {
     }

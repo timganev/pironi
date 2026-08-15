@@ -75,19 +75,42 @@ public final class SkillStore {
         }
     }
 
+    /**
+     * Why a skill was or was not applied.
+     *
+     * <p>Without this the selection is invisible: a user whose saved procedure was ignored has
+     * no way to find out whether it lost on score, was excluded, or was never considered.
+     *
+     * @param chosen the skill that will be applied, if any
+     * @param reason short machine-readable outcome: chosen, no-match, below-threshold, tie, empty-query
+     * @param scores one "name=score/breadth" entry per skill considered, highest first
+     */
+    public record SkillDecision(Optional<SkillEntry> chosen, String reason, List<String> scores) {}
+
     public Optional<SkillEntry> findRelevant(String task) {
-        if (task == null || task.isBlank()) return Optional.empty();
+        return decide(task).chosen();
+    }
+
+    public SkillDecision decide(String task) {
+        if (task == null || task.isBlank()) {
+            return new SkillDecision(Optional.empty(), "empty-query", List.of());
+        }
         Set<String> query = tokens(task);
-        if (query.size() < 2) return Optional.empty();
+        if (query.size() < 2) {
+            return new SkillDecision(Optional.empty(), "empty-query", List.of());
+        }
+        List<String> scores = new ArrayList<>();
         try {
             SkillEntry best = null;
             int bestScore = 0;
+            int bestBreadth = Integer.MAX_VALUE;
             boolean tied = false;
             for (SkillEntry entry : list()) {
                 Set<String> exclusions = tokens(extractField(
                         Path.of(entry.path()), "exclusions:"
                 ));
-                if (!exclusions.isEmpty() && query.stream().anyMatch(exclusions::contains)) {
+                if (!exclusions.isEmpty() && query.stream().anyMatch(
+                        q -> exclusions.stream().anyMatch(e -> relatedForms(q, e)))) {
                     continue;
                 }
                 Set<String> metadata = tokens(
@@ -95,18 +118,41 @@ public final class SkillStore {
                                 + extractField(Path.of(entry.path()), "triggers:")
                 );
                 int score = 0;
-                for (String token : query) if (metadata.contains(token)) score++;
+                for (String token : query) {
+                    if (metadata.stream().anyMatch(m -> relatedForms(token, m))) score++;
+                }
+                scores.add(entry.name() + "=" + score + "/" + metadata.size());
                 if (score > bestScore) {
                     best = entry;
                     bestScore = score;
+                    bestBreadth = metadata.size();
                     tied = false;
                 } else if (score == bestScore && score > 0) {
-                    tied = true;
+                    // Equal hits: prefer a skill only when it is decisively narrower, because
+                    // matching 3 of 5 trigger words says more than matching 3 of 40. A small
+                    // difference is not evidence - two skills with near-identical descriptions
+                    // are genuinely ambiguous and must not be picked arbitrarily.
+                    if (metadata.size() * 2 <= bestBreadth) {
+                        best = entry;
+                        bestBreadth = metadata.size();
+                        tied = false;
+                    } else if (bestBreadth * 2 > metadata.size()) {
+                        tied = true;
+                    }
                 }
             }
-            return bestScore >= 2 && !tied ? Optional.of(best) : Optional.empty();
+            scores.sort(java.util.Comparator.comparingInt(
+                    (String line) -> Integer.parseInt(line.replaceAll(".*=(\\d+)/.*", "$1"))
+            ).reversed());
+            String reason = bestScore == 0 ? "no-match"
+                    : bestScore < 2 ? "below-threshold"
+                    : tied ? "tie"
+                    : "chosen";
+            return new SkillDecision(
+                    "chosen".equals(reason) ? Optional.of(best) : Optional.empty(),
+                    reason, List.copyOf(scores));
         } catch (IOException e) {
-            return Optional.empty();
+            return new SkillDecision(Optional.empty(), "error", List.copyOf(scores));
         }
     }
 
@@ -332,9 +378,48 @@ public final class SkillStore {
     private static Set<String> tokens(String value) {
         Set<String> result = new HashSet<>();
         for (String token : value.toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{N}]+")) {
-            if (token.length() >= 3 && !STOP_WORDS.contains(token)) result.add(token);
+            if (token.length() >= 3 && !STOP_WORDS.contains(token)) result.add(stem(token));
         }
         return result;
+    }
+
+    /**
+     * Strips only unambiguous inflectional endings. Anything subtler is left to
+     * {@link #relatedForms}, because a suffix list alone gets Bulgarian wrong: cutting
+     * "та" off "отчета" yields "отче" while "отчет" stays whole, so the two forms of the
+     * same word stop matching each other.
+     */
+    static String stem(String token) {
+        for (String suffix : SUFFIXES) {
+            if (token.length() - suffix.length() >= 4 && token.endsWith(suffix)) {
+                return token.substring(0, token.length() - suffix.length());
+            }
+        }
+        return token;
+    }
+
+    /** Longest first, so "ният" is tried before "ят" and "ing" before "ed". */
+    private static final List<String> SUFFIXES = List.of(
+            "ният", "ните", "ната", "ното", "ища", "ове", "ият", "ъта", "ния", "ята",
+            "ing", "ers", "ed", "es"
+    );
+
+    /**
+     * True when two tokens are forms of the same word, judged by a shared prefix.
+     *
+     * <p>Exact matching made a skill fire only when the user repeated its trigger almost
+     * verbatim, which is not how anyone asks the second time: "седмичен статус" would not
+     * match "седмичния статус". A prefix rule handles inflection, plurals and the definite
+     * article at once, and it survives the consonant changes ("седмица"/"седмичен") that
+     * defeat a plain suffix stripper. Four shared characters is the floor, and the shared
+     * part must cover the shorter token to within three characters, so "тест" and "текст"
+     * stay apart.
+     */
+    static boolean relatedForms(String left, String right) {
+        int limit = Math.min(left.length(), right.length());
+        int common = 0;
+        while (common < limit && left.charAt(common) == right.charAt(common)) common++;
+        return common >= 4 && common >= limit - 3;
     }
 
     private static final Set<String> STOP_WORDS = Set.of(

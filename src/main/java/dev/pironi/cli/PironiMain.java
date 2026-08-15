@@ -5,10 +5,12 @@ import dev.pironi.agent.AgentLoop;
 import dev.pironi.agent.AgentResult;
 import dev.pironi.agent.AgentContext;
 import dev.pironi.agent.ContextFileLoader;
+import dev.pironi.agent.PersonalContextMode;
 import dev.pironi.agent.DecisionParser;
 import dev.pironi.agent.CapabilityReport;
 import dev.pironi.agent.FinalAnswerStreamer;
 import dev.pironi.model.ProviderConfig;
+import dev.pironi.model.ProviderType;
 import dev.pironi.model.SwitchableModelClient;
 import dev.pironi.safety.AccessGrants;
 import dev.pironi.safety.ConsoleApprovalPolicy;
@@ -57,6 +59,7 @@ import org.jline.terminal.TerminalBuilder;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.URI;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -285,7 +288,26 @@ public final class PironiMain {
                     options.personalContextMode(),
                     options.pironiHome()
             );
-            agentContext.updateRuntimeSession(runtimeSessionDescription(options));
+            dev.pironi.session.RememberedRoots rememberedRoots =
+                    new dev.pironi.session.RememberedRoots(options.pironiHome());
+            for (Path root : rememberedRoots.list()) {
+                try {
+                    tools.grants().grantRoot(root);
+                } catch (java.io.IOException e) {
+                    System.out.println("Remembered directory is no longer readable, skipping: "
+                            + root + " (" + e.getMessage() + ")");
+                }
+            }
+            if (interactive && !rememberedRoots.list().isEmpty()) {
+                System.out.println("Access note: granting " + rememberedRoots.list().size()
+                        + " remembered director(y/ies) from previous sessions; see /access.");
+            }
+            // Built after the remembered roots are applied, so the model is told about
+            // them. Otherwise the directory is readable but the model, reading a stale
+            // search-roots line, refuses without ever calling the tool.
+            agentContext.updateRuntimeSession(
+                    runtimeSessionDescription(options, tools.grants()));
+            warnAboutSkippedPersonalContext(options, agentContext, interactive);
             java.util.Map<String, String> disabledReasons = new java.util.HashMap<>();
             for (Tool tool : availableTools) {
                 if (tools.find(tool.name()).isPresent()) continue;
@@ -502,6 +524,10 @@ public final class PironiMain {
                         sessions, compressor, skills, memory, capabilityReport, runtimeDoctor
                 );
                 defaultShellCommands.useRegistry(tools);
+                defaultShellCommands.useRememberedRoots(rememberedRoots);
+                defaultShellCommands.useUserFacts(
+                        new dev.pironi.session.UserFacts(options.pironiHome()),
+                        !agentContext.userProfile().isBlank() || !agentContext.soul().isBlank());
                 defaultShellCommands.onAccessChanged(() -> agentContext.updateRuntimeSession(
                         runtimeSessionDescription(currentOptions.get(), tools.grants())));
                 InteractiveShell.ShellCommands shellC = defaultShellCommands;
@@ -671,6 +697,29 @@ public final class PironiMain {
         Set<String> denied = new HashSet<>(options.denyTools());
         denied.add("run_command");
         return Set.copyOf(denied);
+    }
+
+    /**
+     * With a cloud provider, AUTO personal context skips SOUL.md and USER.md so that personal
+     * files are not sent to a third party. That is the right default, but silently ignoring a
+     * persona the user wrote looks like a bug: the agent simply does not behave as configured,
+     * with nothing explaining why. Say it once at startup.
+     */
+    static void warnAboutSkippedPersonalContext(
+            CliOptions options, AgentContext context, boolean interactive
+    ) {
+        if (!interactive) return;
+        if (options.personalContextMode() != PersonalContextMode.AUTO) return;
+        if (options.provider() == ProviderType.OLLAMA) return;
+        if (!context.soul().isBlank() || !context.userProfile().isBlank()) return;
+        Path home = options.pironiHome();
+        boolean hasPersonalFiles = Files.exists(home.resolve("SOUL.md"))
+                || Files.exists(home.resolve("USER.md"));
+        if (!hasPersonalFiles) return;
+        System.out.println("Capability note: SOUL.md/USER.md were not loaded because "
+                + "personal-context is auto and the provider is not local. Start with "
+                + "--personal-context allow to apply them, which sends their contents to "
+                + options.provider().name().toLowerCase(java.util.Locale.ROOT) + ".");
     }
 
     static boolean statusEnabled(StatusMode mode, boolean consolePresent, String osName) {

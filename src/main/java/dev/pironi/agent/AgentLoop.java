@@ -170,6 +170,13 @@ public final class AgentLoop {
         int activeTurn = 0;
         try {
         messages.addAll(memory.begin(task));
+        List<String> skillDecision = memory.lastSkillDecision();
+        if (!skillDecision.isEmpty()) {
+            traceWriter.skillDecision(
+                    memory.activeSkillName(),
+                    skillDecision.getFirst(),
+                    skillDecision.subList(1, skillDecision.size()));
+        }
         if (!memory.activeSkillName().isBlank()) {
             statusReporter.skill(memory.activeSkillName());
         }

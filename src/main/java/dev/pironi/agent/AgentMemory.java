@@ -18,6 +18,8 @@ public interface AgentMemory {
     default void checkpoint(List<ChatMessage> messages, String task) {}
     default String promptContext() { return ""; }
     default String activeSkillName() { return ""; }
+    /** Outcome of skill selection for the current task: reason first, then per-skill scores. */
+    default List<String> lastSkillDecision() { return List.of(); }
     default void completed(String task, String answer) {}
     default void finished(boolean success) {}
 

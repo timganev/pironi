@@ -81,6 +81,15 @@ public final class JsonlTraceWriter implements TraceWriter {
     }
 
     @Override
+    public void skillDecision(String chosen, String reason, java.util.List<String> scores) {
+        ObjectNode event = event("skill_decision", 0)
+                .put("chosen", chosen == null ? "" : chosen)
+                .put("reason", reason == null ? "" : reason);
+        event.set("scores", objectMapper.valueToTree(scores == null ? java.util.List.of() : scores));
+        write(event);
+    }
+
+    @Override
     public synchronized void close() {
         try {
             writer.close();

@@ -170,6 +170,8 @@ public final class InteractiveShell {
         String pruneSkills();
         /** Shows or changes session access: "", "allow-dir PATH", "deny-tool NAME", ... */
         default String access(String argument) { return "Access control not available."; }
+        /** Stores or lists one-line preferences: "", a fact, or "forget N". */
+        default String remember(String argument) { return "Memory not available."; }
     }
 
     public int run(String initialTask) throws IOException, InterruptedException {
@@ -375,6 +377,8 @@ public final class InteractiveShell {
             }
             case "/access" -> println(shellCommands == null
                     ? "Access control not available." : shellCommands.access(arg));
+            case "/remember" -> println(shellCommands == null
+                    ? "Memory not available." : shellCommands.remember(arg));
             case "/doctor" -> {
                 if (shellCommands != null) println(shellCommands.doctor());
                 else println("Diagnostics not available.");
@@ -542,6 +546,7 @@ public final class InteractiveShell {
                 new Command("/new", "Start a clean session"),
                 new Command("/capabilities", "Show live runtime capabilities"),
                 new Command("/access", "Show or change directory and tool access"),
+                new Command("/remember", "Remember a preference; 'forget N' removes one"),
                 new Command("/doctor", "Check Java, workspace, shell and network"),
                 new Command("/sessions", "List saved sessions"),
                 new Command("/resume", "Resume a saved session by ID"),
