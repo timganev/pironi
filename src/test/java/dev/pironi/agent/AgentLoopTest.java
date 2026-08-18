@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.io.IOException;
@@ -118,7 +119,7 @@ class AgentLoopTest {
         };
         RecordingModelClient model = new RecordingModelClient(
                 """
-                {"thought":"call","toolCalls":[{"name":"echo","arguments":{"value":"hello"}}],"finalAnswer":null}
+                {"thought":"call","finding":"probe","toolCalls":[{"name":"echo","arguments":{"value":"hello"}}],"finalAnswer":null}
                 """,
                 """
                 {"thought":"done","toolCalls":[],"finalAnswer":"verified"}
@@ -143,7 +144,7 @@ class AgentLoopTest {
             public ToolResult execute(JsonNode arguments) { throw new NoClassDefFoundError("optional/module"); }
         };
         RecordingModelClient model = new RecordingModelClient(
-                "{\"thought\":\"try\",\"toolCalls\":[{\"name\":\"broken\",\"arguments\":{}}],\"finalAnswer\":null}",
+                "{\"thought\":\"try\",\"finding\":\"probe\",\"toolCalls\":[{\"name\":\"broken\",\"arguments\":{}}],\"finalAnswer\":null}",
                 "{\"thought\":\"report\",\"toolCalls\":[],\"finalAnswer\":\"Tool unavailable\"}"
         );
         AgentResult result = loop(model, List.of(broken)).run("test");
@@ -236,7 +237,7 @@ class AgentLoopTest {
         };
         RecordingModelClient model = new RecordingModelClient(
                 """
-                {"thought":"batch","toolCalls":[
+                {"thought":"batch","finding":"probe","toolCalls":[
                   {"name":"valid_write","arguments":{}},
                   {"name":"invalid_write","arguments":{}}
                 ],"finalAnswer":null}
@@ -280,7 +281,7 @@ class AgentLoopTest {
         RecordingVerificationGate verification = new RecordingVerificationGate();
         RecordingModelClient model = new RecordingModelClient(
                 """
-                {"thought":"change","toolCalls":[{"name":"change","arguments":{}}],"finalAnswer":null}
+                {"thought":"change","finding":"probe","toolCalls":[{"name":"change","arguments":{}}],"finalAnswer":null}
                 """,
                 """
                 {"thought":"done","toolCalls":[],"finalAnswer":"first attempt"}
@@ -311,7 +312,7 @@ class AgentLoopTest {
         RecordingVerificationGate verification = new RecordingVerificationGate();
         RecordingModelClient model = new RecordingModelClient(
                 """
-                {"thought":"run","toolCalls":[{"name":"command","arguments":{}}],"finalAnswer":null}
+                {"thought":"run","finding":"probe","toolCalls":[{"name":"command","arguments":{}}],"finalAnswer":null}
                 """,
                 """
                 {"thought":"done","toolCalls":[],"finalAnswer":"passed"}
@@ -378,7 +379,7 @@ class AgentLoopTest {
     @Test
     void abortsAfterBoundedConsecutiveUnknownTools() throws Exception {
         String unknown = """
-                {"thought":"try","toolCalls":[{"name":"missing","arguments":{}}],"finalAnswer":null}
+                {"thought":"try","finding":"probe","toolCalls":[{"name":"missing","arguments":{}}],"finalAnswer":null}
                 """;
         RecordingModelClient model = new RecordingModelClient(unknown, unknown, unknown);
 
@@ -399,7 +400,7 @@ class AgentLoopTest {
             public ToolResult execute(JsonNode arguments) { return ToolResult.success("ok"); }
         };
         RecordingModelClient model = new RecordingModelClient(
-                "{\"thought\":\"call\",\"toolCalls\":[{\"name\":\"echo\",\"arguments\":{}}],\"finalAnswer\":null}",
+                "{\"thought\":\"call\",\"finding\":\"probe\",\"toolCalls\":[{\"name\":\"echo\",\"arguments\":{}}],\"finalAnswer\":null}",
                 "{\"thought\":\"done\",\"toolCalls\":[],\"finalAnswer\":\"answer\"}"
         );
         RecordingMemory memory = new RecordingMemory();
@@ -410,7 +411,8 @@ class AgentLoopTest {
         assertEquals(3, memory.messages.size());
         assertEquals(1, memory.tools);
         assertEquals(2, memory.responses);
-        assertEquals(1, memory.checkpoints);
+        // one per turn plus the one on the way out, so a crash never loses the whole run
+        assertEquals(3, memory.checkpoints);
         assertEquals("answer", memory.answer);
     }
 
@@ -476,7 +478,7 @@ class AgentLoopTest {
     @Test
     void warnsModelToExecuteAsTurnBudgetRunsLow() throws Exception {
         RecordingModelClient model = new RecordingModelClient(
-                "{\"thought\":\"inspect\",\"toolCalls\":[{\"name\":\"echo\",\"arguments\":{}}],\"finalAnswer\":null}",
+                "{\"thought\":\"inspect\",\"finding\":\"probe\",\"toolCalls\":[{\"name\":\"echo\",\"arguments\":{}}],\"finalAnswer\":null}",
                 "{\"thought\":\"done\",\"toolCalls\":[],\"finalAnswer\":\"ok\"}"
         );
         Tool echo = new Tool() {
@@ -502,7 +504,7 @@ class AgentLoopTest {
             public boolean mutating() { return true; }
             public ToolResult execute(JsonNode arguments) { return ToolResult.success("Created outputs/report.csv"); }
         };
-        String call = "{\"thought\":\"work\",\"toolCalls\":[{\"name\":\"writer\",\"arguments\":{}}],\"finalAnswer\":null}";
+        String call = "{\"thought\":\"work\",\"finding\":\"probe\",\"toolCalls\":[{\"name\":\"writer\",\"arguments\":{}}],\"finalAnswer\":null}";
         RecordingModelClient model = new RecordingModelClient(call, call, call, call);
 
         AgentResult result = loop(model, List.of(writer)).run("create report");
@@ -521,7 +523,7 @@ class AgentLoopTest {
             public boolean mutating() { return true; }
             public ToolResult execute(JsonNode arguments) { return ToolResult.success("Created outputs/report.md"); }
         };
-        String call = "{\"thought\":\"work\",\"toolCalls\":[{\"name\":\"writer\",\"arguments\":{}}],\"finalAnswer\":null}";
+        String call = "{\"thought\":\"work\",\"finding\":\"probe\",\"toolCalls\":[{\"name\":\"writer\",\"arguments\":{}}],\"finalAnswer\":null}";
         RecordingModelClient model = new RecordingModelClient(call, call, call, call,
                 "{\"thought\":\"finalize\",\"toolCalls\":[],\"finalAnswer\":\"Created outputs/report.md\"}");
 
@@ -544,7 +546,7 @@ class AgentLoopTest {
                 return ToolResult.failure("Operation is outside the allowed workspace");
             }
         };
-        String call = "{\"thought\":\"try\",\"toolCalls\":[{\"name\":\"blocked\",\"arguments\":{}}],\"finalAnswer\":null}";
+        String call = "{\"thought\":\"try\",\"finding\":\"probe\",\"toolCalls\":[{\"name\":\"blocked\",\"arguments\":{}}],\"finalAnswer\":null}";
         RecordingModelClient model = new RecordingModelClient(call, call, call, call,
                 "{\"thought\":\"explain\",\"toolCalls\":[],\"finalAnswer\":\"Cannot modify the path outside the workspace.\"}");
 
@@ -554,6 +556,363 @@ class AgentLoopTest {
         assertEquals(5, result.turns());
         assertTrue(model.requests.get(4).getLast().content().contains("failed"));
         assertTrue(model.requests.get(4).getLast().content().contains("Do not call tools"));
+    }
+
+    @Test
+    void collapsesShellVariationsOntoTheProgramTheyRun() throws Exception {
+        assertEquals("run_command:osascript", AgentLoop.approachSignature(new ToolCall(
+                "run_command",
+                objectMapper.readTree("{\"command\":\"osascript -e 'tell app' | head -5\"}")
+        )));
+        assertEquals("run_command:osascript", AgentLoop.approachSignature(new ToolCall(
+                "run_command",
+                objectMapper.readTree("{\"command\":\"# probe\\nosascript -e 'other wording'\"}")
+        )));
+        assertEquals("run_command:sqlite3", AgentLoop.approachSignature(new ToolCall(
+                "run_command",
+                objectMapper.readTree("{\"command\":\"/usr/bin/sqlite3 store.db .tables\"}")
+        )));
+        assertEquals("read_file", AgentLoop.approachSignature(new ToolCall(
+                "read_file", objectMapper.readTree("{\"path\":\"a.txt\"}")
+        )));
+    }
+
+    @Test
+    void reportsAnApproachThatStoppedProducingAnythingNew() throws Exception {
+        Tool shell = new Tool() {
+            public String name() { return "run_command"; }
+            public String description() { return "shell"; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return false; }
+            public ToolResult execute(JsonNode arguments) {
+                return ToolResult.failure("execution error: Can't get every account");
+            }
+        };
+        RecordingModelClient model = new RecordingModelClient(
+                "{\"thought\":\"probe\",\"finding\":\"probe\",\"toolCalls\":[" + osascriptCalls(0, 4) + "],\"finalAnswer\":null}",
+                "{\"thought\":\"again\",\"finding\":\"probe\",\"toolCalls\":[" + osascriptCalls(4, 2) + "],\"finalAnswer\":null}",
+                "{\"thought\":\"stop\",\"toolCalls\":[],\"finalAnswer\":\"No mail is reachable that way.\"}"
+        );
+
+        AgentResult result = loop(model, List.of(shell)).run("summarise my mail");
+
+        assertTrue(result.success(), result.output());
+        String followUp = model.requests.get(2).getLast().content();
+        assertTrue(followUp.contains("Approaches already exhausted (do not retry):"), followUp);
+        assertTrue(followUp.contains("run_command:osascript"), followUp);
+        assertTrue(followUp.contains("6 attempts, nothing new"), followUp);
+    }
+
+    private static String osascriptCalls(int from, int count) {
+        StringBuilder calls = new StringBuilder();
+        for (int index = from; index < from + count; index++) {
+            if (index > from) calls.append(',');
+            calls.append("{\"name\":\"run_command\",\"arguments\":{\"command\":\"osascript -e 'v")
+                    .append(index).append("'\"}}");
+        }
+        return calls.toString();
+    }
+
+    @Test
+    void keepsQuietWhileAnApproachStillYieldsNewResults() throws Exception {
+        AtomicInteger counter = new AtomicInteger();
+        Tool shell = new Tool() {
+            public String name() { return "run_command"; }
+            public String description() { return "shell"; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return false; }
+            public ToolResult execute(JsonNode arguments) {
+                return ToolResult.success(
+                        "id|subject|received row " + counter.incrementAndGet()
+                                + " of the mailbox export table");
+            }
+        };
+        RecordingModelClient model = new RecordingModelClient(
+                "{\"thought\":\"query\",\"finding\":\"probe\",\"toolCalls\":[" + sqliteCalls(0, 4) + "],\"finalAnswer\":null}",
+                "{\"thought\":\"more\",\"finding\":\"probe\",\"toolCalls\":[" + sqliteCalls(4, 3) + "],\"finalAnswer\":null}",
+                "{\"thought\":\"done\",\"toolCalls\":[],\"finalAnswer\":\"Seven rows read.\"}"
+        );
+
+        AgentResult result = loop(model, List.of(shell)).run("read the store");
+
+        assertTrue(result.success(), result.output());
+        assertTrue(!model.requests.get(2).getLast().content().contains("already exhausted"));
+    }
+
+    private static String sqliteCalls(int from, int count) {
+        StringBuilder calls = new StringBuilder();
+        for (int index = from; index < from + count; index++) {
+            if (index > from) calls.append(',');
+            calls.append("{\"name\":\"run_command\",\"arguments\":{\"command\":\"sqlite3 q")
+                    .append(index).append("\"}}");
+        }
+        return calls.toString();
+    }
+
+    @Test
+    void runsOnlyTheFirstFourToolCallsAndSaysSoAboutTheRest() throws Exception {
+        AtomicInteger executions = new AtomicInteger();
+        Tool probe = new Tool() {
+            public String name() { return "read_file"; }
+            public String description() { return "read"; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return false; }
+            public ToolResult execute(JsonNode arguments) {
+                return ToolResult.success("line " + executions.incrementAndGet());
+            }
+        };
+        StringBuilder calls = new StringBuilder();
+        for (int index = 0; index < 9; index++) {
+            if (index > 0) calls.append(',');
+            calls.append("{\"name\":\"read_file\",\"arguments\":{\"path\":\"f")
+                    .append(index).append("\"}}");
+        }
+        RecordingModelClient model = new RecordingModelClient(
+                "{\"thought\":\"batch\",\"finding\":\"probe\",\"toolCalls\":[" + calls + "],\"finalAnswer\":null}",
+                "{\"thought\":\"done\",\"toolCalls\":[],\"finalAnswer\":\"Read them.\"}"
+        );
+
+        AgentResult result = loop(model, List.of(probe)).run("read nine files");
+
+        assertTrue(result.success(), result.output());
+        assertEquals(4, executions.get());
+        String followUp = model.requests.get(1).getLast().content();
+        assertTrue(followUp.contains("5 further tool calls in that batch were not run"), followUp);
+    }
+
+    @Test
+    void replaysFindingsSoReadOnlyWorkIsNotRepeated() throws Exception {
+        Tool probe = new Tool() {
+            public String name() { return "read_file"; }
+            public String description() { return "read"; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return false; }
+            public ToolResult execute(JsonNode arguments) {
+                return ToolResult.success("binary junk");
+            }
+        };
+        RecordingModelClient model = new RecordingModelClient(
+                "{\"thought\":\"look\",\"finding\":\"Outlook.sqlite Mail table is empty\","
+                        + "\"toolCalls\":[{\"name\":\"read_file\",\"arguments\":{\"path\":\"a\"}}],"
+                        + "\"finalAnswer\":null}",
+                "{\"thought\":\"look again\",\"finding\":\"olk15Main files are OLE binaries\","
+                        + "\"toolCalls\":[{\"name\":\"read_file\",\"arguments\":{\"path\":\"b\"}}],"
+                        + "\"finalAnswer\":null}",
+                "{\"thought\":\"stop\",\"toolCalls\":[],\"finalAnswer\":\"Nothing readable.\"}"
+        );
+
+        AgentResult result = loop(model, List.of(probe)).run("find the mail store");
+
+        assertTrue(result.success(), result.output());
+        String last = model.requests.get(2).getLast().content();
+        assertTrue(last.contains("Established so far (do not re-derive):"), last);
+        assertTrue(last.contains("- Outlook.sqlite Mail table is empty"), last);
+        assertTrue(last.contains("- olk15Main files are OLE binaries"), last);
+    }
+
+    @Test
+    void recordsNothingWhenTheModelOmitsTheFinding() throws Exception {
+        Tool probe = new Tool() {
+            public String name() { return "read_file"; }
+            public String description() { return "read"; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return false; }
+            public ToolResult execute(JsonNode arguments) { return ToolResult.success("bytes"); }
+        };
+        RecordingModelClient model = new RecordingModelClient(
+                "{\"thought\":\"Step 1: let me look around and see what is here.\","
+                        + "\"toolCalls\":[{\"name\":\"read_file\",\"arguments\":{\"path\":\"a\"}}],"
+                        + "\"finalAnswer\":null}",
+                "{\"thought\":\"done\",\"toolCalls\":[],\"finalAnswer\":\"Nothing readable.\"}"
+        );
+
+        AgentResult result = loop(model, List.of(probe)).run("find the mail store");
+
+        assertTrue(result.success(), result.output());
+        String followUp = model.requests.get(1).getLast().content();
+        assertTrue(followUp.contains("finding was missing"), followUp);
+        assertTrue(!followUp.contains("Established so far"), followUp);
+        assertTrue(!followUp.contains("Step 1"), followUp);
+    }
+
+    @Test
+    void aSpentApproachStaysListedAfterALaterIncidentalReply() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        Tool shell = new Tool() {
+            public String name() { return "run_command"; }
+            public String description() { return "shell"; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return false; }
+            public ToolResult execute(JsonNode arguments) {
+                // six dead attempts, then one long reply that used to revive the approach
+                return calls.incrementAndGet() <= 6
+                        ? ToolResult.failure("execution error: Can't get every account")
+                        : ToolResult.success("version 16.111.3 build 2026 with a long descriptive tail");
+            }
+        };
+        RecordingModelClient model = new RecordingModelClient(
+                "{\"thought\":\"probe\",\"toolCalls\":[" + osascriptCalls(0, 4) + "],\"finalAnswer\":null}",
+                "{\"thought\":\"again\",\"toolCalls\":[" + osascriptCalls(4, 2) + "],\"finalAnswer\":null}",
+                "{\"thought\":\"once more\",\"toolCalls\":[" + osascriptCalls(6, 1) + "],\"finalAnswer\":null}",
+                "{\"thought\":\"stop\",\"toolCalls\":[],\"finalAnswer\":\"Not reachable that way.\"}"
+        );
+
+        AgentResult result = loop(model, List.of(shell)).run("summarise my mail");
+
+        assertTrue(result.success(), result.output());
+        String afterRevival = model.requests.get(3).getLast().content();
+        assertTrue(afterRevival.contains("Approaches already exhausted (do not retry):"), afterRevival);
+        assertTrue(afterRevival.contains("run_command:osascript"), afterRevival);
+    }
+
+    @Test
+    void stopsRunningAnApproachThatKeepsReturningTheSameAnswer() throws Exception {
+        AtomicInteger executed = new AtomicInteger();
+        Tool shell = new Tool() {
+            public String name() { return "run_command"; }
+            public String description() { return "shell"; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return false; }
+            public ToolResult execute(JsonNode arguments) {
+                executed.incrementAndGet();
+                // different arguments every time, identical answer every time
+                return ToolResult.success("0");
+            }
+        };
+        RecordingModelClient model = new RecordingModelClient(
+                "{\"thought\":\"probe\",\"toolCalls\":[" + osascriptCalls(0, 4) + "],\"finalAnswer\":null}",
+                "{\"thought\":\"again\",\"toolCalls\":[" + osascriptCalls(4, 4) + "],\"finalAnswer\":null}",
+                "{\"thought\":\"once more\",\"toolCalls\":[" + osascriptCalls(8, 4) + "],\"finalAnswer\":null}",
+                "{\"thought\":\"stop\",\"toolCalls\":[],\"finalAnswer\":\"Not reachable that way.\"}"
+        );
+
+        AgentResult result = loop(model, List.of(shell)).run("summarise my mail");
+
+        assertTrue(result.success(), result.output());
+        // the block stops the tool actually running, not just advises against it
+        assertTrue(executed.get() < 12, "executed " + executed.get() + " times");
+        String afterBlock = model.requests.get(3).getLast().content();
+        assertTrue(afterBlock.contains("is blocked after"), afterBlock);
+        assertTrue(afterBlock.contains("use a different kind of approach"), afterBlock);
+    }
+
+    @Test
+    void flagsAnEmptyResultAsUnprovenAbsence() throws Exception {
+        Tool probe = new Tool() {
+            public String name() { return "run_command"; }
+            public String description() { return "shell"; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return false; }
+            public ToolResult execute(JsonNode arguments) { return ToolResult.success("exitCode=0\n0\n"); }
+        };
+        RecordingModelClient model = new RecordingModelClient(
+                "{\"thought\":\"count\",\"finding\":\"probe\","
+                        + "\"toolCalls\":[{\"name\":\"run_command\",\"arguments\":{\"command\":\"osascript -e x\"}}],"
+                        + "\"finalAnswer\":null}",
+                "{\"thought\":\"done\",\"toolCalls\":[],\"finalAnswer\":\"Reported.\"}"
+        );
+
+        AgentResult result = loop(model, List.of(probe)).run("count my mail");
+
+        assertTrue(result.success(), result.output());
+        String followUp = model.requests.get(1).getLast().content();
+        assertTrue(followUp.contains("returned no data"), followUp);
+        assertTrue(followUp.contains("not evidence of absence"), followUp);
+    }
+
+    @Test
+    void wallsOffSinglePurposeProgramsButNotInterpreters() {
+        assertTrue(AgentLoop.blockable("run_command:osascript"));
+        assertTrue(AgentLoop.blockable("run_command:sqlite3"));
+        assertTrue(AgentLoop.blockable("read_file"));
+        assertTrue(!AgentLoop.blockable("run_command:python3"));
+        assertTrue(!AgentLoop.blockable("run_command:bash"));
+    }
+
+    @Test
+    void findingsAreDeduplicatedAndCapped() {
+        List<String> findings = new ArrayList<>();
+        AgentLoop.recordFinding(findings, "mail store is HxStore.hxd");
+        AgentLoop.recordFinding(findings, "  mail store is HxStore.hxd  ");
+        AgentLoop.recordFinding(findings, "");
+        AgentLoop.recordFinding(findings, null);
+        assertEquals(1, findings.size());
+
+        for (int index = 0; index < 25; index++) {
+            AgentLoop.recordFinding(findings, "fact " + index);
+        }
+        assertEquals(20, findings.size());
+        assertEquals("fact 24", findings.getLast());
+        assertEquals("", AgentLoop.findingsLedger(new ArrayList<>()));
+    }
+
+    @Test
+    void truncationKeepsTheSystemPromptAndTheTask() {
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(ChatMessage.system("system"));
+        messages.add(ChatMessage.user("export the mailbox and report hours per project"));
+        for (int i = 0; i < 60; i++) {
+            messages.add(ChatMessage.assistant("step " + i));
+        }
+
+        AgentLoop.truncateHistory(messages);
+
+        assertEquals(40, messages.size());
+        assertEquals("system", messages.getFirst().content());
+        assertEquals("export the mailbox and report hours per project", messages.get(1).content());
+        assertEquals("step 59", messages.getLast().content());
+    }
+
+    @Test
+    void truncationWithoutATaskStillKeepsTheSystemPrompt() {
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(ChatMessage.system("system"));
+        for (int i = 0; i < 60; i++) {
+            messages.add(ChatMessage.assistant("step " + i));
+        }
+
+        AgentLoop.truncateHistory(messages);
+
+        assertEquals(40, messages.size());
+        assertEquals("system", messages.getFirst().content());
+        assertEquals("step 59", messages.getLast().content());
+    }
+
+    @Test
+    void compressionKeepsFinishedWorkOutOfReach() throws Exception {
+        Tool exportTool = new Tool() {
+            public String name() { return "export"; }
+            public String description() { return "export"; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return true; }
+            public ToolResult execute(JsonNode arguments) { return ToolResult.success("mail.txt"); }
+        };
+        RecordingModelClient model = new RecordingModelClient(
+                """
+                {"thought":"export","finding":"probe","toolCalls":[{"name":"export","arguments":{}}],"finalAnswer":null}
+                """,
+                "compact summary",
+                """
+                {"thought":"done","toolCalls":[],"finalAnswer":"answer"}
+                """
+        );
+        AgentMemory memory = new AgentMemory() {
+            private int calls;
+            @Override public boolean shouldCompress() { return ++calls == 2; }
+            @Override public String compressionPrompt(List<ChatMessage> messages, String task) {
+                return "compress this";
+            }
+            @Override public String storeSummary(String summary) { return summary; }
+        };
+
+        AgentResult result = loop(model, List.of(exportTool), new NoOpVerificationGate(), memory)
+                .run("weekly report");
+
+        assertTrue(result.success());
+        String afterCompression = model.requests.getLast().get(1).content();
+        assertTrue(afterCompression.contains("compact summary"));
+        assertTrue(afterCompression.contains("Already completed in this session"));
+        assertTrue(afterCompression.contains("export: mail.txt"));
     }
 
     private AgentLoop loop(ModelClient model, List<Tool> tools) {

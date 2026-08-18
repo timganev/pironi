@@ -25,7 +25,7 @@ class DecisionParserTest {
         AgentDecision decision = parser.parse("""
                 {
                   "thought":"inspect",
-                  "toolCalls":[{"name":"read_file","arguments":{"path":"README.md"}}],
+                  "finding":"probe","toolCalls":[{"name":"read_file","arguments":{"path":"README.md"}}],
                   "finalAnswer":null
                 }
                 """);
@@ -71,5 +71,24 @@ class DecisionParserTest {
                 () -> parser.parse("x".repeat(256 * 1024 + 1))
         );
         assertTrue(error.getMessage().contains("exceeds"));
+    }
+
+    @Test
+    void keepsAnActingResponseThatOmittedTheFinding() throws Exception {
+        AgentDecision decision = new DecisionParser(new ObjectMapper()).parse(
+                "{\"thought\":\"probe\",\"toolCalls\":"
+                        + "[{\"name\":\"read_file\",\"arguments\":{}}],\"finalAnswer\":null}"
+        );
+        org.junit.jupiter.api.Assertions.assertEquals("", decision.finding());
+        org.junit.jupiter.api.Assertions.assertEquals(1, decision.toolCalls().size());
+    }
+
+    @Test
+    void acceptsAFinishingResponseWithoutAFinding() throws Exception {
+        AgentDecision decision = new DecisionParser(new ObjectMapper()).parse(
+                "{\"thought\":\"done\",\"toolCalls\":[],\"finalAnswer\":\"ready\"}"
+        );
+        org.junit.jupiter.api.Assertions.assertEquals("", decision.finding());
+        org.junit.jupiter.api.Assertions.assertEquals("ready", decision.finalAnswer());
     }
 }

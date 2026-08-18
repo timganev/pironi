@@ -15,6 +15,38 @@ import static org.junit.jupiter.api.Assertions.*;
 class PersistentAgentMemoryTest {
     @TempDir Path temporaryDirectory;
 
+    @Test void carriesTheConversationIntoTheNextTaskOfTheSameSession() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        SessionStore sessions = new SessionStore(temporaryDirectory, mapper);
+        SkillStore skills = new SkillStore(temporaryDirectory);
+        PersistentAgentMemory memory = memory(sessions, skills, mapper);
+        memory.begin("export the mailbox and report hours per project");
+        memory.checkpoint(List.of(
+                ChatMessage.system("system"),
+                ChatMessage.user("export the mailbox and report hours per project"),
+                ChatMessage.user("tool result: Apollo 210, Borealis 60"),
+                ChatMessage.assistant("Apollo took most of the week")
+        ), "export the mailbox and report hours per project");
+
+        List<ChatMessage> carried = memory.begin("same thing, as a table");
+
+        assertEquals(4, carried.size());
+        assertEquals("tool result: Apollo 210, Borealis 60", carried.get(2).content());
+    }
+
+    @Test void clearedCarryOverStartsTheNextTaskFromNothing() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        SessionStore sessions = new SessionStore(temporaryDirectory, mapper);
+        SkillStore skills = new SkillStore(temporaryDirectory);
+        PersistentAgentMemory memory = memory(sessions, skills, mapper);
+        memory.begin("goal");
+        memory.checkpoint(List.of(ChatMessage.system("system"), ChatMessage.user("goal")), "goal");
+
+        memory.clearCarryOver();
+
+        assertTrue(memory.begin("unrelated").isEmpty());
+    }
+
     @Test void checkpointsAndResumesStructuredMessages() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         SessionStore sessions = new SessionStore(temporaryDirectory, mapper);

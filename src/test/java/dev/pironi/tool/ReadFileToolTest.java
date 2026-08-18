@@ -134,6 +134,8 @@ class ReadFileToolTest {
 
         assertTrue(result.success());
         assertTrue(result.output().startsWith("12345\n6"));
-        assertTrue(result.output().contains("[truncated after 7 characters]"));
+        assertTrue(result.output().contains("[truncated after 7 characters"));
+        // the cut now points at how to get the rest instead of just stopping
+        assertTrue(result.output().contains("startLine/lineCount"), result.output());
     }
 }

@@ -53,10 +53,28 @@ public final class InspectFileTool implements Tool {
             boolean validUtf8 = validUtf8(sample, sampleLength);
             String output = "path=" + path + "\nsizeBytes=" + size + "\nsha256=" + HexFormat.of().formatHex(digest.digest())
                     + "\nmodifiedUtc=" + Instant.ofEpochMilli(Files.getLastModifiedTime(path).toMillis())
-                    + "\nclassification=" + (validUtf8 && !hasNull ? "utf-8-text" : "binary-or-non-utf8")
+                    + "\nclassification=" + classification(sample, sampleLength, validUtf8, hasNull)
                     + "\nlfCount=" + lf + "\ncrlfCount=" + crlf + "\nsampleBytesExamined=" + sampleLength;
             return ToolResult.success(output);
         } catch (IllegalArgumentException | IOException | NoSuchAlgorithmException e) { return ToolResult.failure(e.getMessage()); }
+    }
+
+    /**
+     * Container formats matter more than "binary": a .xmlgz that reads as binary tells the agent
+     * nothing, while "gzip-compressed" tells it exactly which tool to reach for next.
+     */
+    private static String classification(byte[] sample, int length, boolean validUtf8, boolean hasNull) {
+        if (length >= 2 && (sample[0] & 0xff) == 0x1f && (sample[1] & 0xff) == 0x8b) {
+            return "gzip-compressed (decompress before reading, e.g. python3 gzip or gunzip -c)";
+        }
+        if (length >= 4 && (sample[0] & 0xff) == 0x50 && (sample[1] & 0xff) == 0x4b) {
+            return "zip-archive";
+        }
+        if (length >= 16 && new String(sample, 0, 15, java.nio.charset.StandardCharsets.US_ASCII)
+                .equals("SQLite format 3")) {
+            return "sqlite-database";
+        }
+        return validUtf8 && !hasNull ? "utf-8-text" : "binary-or-non-utf8";
     }
 
     private Path resolve(String supplied) throws IOException {

@@ -253,7 +253,7 @@ target/pironi-0.1.0-SNAPSHOT.jar
 ```
 
 Every push and pull request runs a clean Java 25 build on Ubuntu, Windows and
-macOS. The Linux job also runs the PTY-based interactive terminal regression.
+macOS. The Linux and macOS jobs also run the interactive terminal regression.
 The workflows are in `.github/workflows/ci.yml` and
 `.github/workflows/release.yml`.
 

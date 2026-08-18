@@ -337,11 +337,10 @@ public final class PironiMain {
                     tools, agentContext,
                     availableTools.stream().map(Tool::name).toList(), disabledReasons
             );
-            if (interactive && disabledReasons.containsKey("run_command")) {
-                System.out.println("Capability note: host shell "
-                        + dev.pironi.tool.PlatformShell.name()
-                        + " is available, but run_command is "
-                        + disabledReasons.get("run_command") + ".");
+            String shellNotice = runCommandDisabledNotice(disabledReasons);
+            if (!shellNotice.isEmpty()) {
+                // Batch keeps stdout machine-clean, so the note goes to stderr there.
+                (interactive ? System.out : System.err).println(shellNotice);
             }
             RuntimeDoctor runtimeDoctor = new RuntimeDoctor(
                     options.workspace(), options.pironiHome(), capabilityReport
@@ -431,6 +430,7 @@ public final class PironiMain {
                                         runtimeSessionDescription(updated)
                                 );
                                 status.configurationChanged(model, updated.contextSize());
+                                memory.clearCarryOver();
                             }
 
                             @Override
@@ -453,6 +453,7 @@ public final class PironiMain {
                                 lastSession.save(updated);
                                 agentContext.updateRuntimeSession(runtimeSessionDescription(updated));
                                 status.configurationChanged(updated.model(), updated.contextSize());
+                                memory.clearCarryOver();
                             }
 
                             @Override
@@ -537,10 +538,22 @@ public final class PironiMain {
                 defaultShellCommands.onAccessChanged(() -> agentContext.updateRuntimeSession(
                         runtimeSessionDescription(currentOptions.get(), tools.grants())));
                 InteractiveShell.ShellCommands shellC = defaultShellCommands;
+                InteractiveShell.Runner shellRunner = new InteractiveShell.Runner() {
+                    @Override
+                    public AgentResult run(String task)
+                            throws java.io.IOException, InterruptedException {
+                        return loop.run(task);
+                    }
+
+                    @Override
+                    public boolean carriesConversation() {
+                        return true;
+                    }
+                };
                 InteractiveShell shell = new InteractiveShell(
                         terminal,
                         System.out,
-                        loop::run,
+                        shellRunner,
                         modelCommands,
                         shellC,
                         status::idle,
@@ -695,13 +708,16 @@ public final class PironiMain {
     }
 
     static Set<String> autoSafeDeniedTools(CliOptions options) {
-        if (options.approvalMode() != ApprovalMode.AUTO
-                || options.shellScope() != dev.pironi.tool.ShellScope.WORKSPACE
-                || !options.allowTools().isEmpty()) {
+        if (options.approvalMode() != ApprovalMode.AUTO || !options.allowTools().isEmpty()) {
             return options.denyTools();
         }
         Set<String> denied = new HashSet<>(options.denyTools());
-        denied.add("run_command");
+        // Launching or closing a desktop app is visible to whoever is at the machine, so it
+        // needs a deliberate --allow-tools rather than riding along with auto approval.
+        denied.add("app_control");
+        if (options.shellScope() == dev.pironi.tool.ShellScope.WORKSPACE) {
+            denied.add("run_command");
+        }
         return Set.copyOf(denied);
     }
 
@@ -726,6 +742,23 @@ public final class PironiMain {
                 + "personal-context is auto and the provider is not local. Start with "
                 + "--personal-context allow to apply them, which sends their contents to "
                 + options.provider().name().toLowerCase(java.util.Locale.ROOT) + ".");
+    }
+
+    /**
+     * Says that the host has a shell but the agent may not use it.
+     *
+     * <p>This was printed only in interactive mode. A one-shot run stayed silent, so a task built
+     * around scripts failed in a way that looks like the model refusing to work: it asked the user
+     * to run the commands and paste the output back, with nothing on screen explaining that
+     * {@code run_command} had been withheld from it.</p>
+     *
+     * @return the note, or an empty string when the shell is available
+     */
+    static String runCommandDisabledNotice(java.util.Map<String, String> disabledReasons) {
+        String reason = disabledReasons.get("run_command");
+        if (reason == null) return "";
+        return "Capability note: host shell " + dev.pironi.tool.PlatformShell.name()
+                + " is available, but run_command is " + reason + ".";
     }
 
     static boolean statusEnabled(StatusMode mode, boolean consolePresent, String osName) {

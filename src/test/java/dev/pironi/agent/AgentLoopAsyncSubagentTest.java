@@ -37,7 +37,7 @@ class AgentLoopAsyncSubagentTest {
         CountDownLatch childGate = new CountDownLatch(1);
         RecordingModel model = new RecordingModel(
                 // turn 1: spawn a child
-                "{\"thought\":\"spawn\",\"toolCalls\":["
+                "{\"thought\":\"spawn\",\"finding\":\"probe\",\"toolCalls\":["
                         + "{\"name\":\"spawn_subagent\",\"arguments\":{\"name\":\"research\",\"task\":\"do research\"}}"
                         + "],\"finalAnswer\":null}",
                 // a second turn, in case the loop continues (should NOT: async returns early)

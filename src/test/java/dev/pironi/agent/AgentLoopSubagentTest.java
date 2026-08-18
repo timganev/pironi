@@ -34,7 +34,7 @@ class AgentLoopSubagentTest {
     void barrierWaitsForChildThenDeliversResultInNextPrompt() throws Exception {
         RecordingModel model = new RecordingModel(
                 // turn 1: spawn a child
-                "{\"thought\":\"spawn\",\"toolCalls\":["
+                "{\"thought\":\"spawn\",\"finding\":\"probe\",\"toolCalls\":["
                         + "{\"name\":\"spawn_subagent\",\"arguments\":{\"name\":\"fetch-prices\",\"task\":\"get prices\"}}"
                         + "],\"finalAnswer\":null}",
                 // turn 2: finish, using the child's result
@@ -74,7 +74,7 @@ class AgentLoopSubagentTest {
             }
         };
         RecordingModel model = new RecordingModel(
-                "{\"thought\":\"spawn\",\"toolCalls\":["
+                "{\"thought\":\"spawn\",\"finding\":\"probe\",\"toolCalls\":["
                         + "{\"name\":\"spawn_subagent\",\"arguments\":{\"name\":\"fetch-prices\",\"task\":\"get prices\"}}"
                         + "],\"finalAnswer\":null}",
                 "{\"thought\":\"report\",\"toolCalls\":[],\"finalAnswer\":\"done\"}"
@@ -93,7 +93,7 @@ class AgentLoopSubagentTest {
     @Test
     void barrierTimeoutTellsParentChildDidNotFinish() throws Exception {
         RecordingModel model = new RecordingModel(
-                "{\"thought\":\"spawn\",\"toolCalls\":["
+                "{\"thought\":\"spawn\",\"finding\":\"probe\",\"toolCalls\":["
                         + "{\"name\":\"spawn_subagent\",\"arguments\":{\"name\":\"fetch\",\"task\":\"get data\"}}"
                         + "],\"finalAnswer\":null}",
                 "{\"thought\":\"report\",\"toolCalls\":[],\"finalAnswer\":\"done\"}"

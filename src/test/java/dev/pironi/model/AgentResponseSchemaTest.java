@@ -16,12 +16,17 @@ class AgentResponseSchemaTest {
         assertEquals("object", schema.path("type").asText());
         assertFalse(schema.path("additionalProperties").asBoolean());
         assertEquals(
-                List.of("thought", "toolCalls", "finalAnswer"),
+                List.of("thought", "finding", "toolCalls", "finalAnswer"),
                 new ObjectMapper().convertValue(schema.path("required"), List.class)
         );
         assertEquals(
                 "object",
                 schema.path("properties").path("toolCalls").path("items").path("type").asText()
+        );
+        // required, so constrained decoding emits it instead of silently dropping it
+        assertEquals(
+                "string",
+                schema.path("properties").path("finding").path("type").asText()
         );
     }
 }

@@ -14,10 +14,13 @@ public final class AgentResponseSchema {
         root.put("type", "object");
         root.put("additionalProperties", false);
         ArrayNode required = root.putArray("required");
-        required.add("thought").add("toolCalls").add("finalAnswer");
+        required.add("thought").add("finding").add("toolCalls").add("finalAnswer");
 
         ObjectNode properties = root.putObject("properties");
         properties.putObject("thought").put("type", "string");
+        // Required so constrained decoding actually emits it; an empty string means
+        // "nothing established this turn".
+        properties.putObject("finding").put("type", "string");
 
         ObjectNode toolCalls = properties.putObject("toolCalls");
         toolCalls.put("type", "array");

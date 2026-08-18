@@ -32,4 +32,16 @@ class InspectFileToolTest {
         assertTrue(result.output().contains("lfCount=2"));
         assertTrue(result.output().contains("crlfCount=1"));
     }
+
+    @Test void namesTheContainerFormatInsteadOfCallingItBinary() throws Exception {
+        Path gz = root.resolve("log.xmlgz");
+        try (var out = new java.util.zip.GZIPOutputStream(Files.newOutputStream(gz))) {
+            out.write("<response><Subject>hi</Subject></response>".getBytes());
+        }
+        ToolResult result = new InspectFileTool(new Workspace(root), List.of(root)).execute(
+                new ObjectMapper().createObjectNode().put("path", "log.xmlgz"));
+        assertTrue(result.success(), result.output());
+        assertTrue(result.output().contains("classification=gzip-compressed"), result.output());
+        assertTrue(result.output().contains("gunzip -c"), result.output());
+    }
 }

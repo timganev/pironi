@@ -16,6 +16,9 @@ import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 public final class OllamaClient implements ModelClient {
+    /** A local server can drop a connection or unload the model; one attempt is not enough. */
+    private static final int MAX_REQUEST_ATTEMPTS = 4;
+    private static final long RETRY_BACKOFF_MILLIS = 1_000;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final URI endpoint;
@@ -107,10 +110,26 @@ public final class OllamaClient implements ModelClient {
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                 .build();
 
-        HttpResponse<Stream<String>> response = httpClient.send(
-                request,
-                HttpResponse.BodyHandlers.ofLines()
-        );
+        // A dropped socket or an unloaded model used to end the whole run. Retrying is safe
+        // here because nothing has been streamed to the caller yet.
+        HttpResponse<Stream<String>> response = null;
+        int requestAttempts = 0;
+        long backoffMillis = RETRY_BACKOFF_MILLIS;
+        while (response == null) {
+            requestAttempts++;
+            try {
+                response = httpClient.send(request, HttpResponse.BodyHandlers.ofLines());
+            } catch (IOException e) {
+                if (requestAttempts >= MAX_REQUEST_ATTEMPTS) {
+                    throw new IOException(
+                            "Ollama request failed after " + requestAttempts + " attempts: "
+                                    + e.getMessage(), e
+                    );
+                }
+                Thread.sleep(backoffMillis);
+                backoffMillis *= 2;
+            }
+        }
         if (response.statusCode() / 100 != 2) {
             try (Stream<String> lines = response.body()) {
                 throw new IOException(
@@ -155,7 +174,7 @@ public final class OllamaClient implements ModelClient {
                 evalDurationNanos,
                 finishReason,
                 structured ? "json_schema" : "text",
-                1,
+                requestAttempts,
                 "",
                 ""
         );

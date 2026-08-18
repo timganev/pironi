@@ -127,6 +127,14 @@ public final class InteractiveShell {
     @FunctionalInterface
     public interface Runner {
         AgentResult run(String task) throws IOException, InterruptedException;
+
+        /**
+         * True when the agent keeps the conversation between tasks itself.
+         *
+         * <p>The shell then hands over the request alone. Prefixing the transcript it kept would
+         * only repeat, in a lossy form, what the agent already has.</p>
+         */
+        default boolean carriesConversation() { return false; }
     }
 
     public interface ModelCommands {
@@ -214,16 +222,20 @@ public final class InteractiveShell {
                 continue;
             }
 
-            // Build context from recent history (last 4 exchanges = 8 lines)
-            StringBuilder context = new StringBuilder();
-            int start = Math.max(0, conversationHistory.size() - 8);
-            for (int i = start; i < conversationHistory.size(); i++) {
-                context.append(conversationHistory.get(i)).append('\n');
+            String fullTask;
+            if (runner.carriesConversation()) {
+                fullTask = line;
+            } else {
+                // Build context from recent history (last 4 exchanges = 8 lines)
+                StringBuilder context = new StringBuilder();
+                int start = Math.max(0, conversationHistory.size() - 8);
+                for (int i = start; i < conversationHistory.size(); i++) {
+                    context.append(conversationHistory.get(i)).append('\n');
+                }
+                int exchangeCount = Math.min(4, conversationHistory.size() / 2);
+                println("Conversation memory: " + exchangeCount + "/4 exchanges");
+                fullTask = context.isEmpty() ? line : context + "Current request:\n" + line;
             }
-            int exchangeCount = Math.min(4, conversationHistory.size() / 2);
-            println("Conversation memory: " + exchangeCount + "/4 exchanges");
-
-            String fullTask = context.isEmpty() ? line : context + "Current request:\n" + line;
             AgentResult result = runTask(fullTask);
             if (result == null) continue;
             if (!result.streamed()) printAgentAnswer(result.output());

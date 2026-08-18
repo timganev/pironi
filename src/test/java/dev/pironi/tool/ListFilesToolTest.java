@@ -35,6 +35,31 @@ class ListFilesToolTest {
     }
 
     @Test
+    void reportsTheShapeOfATreeTooBigToList() throws Exception {
+        String longName = "a".repeat(120);
+        for (int index = 0; index < 600; index++) {
+            Files.writeString(workspaceRoot.resolve(longName + index + ".txt"), "x");
+        }
+        Files.createDirectory(workspaceRoot.resolve("logs"));
+        for (int index = 0; index < 50; index++) {
+            Files.writeString(workspaceRoot.resolve("logs").resolve("entry" + index + ".xmlgz"), "y");
+        }
+
+        ToolResult result = new ListFilesTool(new Workspace(workspaceRoot), 500)
+                .execute(OBJECT_MAPPER.readTree("{\"path\":\".\"}"));
+
+        assertEquals(true, result.success());
+        String output = result.output();
+        assertEquals(true, output.startsWith("650 files, "), output);
+        assertEquals(true, output.contains(".txt 600"), output);
+        assertEquals(true, output.contains(".xmlgz 50"), output);
+        assertEquals(true, output.contains("logs 50"), output);
+        assertEquals(true, output.contains("this is a profile"), output);
+        // the whole point: the shape costs a fraction of the truncated listing
+        assertEquals(true, output.length() < 2_000, "profile length " + output.length());
+    }
+
+    @Test
     void excludesExplicitTracePathOutsidePrivateDirectory() throws Exception {
         Path visible = Files.writeString(workspaceRoot.resolve("visible.txt"), "ok");
         Path trace = Files.writeString(workspaceRoot.resolve("trace.jsonl"), "private");

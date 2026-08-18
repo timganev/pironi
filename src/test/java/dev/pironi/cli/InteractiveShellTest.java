@@ -77,6 +77,29 @@ class InteractiveShellTest {
     }
 
     @Test
+    void handsOverTheRequestAloneWhenTheAgentKeepsTheConversation() throws Exception {
+        BufferedReader input = new BufferedReader(new StringReader("first\nsecond\n/exit\n"));
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        List<String> tasks = new ArrayList<>();
+        InteractiveShell shell = new InteractiveShell(
+                input,
+                new PrintStream(bytes, true, StandardCharsets.UTF_8),
+                new InteractiveShell.Runner() {
+                    @Override public AgentResult run(String task) {
+                        tasks.add(task);
+                        return new AgentResult(true, "answer-" + tasks.size(), 1);
+                    }
+
+                    @Override public boolean carriesConversation() { return true; }
+                }
+        );
+
+        assertEquals(0, shell.run(null));
+        assertEquals(List.of("first", "second"), tasks);
+        assertTrue(!bytes.toString(StandardCharsets.UTF_8).contains("Conversation memory:"));
+    }
+
+    @Test
     void staysOpenAndCarriesOnlyBoundedDialogueIntoNextTask() throws Exception {
         BufferedReader input = new BufferedReader(new StringReader(
                 "first\nsecond\n/context\n/clear\n/context\n/exit\n"

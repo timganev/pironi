@@ -17,6 +17,21 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PironiMainTest {
     @Test
+    void namesTheShellAndTheReasonWhenRunCommandIsWithheld() {
+        String notice = PironiMain.runCommandDisabledNotice(
+                java.util.Map.of("run_command", "blocked by auto-safe workspace policy")
+        );
+
+        assertTrue(notice.contains("run_command is blocked by auto-safe workspace policy"));
+        assertTrue(notice.contains(dev.pironi.tool.PlatformShell.name()));
+    }
+
+    @Test
+    void saysNothingWhenTheShellIsAvailable() {
+        assertEquals("", PironiMain.runCommandDisabledNotice(java.util.Map.of()));
+    }
+
+    @Test
     void sessionBannerCarriesVersionIdAndResumeCommand() {
         String banner = PironiMain.sessionBanner("20260810-120000-project-abc12345");
         // The build is named first: a screenshot of a reported problem should say which
@@ -105,7 +120,7 @@ class PironiMainTest {
                 new String[]{"--activity", "auto", "--model", "test"}, Map.of()
         );
 
-        assertEquals(Set.of("run_command"), PironiMain.autoSafeDeniedTools(options));
+        assertEquals(Set.of("run_command", "app_control"), PironiMain.autoSafeDeniedTools(options));
 
         CliOptions explicit = CliOptions.parse(
                 new String[]{
@@ -123,7 +138,34 @@ class PironiMainTest {
                 },
                 Map.of()
         );
-        assertEquals(Set.of(), PironiMain.autoSafeDeniedTools(userScoped));
+        assertEquals(Set.of("app_control"), PironiMain.autoSafeDeniedTools(userScoped));
+    }
+
+    @Test
+    void autoActivityDisablesAppControlAtEveryShellScope() {
+        for (String scope : new String[]{"workspace", "user", "unrestricted"}) {
+            CliOptions options = CliOptions.parse(
+                    new String[]{
+                            "--activity", "auto", "--model", "test",
+                            "--shell-scope", scope
+                    },
+                    Map.of()
+            );
+            assertEquals(
+                    true,
+                    PironiMain.autoSafeDeniedTools(options).contains("app_control"),
+                    "app_control must stay denied under auto approval at scope " + scope
+            );
+        }
+
+        CliOptions explicit = CliOptions.parse(
+                new String[]{
+                        "--activity", "auto", "--model", "test",
+                        "--allow-tools", "app_control"
+                },
+                Map.of()
+        );
+        assertEquals(Set.of(), PironiMain.autoSafeDeniedTools(explicit));
     }
 
     @Test

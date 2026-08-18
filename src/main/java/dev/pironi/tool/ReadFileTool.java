@@ -113,8 +113,9 @@ public final class ReadFileTool implements Tool {
             }
             String content = Files.readString(file, StandardCharsets.UTF_8);
             if (content.length() > maxCharacters) {
-                return ToolResult.success(content.substring(0, maxCharacters)
-                        + "\n[truncated after " + maxCharacters + " characters]");
+                return ToolResult.success(
+                        content.substring(0, maxCharacters) + shortfall(content, maxCharacters)
+                );
             }
             return ToolResult.success(content);
         } catch (IllegalArgumentException | IOException e) {
@@ -169,7 +170,21 @@ public final class ReadFileTool implements Tool {
     }
 
     private String truncated(StringBuilder output) {
-        return output + "\n[truncated after " + maxCharacters + " characters]";
+        return output + "\n[truncated after " + maxCharacters + " characters; continue with "
+                + "startLine/lineCount, or tailLines for the end]";
+    }
+
+    /**
+     * A bare "truncated" reads as a dead end, so the agent gives up on the file or re-reads the
+     * same head. Saying how much is left, and how to ask for it, turns it into a page boundary.
+     */
+    private static String shortfall(String content, int shown) {
+        long totalLines = content.lines().count();
+        long shownLines = content.substring(0, shown).lines().count();
+        return System.lineSeparator()
+                + "[truncated after " + shown + " of " + content.length() + " characters; showed "
+                + "lines 1-" + shownLines + " of " + totalLines + ". Continue with startLine="
+                + (shownLines + 1) + " and lineCount, or use tailLines for the end.]";
     }
 
     private Path resolve(String supplied) throws IOException {

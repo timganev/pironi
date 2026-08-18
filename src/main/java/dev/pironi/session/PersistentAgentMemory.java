@@ -23,6 +23,7 @@ public final class PersistentAgentMemory implements AgentMemory {
     private final int contextLimit;
     private final int maxTurns;
     private List<ChatMessage> pendingResume = List.of();
+    private List<ChatMessage> carryOver = List.of();
     private String activeSkill = "";
     private String activeSkillContent = "";
     private String lastTask = "";
@@ -47,15 +48,29 @@ public final class PersistentAgentMemory implements AgentMemory {
         this.maxTurns = maxTurns;
     }
 
+    /**
+     * Starts a task on top of the conversation the session already has.
+     *
+     * <p>Every task used to start from an empty message list, so tool results never outlived the
+     * task that produced them. A follow-up like "same report, as a table" reached a model that had
+     * never seen the data - only whatever prose the previous answer happened to contain - and its
+     * only way to comply was to run the whole pipeline again. The messages are already checkpointed
+     * for {@code /resume}; a follow-up in the same session gets them without asking.</p>
+     */
     @Override public synchronized List<ChatMessage> begin(String task) {
         if (sessions.currentMeta() == null) {
             sessions.startSession(model, workspace, contextLimit, maxTurns);
             sessions.saveMeta();
         }
         selectRelevantSkill(currentRequest(task));
-        List<ChatMessage> result = pendingResume;
+        List<ChatMessage> result = pendingResume.isEmpty() ? carryOver : pendingResume;
         pendingResume = List.of();
         return result;
+    }
+
+    /** Drops the carried conversation, so the next task starts clean. */
+    public synchronized void clearCarryOver() {
+        carryOver = List.of();
     }
 
     /**
@@ -110,6 +125,7 @@ public final class PersistentAgentMemory implements AgentMemory {
         for (ChatMessage message : messages) {
             array.addObject().put("role", message.role()).put("content", message.content());
         }
+        carryOver = List.copyOf(messages);
         sessions.saveCheckpoint(root.toString());
         sessions.saveMeta();
     }
@@ -160,6 +176,7 @@ public final class PersistentAgentMemory implements AgentMemory {
                 }
             }
             pendingResume = List.copyOf(restored);
+            carryOver = List.of();
             activeSkill = "";
             activeSkillContent = "";
             autoSkillSelection = root.path("skillMode").asText("manual").equals("auto");
@@ -190,6 +207,7 @@ public final class PersistentAgentMemory implements AgentMemory {
         sessions.saveMeta();
         compressor.reset();
         pendingResume = List.of();
+        carryOver = List.of();
         activeSkill = "";
         activeSkillContent = "";
         autoSkillSelection = true;

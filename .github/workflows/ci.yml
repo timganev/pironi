@@ -27,5 +27,5 @@ jobs:
       - name: Executable JAR smoke test
         run: java -jar target/pironi-0.1.0-SNAPSHOT.jar --help
       - name: Interactive terminal regression
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' || runner.os == 'macOS'
         run: java -jar target/pironi-0.1.0-SNAPSHOT.jar --test-keys
