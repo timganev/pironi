@@ -22,6 +22,7 @@ public final class PersistentAgentMemory implements AgentMemory {
     private final Path workspace;
     private final int contextLimit;
     private final int maxTurns;
+    private final FindingsStore findingsStore;
     private List<ChatMessage> pendingResume = List.of();
     private List<ChatMessage> carryOver = List.of();
     private String activeSkill = "";
@@ -38,6 +39,13 @@ public final class PersistentAgentMemory implements AgentMemory {
     public PersistentAgentMemory(SessionStore sessions, ContextCompressor compressor,
             SkillStore skills, ObjectMapper mapper, String model, Path workspace,
             int contextLimit, int maxTurns) {
+        this(sessions, compressor, skills, mapper, model, workspace, contextLimit, maxTurns, null);
+    }
+
+    public PersistentAgentMemory(SessionStore sessions, ContextCompressor compressor,
+            SkillStore skills, ObjectMapper mapper, String model, Path workspace,
+            int contextLimit, int maxTurns, FindingsStore findingsStore) {
+        this.findingsStore = findingsStore;
         this.sessions = sessions;
         this.compressor = compressor;
         this.skills = skills;
@@ -143,6 +151,14 @@ public final class PersistentAgentMemory implements AgentMemory {
 
     @Override public synchronized String activeSkillName() {
         return activeSkill;
+    }
+
+    @Override public synchronized java.util.List<String> priorFindings() {
+        return findingsStore == null ? java.util.List.of() : findingsStore.load(workspace);
+    }
+
+    @Override public synchronized void rememberFindings(java.util.List<String> findings) {
+        if (findingsStore != null) findingsStore.save(workspace, findings);
     }
 
     @Override public synchronized void completed(String task, String answer) {

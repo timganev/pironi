@@ -17,6 +17,29 @@ class RunCommandToolTest {
     Path workspaceRoot;
 
     @Test
+    void descriptionNamesHowFarTheShellReaches() throws Exception {
+        Workspace workspace = new Workspace(workspaceRoot);
+        Duration timeout = Duration.ofSeconds(2);
+
+        String workspaceScoped = new RunCommandTool(workspace, timeout, 1_000).description();
+        assertTrue(workspaceScoped.contains("Paths outside the workspace are rejected"),
+                workspaceScoped);
+
+        String userScoped = new RunCommandTool(
+                workspace, timeout, 1_000, ShellScope.USER
+        ).description();
+        // Without this the agent takes the search roots of list_files for the whole world and
+        // never looks outside them, even though the shell can.
+        assertTrue(userScoped.contains("outside the roots that list_files and find_files accept"),
+                userScoped);
+
+        String unrestricted = new RunCommandTool(
+                workspace, timeout, 1_000, ShellScope.UNRESTRICTED
+        ).description();
+        assertTrue(unrestricted.contains("no restriction"), unrestricted);
+    }
+
+    @Test
     void reportsCommandFailureOnEveryPlatformAndPipefailOnUnix() throws Exception {
         RunCommandTool tool = new RunCommandTool(
                 new Workspace(workspaceRoot),

@@ -35,8 +35,14 @@ public final class AgentLoop {
     private static final int APPROACH_STALE_WINDOW = 3;
     /** A batch beyond this risks spending the whole output budget before the JSON closes. */
     private static final int MAX_TOOL_CALLS_PER_TURN = 4;
-    /** Findings carried across turns so read-only work is not repeated. */
-    private static final int MAX_FINDINGS = 20;
+    /**
+     * How many findings are carried, in memory and on disk alike. One number: when the loop and
+     * the store disagreed, loading a fuller store silently dropped the oldest half and then wrote
+     * the loss back.
+     */
+    public static final int MAX_FINDINGS = 40;
+    /** The same conclusion this many turns running means the agent has stopped learning. */
+    private static final int REPEATED_FINDING_THRESHOLD = 4;
     /** Below this a tool result is an answer, not a discovery, and does not count as progress. */
     private static final int MIN_INFORMATIVE_CHARACTERS = 40;
     /** The same answer this many times is a loop even when the arguments keep changing. */
@@ -261,6 +267,14 @@ public final class AgentLoop {
         List<String> successfulMutations = new ArrayList<>();
         List<String> recentToolOutcomes = new ArrayList<>();
         List<String> findings = new ArrayList<>();
+        // Earlier runs against this workspace already paid for these conclusions. They are pinned:
+        // trimming them to make room for this run's own would silently erase what was inherited,
+        // and the store would then persist the loss.
+        List<String> inherited = List.copyOf(memory.priorFindings());
+        findings.addAll(inherited);
+        int pinnedFindings = findings.size();
+        String lastFinding = "";
+        int repeatedFindings = 0;
         for (int turn = 1; turn <= maxTurns; turn++) {
             activeTurn = turn;
             int remainingTurns = maxTurns - turn + 1;
@@ -313,7 +327,12 @@ public final class AgentLoop {
             }
 
             boolean findingSupplied = !decision.finding().isBlank();
-            recordFinding(findings, decision.finding());
+            recordFinding(findings, decision.finding(), pinnedFindings);
+            memory.rememberFindings(findings);
+            String thisFinding = decision.finding().strip();
+            repeatedFindings = !thisFinding.isEmpty() && thisFinding.equals(lastFinding)
+                    ? repeatedFindings + 1 : 0;
+            lastFinding = thisFinding;
 
             if (!decision.toolCalls().isEmpty()) {
                 List<ToolCall> batch = decision.toolCalls();
@@ -326,6 +345,11 @@ public final class AgentLoop {
                 successfulMutations.addAll(result.successfulMutations());
                 recentToolOutcomes.clear();
                 recentToolOutcomes.addAll(result.outcomes());
+                String stuckFinding = repeatedFindings < REPEATED_FINDING_THRESHOLD ? ""
+                        : System.lineSeparator()
+                        + "Note: you have reported the same finding " + (repeatedFindings + 1)
+                        + " turns running. Nothing has been learned since. Change what you are "
+                        + "trying, or state what is missing and finish.";
                 String missingFinding = findingSupplied ? "" : System.lineSeparator()
                         + "Note: finding was missing, so nothing was recorded for this turn. "
                         + "Set finding to keep what you established.";
@@ -334,8 +358,8 @@ public final class AgentLoop {
                         + "Send at most " + MAX_TOOL_CALLS_PER_TURN
                         + " tool calls per response and read the results before asking for more.";
                 messages.add(ChatMessage.user(
-                        result.userMessage() + missingFinding + overflow
-                                + findingsLedger(findings) + exhaustedApproachLedger()
+                        result.userMessage() + missingFinding + stuckFinding + overflow
+                                + findingsLedger(findings, pinnedFindings) + exhaustedApproachLedger()
                 ));
                 if (subagentEligible && !asyncSubagents && subagentGateway.activeCount() > 0) {
                     awaitSubagentBarrier(turn, messages);
@@ -613,9 +637,39 @@ public final class AgentLoop {
             String first = trimmed.split("\\s+")[0];
             int slash = first.lastIndexOf('/');
             String program = slash < 0 ? first : first.substring(slash + 1);
-            return program.isEmpty() ? call.name() : call.name() + ":" + program;
+            if (program.isEmpty()) return call.name();
+            if (!GENERAL_PURPOSE_PROGRAMS.contains(program)) return call.name() + ":" + program;
+            String target = interpreterTarget(trimmed);
+            return target.isEmpty()
+                    ? call.name() + ":" + program
+                    : call.name() + ":" + program + ":" + target;
         }
         return call.name();
+    }
+
+    /**
+     * What an interpreter is actually reaching for. "python3 sqlite3 against an empty database"
+     * and "python3 gzip against a log" are different approaches; without this they collapse into
+     * one signature that can neither be walled off nor left alone safely.
+     */
+    static String interpreterTarget(String command) {
+        var imports = java.util.regex.Pattern
+                .compile("\\bimport\\s+([A-Za-z_][A-Za-z0-9_]*(?:\\s*,\\s*[A-Za-z_][A-Za-z0-9_]*)*)")
+                .matcher(command);
+        if (imports.find()) {
+            // "import json, sqlite3" and "import json, plistlib" are different approaches; keying
+            // on the first module alone collapses them and can wall off the interpreter itself.
+            return java.util.Arrays.stream(imports.group(1).split("\\s*,\\s*"))
+                    .sorted().collect(Collectors.joining("+"));
+        }
+        String[] words = command.split("\\s+");
+        for (int index = 1; index < words.length; index++) {
+            String word = words[index].replaceAll("^[\"']+", "");
+            if (word.startsWith("-") || word.isEmpty()) continue;
+            int slash = word.lastIndexOf('/');
+            return slash < 0 ? word : word.substring(slash + 1);
+        }
+        return "";
     }
 
     /**
@@ -632,19 +686,36 @@ public final class AgentLoop {
         return text.length() < MIN_INFORMATIVE_CHARACTERS ? "" : text;
     }
 
-    /** A single-purpose program can be walled off; a general interpreter cannot. */
+    /**
+     * A single-purpose program can be walled off. A bare interpreter cannot — a run of failures
+     * says nothing about the next call. An interpreter aimed at a named target can: that is a
+     * specific approach, not a general capability.
+     */
     static boolean blockable(String signature) {
         int colon = signature.indexOf(':');
-        return colon < 0
-                || !GENERAL_PURPOSE_PROGRAMS.contains(signature.substring(colon + 1));
+        if (colon < 0) return true;
+        String rest = signature.substring(colon + 1);
+        int target = rest.indexOf(':');
+        if (target >= 0) return true;
+        return !GENERAL_PURPOSE_PROGRAMS.contains(rest);
     }
 
     static void recordFinding(List<String> findings, String finding) {
+        recordFinding(findings, finding, 0);
+    }
+
+    /** Drops the oldest earned finding when full; the first {@code pinned} entries never go. */
+    static void recordFinding(List<String> findings, String finding, int pinned) {
         if (finding == null || finding.isBlank()) return;
         String trimmed = finding.strip();
         if (findings.contains(trimmed)) return;
         findings.add(trimmed);
-        if (findings.size() > MAX_FINDINGS) findings.removeFirst();
+        // Never evict the entry just added: once the pinned prefix fills the whole budget the
+        // oldest pinned entry has to give way, or the ledger freezes at what early runs learned.
+        // Evict the oldest entry that may go: normally the first unpinned one, but when the
+        // pinned prefix fills the budget the oldest inherited entry has to give way instead.
+        int evictAt = pinned >= MAX_FINDINGS ? 0 : pinned;
+        if (findings.size() > MAX_FINDINGS) findings.remove(evictAt);
     }
 
     /**
@@ -652,11 +723,32 @@ public final class AgentLoop {
      * came from. Read-only work leaves no artifact, so without this it gets repeated.
      */
     static String findingsLedger(List<String> findings) {
+        return findingsLedger(findings, 0);
+    }
+
+    /**
+     * The first {@code inherited} entries come from earlier runs against this workspace. They are
+     * worth having, but the world may have moved since; presenting them as settled would steer the
+     * agent away from re-checking a fact that has changed.
+     */
+    static String findingsLedger(List<String> findings, int inherited) {
         if (findings.isEmpty()) return "";
-        StringBuilder ledger = new StringBuilder(System.lineSeparator())
-                .append("Established so far (do not re-derive):");
-        for (String finding : findings) {
-            ledger.append(System.lineSeparator()).append("- ").append(finding);
+        StringBuilder ledger = new StringBuilder();
+        int carried = Math.min(inherited, findings.size());
+        if (carried > 0) {
+            ledger.append(System.lineSeparator())
+                    .append("Established by earlier runs here (trust unless it is load-bearing, "
+                            + "then re-check):");
+            for (String finding : findings.subList(0, carried)) {
+                ledger.append(System.lineSeparator()).append("- ").append(finding);
+            }
+        }
+        if (carried < findings.size()) {
+            ledger.append(System.lineSeparator())
+                    .append("Established so far (do not re-derive):");
+            for (String finding : findings.subList(carried, findings.size())) {
+                ledger.append(System.lineSeparator()).append("- ").append(finding);
+            }
         }
         return ledger.toString();
     }

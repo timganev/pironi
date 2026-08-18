@@ -82,4 +82,35 @@ class FindFilesToolTest {
         assertTrue(result.output().contains(expected.toRealPath().toString()));
         assertFalse(result.output().contains("Application Data"));
     }
+
+    @Test
+    void saysWhenTheSearchStoppedInsteadOfReportingNoMatches() throws Exception {
+        Path haystack = Files.createDirectories(root.resolve("haystack"));
+        for (int index = 0; index < 12; index++) {
+            Files.writeString(haystack.resolve("noise" + index + ".log"), "");
+        }
+
+        ToolResult result = new FindFilesTool(List.of(root), Set.of(), 5).execute(
+                new ObjectMapper().createObjectNode()
+                        .put("root", root.toString()).put("name", "*.needle"));
+
+        assertTrue(result.success(), result.output());
+        assertTrue(result.output().startsWith("No matches so far."), result.output());
+        assertTrue(result.output().contains("did not cover the whole tree"), result.output());
+    }
+
+    @Test
+    void saysWhenItStoppedAtTheResultLimit() throws Exception {
+        for (int index = 0; index < 6; index++) {
+            Files.writeString(root.resolve("hit" + index + ".log"), "");
+        }
+
+        ToolResult result = new FindFilesTool(List.of(root), Set.of()).execute(
+                new ObjectMapper().createObjectNode()
+                        .put("root", root.toString()).put("name", "*.log").put("maxResults", 3));
+
+        assertTrue(result.success(), result.output());
+        assertTrue(result.output().contains("stopped at maxResults=3"), result.output());
+        assertTrue(result.output().contains("there may be more matches"), result.output());
+    }
 }

@@ -21,6 +21,7 @@ import dev.pironi.safety.Workspace;
 import dev.pironi.tool.ApplyPatchTool;
 import dev.pironi.tool.AppControlTool;
 import dev.pironi.tool.ListFilesTool;
+import dev.pironi.tool.ToolOutput;
 import dev.pironi.tool.HeaderResolver;
 import dev.pironi.tool.HttpGetTool;
 import dev.pironi.tool.FindFilesTool;
@@ -135,7 +136,8 @@ public final class PironiMain {
         SkillStore skills = new SkillStore(options.pironiHome());
         PersistentAgentMemory memory = new PersistentAgentMemory(
                 sessions, compressor, skills, objectMapper, options.model(),
-                options.workspace(), options.contextSize(), options.maxTurns()
+                options.workspace(), options.contextSize(), options.maxTurns(),
+                new dev.pironi.session.FindingsStore(options.pironiHome())
         );
         ProviderConfig provider = new ProviderConfig(
                 options.provider(),
@@ -160,7 +162,8 @@ public final class PironiMain {
         List<Tool> availableTools = new ArrayList<>(List.of(
                 new ListFilesTool(workspace, 500, options.searchRoots(), hiddenAgentPaths),
                 new ReadFileTool(
-                        workspace, 32_000, options.searchRoots(), hiddenAgentPaths
+                        workspace, ToolOutput.MAX_CHARACTERS, options.searchRoots(),
+                        hiddenAgentPaths
                 ),
                 new InspectFileTool(workspace, options.searchRoots()),
                 new SystemInfoTool(workspace),
@@ -182,7 +185,8 @@ public final class PironiMain {
                 new HttpGetTool(headerResolver),
                 new NetworkSpeedTool(),
                 new RunCommandTool(
-                        workspace, Duration.ofSeconds(90), 32_000, options.shellScope()
+                        workspace, Duration.ofSeconds(90), ToolOutput.MAX_CHARACTERS,
+                        options.shellScope()
                 )
         ));
 
@@ -202,7 +206,8 @@ public final class PironiMain {
         if (providerType != dev.pironi.model.ProviderType.OLLAMA) {
             List<Tool> readOnlyTools = List.of(
                     new HttpGetTool(headerResolver),
-                    new ReadFileTool(workspace, 32_000, options.searchRoots(), hiddenAgentPaths),
+                    new ReadFileTool(workspace, ToolOutput.MAX_CHARACTERS, options.searchRoots(),
+                            hiddenAgentPaths),
                     new ListFilesTool(workspace, 500, options.searchRoots(), hiddenAgentPaths),
                     new FindFilesTool(options.searchRoots(), hiddenAgentPaths)
             );

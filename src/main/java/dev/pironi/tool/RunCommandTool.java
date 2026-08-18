@@ -37,7 +37,25 @@ public final class RunCommandTool implements Tool {
     public String description() {
         return "Run a shell command with the workspace as current directory. "
                 + "The command inherits the Pironi process environment and network access, "
-                + "so tools such as curl may retrieve current external information.";
+                + "so tools such as curl may retrieve current external information. "
+                + reach();
+    }
+
+    /**
+     * The file tools name the roots they accept, and this one used to name only its working
+     * directory. An agent that reads both concludes the roots bound everything there is, and
+     * stops looking outside them even when the shell could reach further. Saying how far this
+     * shell reaches is what makes the wider scope usable.
+     */
+    private String reach() {
+        return switch (shellScope) {
+            case WORKSPACE -> "Paths outside the workspace are rejected; reach those with the "
+                    + "file tools instead.";
+            case USER -> "This shell reads any path the account can, including paths outside "
+                    + "the roots that list_files and find_files accept.";
+            case UNRESTRICTED -> "This shell reads any path the account can, with no restriction "
+                    + "beyond the operating system's own.";
+        };
     }
 
     @Override

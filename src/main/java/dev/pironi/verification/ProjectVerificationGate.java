@@ -14,7 +14,7 @@ import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 
 public final class ProjectVerificationGate implements VerificationGate {
-    private static final int MAX_OUTPUT_CHARACTERS = 32_000;
+    private static final int MAX_OUTPUT_CHARACTERS = dev.pironi.tool.ToolOutput.MAX_CHARACTERS;
 
     private final Workspace workspace;
     private final String command;

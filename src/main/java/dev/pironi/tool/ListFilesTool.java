@@ -20,8 +20,8 @@ public final class ListFilesTool implements Tool {
     private static final Set<String> IGNORED_DIRECTORIES = Set.of(
             ".git", ".pironi", ".idea", "target", "build", ".gradle", "node_modules"
     );
-    /** Matches run_command, so one listing of a deep tree cannot flood the context. */
-    private static final int MAX_OUTPUT_CHARACTERS = 32_000;
+    /** Matches every other tool, so one listing of a deep tree cannot flood the context. */
+    private static final int MAX_OUTPUT_CHARACTERS = ToolOutput.MAX_CHARACTERS;
     /** Upper bound on the walk itself, so profiling a huge tree stays bounded. */
     private static final int MAX_SCANNED_FILES = 200_000;
 

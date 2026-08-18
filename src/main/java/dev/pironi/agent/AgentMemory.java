@@ -20,6 +20,10 @@ public interface AgentMemory {
     default String activeSkillName() { return ""; }
     /** Outcome of skill selection for the current task: reason first, then per-skill scores. */
     default List<String> lastSkillDecision() { return List.of(); }
+    /** What earlier runs against this workspace established. */
+    default List<String> priorFindings() { return List.of(); }
+    /** Hands this run's findings to the next one. */
+    default void rememberFindings(List<String> findings) {}
     default void completed(String task, String answer) {}
     default void finished(boolean success) {}
 

@@ -821,12 +821,140 @@ class AgentLoopTest {
     }
 
     @Test
-    void wallsOffSinglePurposeProgramsButNotInterpreters() {
+    void wallsOffSinglePurposeProgramsAndAimedInterpretersButNotBareOnes() {
         assertTrue(AgentLoop.blockable("run_command:osascript"));
         assertTrue(AgentLoop.blockable("run_command:sqlite3"));
         assertTrue(AgentLoop.blockable("read_file"));
+        // a bare interpreter is a capability, not an approach
         assertTrue(!AgentLoop.blockable("run_command:python3"));
         assertTrue(!AgentLoop.blockable("run_command:bash"));
+        // aimed at something specific, it is an approach again
+        assertTrue(AgentLoop.blockable("run_command:python3:sqlite3"));
+        assertTrue(AgentLoop.blockable("run_command:bash:osascript"));
+    }
+
+    @Test
+    void separatesWhatAnInterpreterIsReachingFor() throws Exception {
+        assertEquals("run_command:python3:sqlite3", AgentLoop.approachSignature(new ToolCall(
+                "run_command",
+                objectMapper.readTree("{\"command\":\"python3 -c \\\"import sqlite3; q()\\\"\"}")
+        )));
+        assertEquals("run_command:python3:glob+gzip", AgentLoop.approachSignature(new ToolCall(
+                "run_command",
+                objectMapper.readTree("{\"command\":\"python3 -c \\\"import gzip, glob\\\"\"}")
+        )));
+        assertEquals("run_command:python3:report.py", AgentLoop.approachSignature(new ToolCall(
+                "run_command",
+                objectMapper.readTree("{\"command\":\"python3 scripts/report.py --days 2\"}")
+        )));
+        // single-purpose programs keep the plain signature
+        assertEquals("run_command:sqlite3", AgentLoop.approachSignature(new ToolCall(
+                "run_command", objectMapper.readTree("{\"command\":\"sqlite3 store.db .tables\"}")
+        )));
+    }
+
+    @Test
+    void startsFromWhatEarlierRunsEstablished() throws Exception {
+        Tool probe = new Tool() {
+            public String name() { return "read_file"; }
+            public String description() { return "read"; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return false; }
+            public ToolResult execute(JsonNode arguments) { return ToolResult.success("bytes"); }
+        };
+        List<String> handedOn = new ArrayList<>();
+        AgentMemory memory = new AgentMemory() {
+            @Override public List<String> priorFindings() {
+                return List.of("OSA logs are PII-redacted");
+            }
+            @Override public void rememberFindings(List<String> findings) {
+                handedOn.clear();
+                handedOn.addAll(findings);
+            }
+        };
+        RecordingModelClient model = new RecordingModelClient(
+                "{\"thought\":\"look\",\"finding\":\"calendar store.json is readable\","
+                        + "\"toolCalls\":[{\"name\":\"read_file\",\"arguments\":{\"path\":\"a\"}}],"
+                        + "\"finalAnswer\":null}",
+                "{\"thought\":\"done\",\"toolCalls\":[],\"finalAnswer\":\"Reported.\"}"
+        );
+
+        AgentResult result = loop(model, List.of(probe), new NoOpVerificationGate(), memory)
+                .run("summarise my mail");
+
+        assertTrue(result.success(), result.output());
+        String followUp = model.requests.get(1).getLast().content();
+        assertTrue(followUp.contains("- OSA logs are PII-redacted"), followUp);
+        assertTrue(followUp.contains("- calendar store.json is readable"), followUp);
+        assertEquals(2, handedOn.size());
+    }
+
+    @Test
+    void inheritedFindingsAreNotTrimmedAwayByThisRunsOwn() {
+        List<String> findings = new ArrayList<>();
+        findings.add("calendar store.json is readable");
+        findings.add("Outlook.sqlite is empty");
+        int pinned = findings.size();
+
+        for (int index = 0; index < 60; index++) {
+            AgentLoop.recordFinding(findings, "later fact " + index, pinned);
+        }
+
+        assertEquals(AgentLoop.MAX_FINDINGS, findings.size());
+        assertEquals("calendar store.json is readable", findings.get(0));
+        assertEquals("Outlook.sqlite is empty", findings.get(1));
+        assertEquals("later fact 59", findings.getLast());
+    }
+
+    @Test
+    void saysSoWhenTheSameConclusionKeepsComingBack() throws Exception {
+        Tool probe = new Tool() {
+            public String name() { return "read_file"; }
+            public String description() { return "read"; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return false; }
+            public ToolResult execute(JsonNode arguments) { return ToolResult.success("bytes"); }
+        };
+        String stuck = "{\"thought\":\"again\",\"finding\":\"OSA logs are PII-redacted\","
+                + "\"toolCalls\":[{\"name\":\"read_file\",\"arguments\":{\"path\":\"a\"}}],"
+                + "\"finalAnswer\":null}";
+        RecordingModelClient model = new RecordingModelClient(
+                stuck, stuck, stuck, stuck, stuck,
+                "{\"thought\":\"stop\",\"toolCalls\":[],\"finalAnswer\":\"Not reachable.\"}"
+        );
+
+        AgentResult result = loop(model, List.of(probe), new NoOpVerificationGate(),
+                AgentMemory.none(), 8).run("summarise my mail");
+
+        assertTrue(result.success(), result.output());
+        String later = model.requests.get(5).getLast().content();
+        assertTrue(later.contains("turns running. Nothing has been learned"), later);
+    }
+
+    @Test
+    void aFullyInheritedLedgerStillAcceptsWhatThisRunLearns() {
+        List<String> findings = new ArrayList<>();
+        for (int index = 0; index < AgentLoop.MAX_FINDINGS; index++) {
+            findings.add("inherited " + index);
+        }
+        int pinned = findings.size();
+
+        AgentLoop.recordFinding(findings, "learned right now", pinned);
+
+        assertEquals(AgentLoop.MAX_FINDINGS, findings.size());
+        assertEquals("learned right now", findings.getLast());
+        // the oldest inherited entry gave way, not the new one
+        assertEquals("inherited 1", findings.get(0));
+    }
+
+    @Test
+    void inheritedFindingsAreOfferedForRecheckingNotAsSettled() {
+        String ledger = AgentLoop.findingsLedger(
+                List.of("OSA logs are PII-redacted", "calendar store.json is readable"), 1);
+
+        assertTrue(ledger.contains("Established by earlier runs here"), ledger);
+        assertTrue(ledger.contains("re-check"), ledger);
+        assertTrue(ledger.contains("Established so far (do not re-derive):"), ledger);
     }
 
     @Test
@@ -838,11 +966,11 @@ class AgentLoopTest {
         AgentLoop.recordFinding(findings, null);
         assertEquals(1, findings.size());
 
-        for (int index = 0; index < 25; index++) {
+        for (int index = 0; index < 60; index++) {
             AgentLoop.recordFinding(findings, "fact " + index);
         }
-        assertEquals(20, findings.size());
-        assertEquals("fact 24", findings.getLast());
+        assertEquals(AgentLoop.MAX_FINDINGS, findings.size());
+        assertEquals("fact 59", findings.getLast());
         assertEquals("", AgentLoop.findingsLedger(new ArrayList<>()));
     }
 
@@ -933,6 +1061,16 @@ class AgentLoopTest {
             VerificationGate verificationGate,
             AgentMemory memory
     ) {
+        return loop(model, tools, verificationGate, memory, 4);
+    }
+
+    private AgentLoop loop(
+            ModelClient model,
+            List<Tool> tools,
+            VerificationGate verificationGate,
+            AgentMemory memory,
+            int maxTurns
+    ) {
         return new AgentLoop(
                 model,
                 new DecisionParser(objectMapper),
@@ -943,7 +1081,7 @@ class AgentLoopTest {
                 new AgentContext("", "", ""),
                 new NoOpStatusReporter(),
                 verificationGate,
-                4,
+                maxTurns,
                 2,
                 null,
                 memory

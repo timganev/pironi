@@ -20,6 +20,7 @@ import java.util.Set;
 public final class FindFilesTool implements Tool {
     private volatile AccessGrants grants = new AccessGrants();
     private static final int MAX_VISITED = 20_000;
+    private final int maxVisited;
     private static final int MAX_CONTENT_BYTES = 2 * 1024 * 1024;
     private final List<Path> allowedRoots;
     private final Set<Path> hiddenPaths;
@@ -29,6 +30,12 @@ public final class FindFilesTool implements Tool {
     }
 
     public FindFilesTool(List<Path> allowedRoots, Set<Path> hiddenPaths) {
+        this(allowedRoots, hiddenPaths, MAX_VISITED);
+    }
+
+    /** Visible for tests: crossing the real budget would mean creating 20 000 files. */
+    FindFilesTool(List<Path> allowedRoots, Set<Path> hiddenPaths, int maxVisited) {
+        this.maxVisited = maxVisited;
         if (allowedRoots.isEmpty()) throw new IllegalArgumentException("At least one search root is required");
         this.allowedRoots = allowedRoots.stream()
                 .map(FindFilesTool::canonicalize)
@@ -70,12 +77,15 @@ public final class FindFilesTool implements Tool {
             Set<Object> visitedDirectories = new HashSet<>();
             Set<Path> visitedRealDirectories = new HashSet<>();
             int[] visited = {0};
+            boolean[] gaveUp = {false};
             Files.walkFileTree(realRoot, new FileVisitor<>() {
                 @Override
                 public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) {
-                    if (++visited[0] > MAX_VISITED || results.size() >= maxResults) {
+                    if (++visited[0] > maxVisited) {
+                        gaveUp[0] = true;
                         return FileVisitResult.TERMINATE;
                     }
+                    if (results.size() >= maxResults) return FileVisitResult.TERMINATE;
                     if (!directory.equals(realRoot)
                             && (attributes.isSymbolicLink() || Files.isSymbolicLink(directory))) {
                         return FileVisitResult.SKIP_SUBTREE;
@@ -95,9 +105,11 @@ public final class FindFilesTool implements Tool {
 
                 @Override
                 public FileVisitResult visitFile(Path candidate, BasicFileAttributes attributes) {
-                    if (++visited[0] > MAX_VISITED || results.size() >= maxResults) {
+                    if (++visited[0] > maxVisited) {
+                        gaveUp[0] = true;
                         return FileVisitResult.TERMINATE;
                     }
+                    if (results.size() >= maxResults) return FileVisitResult.TERMINATE;
                     if (!attributes.isRegularFile() || !matcher.matches(candidate.getFileName())) {
                         return FileVisitResult.CONTINUE;
                     }
@@ -128,6 +140,20 @@ public final class FindFilesTool implements Tool {
                     return FileVisitResult.CONTINUE;
                 }
             });
+            // "No matches" and "I stopped looking" are different answers. Reporting the first
+            // when the second is true is how an agent concludes a file does not exist.
+            if (gaveUp[0]) {
+                String limit = "[search stopped after visiting " + maxVisited + " entries and did "
+                        + "not cover the whole tree; narrow root or use list_files to see where the "
+                        + "files are]";
+                return ToolResult.success(results.isEmpty()
+                        ? "No matches so far. " + limit
+                        : String.join("\n", results) + System.lineSeparator() + limit);
+            }
+            if (results.size() >= maxResults) {
+                return ToolResult.success(String.join("\n", results) + System.lineSeparator()
+                        + "[stopped at maxResults=" + maxResults + "; there may be more matches]");
+            }
             return ToolResult.success(results.isEmpty() ? "No matches." : String.join("\n", results));
         } catch (IllegalArgumentException | IOException e) {
             return ToolResult.failure(e.getMessage());
