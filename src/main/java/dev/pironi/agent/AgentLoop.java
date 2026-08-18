@@ -722,17 +722,24 @@ public final class AgentLoop {
                     .append("do the work directly. For a single fetch, use http_get directly — delegation pays off ")
                     .append("at 2+ calls.");
         }
+        // Stable sections first, volatile ones last, so that prefix caching on the server keeps
+        // working. Caches key on a token prefix: the first section that changes between requests
+        // invalidates everything after it. "Current time and regional context" changes on every
+        // single call, so placing it early discarded the whole prompt — including the project
+        // CLAUDE.md — on every turn. Measured against vLLM with a 13k-token prompt: front 6.8 tok/s
+        // on every turn, back 21.1 tok/s from the second turn on (the first turn is a cold cache
+        // either way).
+        appendContext(prompt, "Runtime capabilities (authoritative)", capabilities.render());
+        appendContext(prompt, "Identity from SOUL.md", agentContext.soul());
+        appendContext(prompt, "User profile from USER.md", agentContext.userProfile());
+        appendContext(prompt, "Project instructions from CLAUDE.md", agentContext.projectInstructions());
+        appendContext(prompt, "Session skills", memory.promptContext());
         appendContext(
                 prompt,
                 "Current runtime session (authoritative)",
                 agentContext.runtimeSession()
         );
         appendContext(prompt, "Current time and regional context", runtimeRegionalContext());
-        appendContext(prompt, "Runtime capabilities (authoritative)", capabilities.render());
-        appendContext(prompt, "Identity from SOUL.md", agentContext.soul());
-        appendContext(prompt, "User profile from USER.md", agentContext.userProfile());
-        appendContext(prompt, "Project instructions from CLAUDE.md", agentContext.projectInstructions());
-        appendContext(prompt, "Session skills", memory.promptContext());
         return prompt.toString();
     }
 
