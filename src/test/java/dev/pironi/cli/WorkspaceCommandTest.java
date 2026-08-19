@@ -61,8 +61,10 @@ class WorkspaceCommandTest {
         var childRead = new dev.pironi.tool.ReadFileTool(
                 workspace, 32_000, java.util.List.of(), java.util.Set.of());
         childRead.useGrants(grants);
-        var arguments = new com.fasterxml.jackson.databind.ObjectMapper().readTree(
-                "{\"path\":\"" + second.resolve("Subject.java").toRealPath() + "\"}");
+        // Built as a node, not concatenated: a Windows path is full of backslashes and would
+        // be read as escape sequences.
+        var arguments = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode()
+                .put("path", second.resolve("Subject.java").toRealPath().toString());
 
         assertTrue(childRead.execute(arguments).output().contains("outside"),
                 "not readable before the move");

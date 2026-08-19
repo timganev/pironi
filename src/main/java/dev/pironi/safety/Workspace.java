@@ -135,9 +135,32 @@ public final class Workspace {
     }
 
     private boolean isReadable(Path candidate) {
+        Path real = resolvedAsFarAsPossible(candidate);
         for (Path allowed : readableRoots.get()) {
-            if (candidate.startsWith(allowed)) return true;
+            if (candidate.startsWith(allowed) || real.startsWith(resolvedAsFarAsPossible(allowed))) {
+                return true;
+            }
         }
         return false;
+    }
+
+    /**
+     * The same directory has two spellings on two of the three platforms: /var and /private/var
+     * on macOS, RUNNER~1 and runneradmin on Windows. Comparing what was typed against what was
+     * granted then says "outside" about a directory that is plainly inside, and the refusal drops
+     * the one sentence that would have explained it. Resolve as far as the filesystem allows -
+     * the path itself may not exist yet, which is normal for something about to be written.
+     */
+    private static Path resolvedAsFarAsPossible(Path path) {
+        Path absolute = path.toAbsolutePath().normalize();
+        Path existing = absolute;
+        while (existing != null && !Files.exists(existing)) existing = existing.getParent();
+        if (existing == null) return absolute;
+        try {
+            Path real = existing.toRealPath();
+            return existing.equals(absolute) ? real : real.resolve(existing.relativize(absolute));
+        } catch (IOException e) {
+            return absolute;
+        }
     }
 }

@@ -30,9 +30,12 @@ class FindFilesToolTest {
         // A hundred results in a real tree cost 23 000 characters because every line repeated the
         // same 179-character prefix; the root belongs in the output once.
         assertTrue(found.output().startsWith("Under " + root.toRealPath()), found.output());
-        assertTrue(found.output().contains(
-                "Outlook 15 Profiles/Main Profile/Osa/Logs_2026/entry-0.xmlgz"), found.output());
-        assertFalse(found.output().contains(root.toRealPath() + "/Outlook 15 Profiles"),
+        // A relative path is spelled with the platform's separator, so the expectation is built
+        // the same way instead of assuming a forward slash.
+        String entry = Path.of("Outlook 15 Profiles", "Main Profile", "Osa", "Logs_2026",
+                "entry-0.xmlgz").toString();
+        assertTrue(found.output().contains(entry), found.output());
+        assertFalse(found.output().contains(root.toRealPath().resolve("Outlook 15 Profiles").toString()),
                 "an absolute path per line is the cost we removed");
     }
 

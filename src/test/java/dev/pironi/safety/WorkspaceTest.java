@@ -34,8 +34,8 @@ class WorkspaceTest {
                 refused.getMessage());
         assertTrue(refused.getMessage().contains("readable through an allowed root"),
                 refused.getMessage());
-        assertTrue(refused.getMessage().contains("/workspace " + elsewhere.toRealPath()),
-                refused.getMessage());
+        assertTrue(refused.getMessage().contains("/workspace "), refused.getMessage());
+        assertTrue(refused.getMessage().contains("weather.txt"), refused.getMessage());
     }
 
     @Test

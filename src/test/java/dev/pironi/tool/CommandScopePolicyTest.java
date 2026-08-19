@@ -8,8 +8,12 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 class CommandScopePolicyTest {
     @Test
     void workspaceBlocksExplicitEscapesButAllowsProjectCommands() {
-        assertNull(CommandScopePolicy.rejection("mvn test", ShellScope.WORKSPACE));
-        assertNotNull(CommandScopePolicy.rejection("cat /etc/passwd", ShellScope.WORKSPACE));
+        // The absolute-path rule is Unix-only by design: on Windows every cmd.exe switch reads
+        // as a path ("dir /b", "tasklist /FO CSV"), so applying it there rejected almost every
+        // native command. The platform is named here rather than inherited from the host, which
+        // made this assertion pass on Linux and fail on the Windows runner for that same reason.
+        assertNull(CommandScopePolicy.rejection("mvn test", ShellScope.WORKSPACE, "Linux"));
+        assertNotNull(CommandScopePolicy.rejection("cat /etc/passwd", ShellScope.WORKSPACE, "Linux"));
         assertNotNull(CommandScopePolicy.rejection("cat ../secret", ShellScope.WORKSPACE));
         assertNotNull(CommandScopePolicy.rejection("cd subdir", ShellScope.WORKSPACE));
     }

@@ -91,7 +91,8 @@ class CheckpointManagerTest {
         Path file = Files.writeString(second.resolve("data.txt"), "x");
         var checkpoint = checkpoints.create(file);
 
-        assertTrue(checkpoint.directory().startsWith(second.resolve(".pironi/checkpoints")),
+        assertTrue(checkpoint.directory().startsWith(
+                        second.toRealPath().resolve(".pironi/checkpoints")),
                 checkpoint.directory().toString());
         assertEquals("data.txt", checkpoint.relativePath());
     }
