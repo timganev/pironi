@@ -29,8 +29,25 @@ class SubagentManagerTest {
         assertEquals("sub_", completion.result().id().substring(0, 4),
                 "id is normalized to the real handle, not the taskRunner's hardcoded id");
         assertTrue(completion.result().output().contains("Sofia 5-day"));
-        assertEquals(0, manager.activeCount());
+        // finish() queues the result before it clears the active count - deliberately, so a
+        // result is never lost to a caller arriving in between - so seeing the completion says
+        // nothing yet about the counter. Asserting it directly passed on a fast machine and
+        // failed on a loaded runner.
+        assertEquals(0, waitForIdle(manager), "the child stops counting as active");
         manager.close();
+    }
+
+    /** Bounded wait for the active count to settle; returns whatever it reached. */
+    private static int waitForIdle(SubagentManager manager) {
+        for (int attempt = 0; attempt < 200 && manager.activeCount() > 0; attempt++) {
+            try {
+                Thread.sleep(5);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        return manager.activeCount();
     }
 
     @Test
