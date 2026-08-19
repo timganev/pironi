@@ -17,15 +17,14 @@ class ProjectVerificationGateTest {
     Path workspaceRoot;
 
     @Test
-    void autoDetectsMavenAndDoesNotRunBeforeChange() throws Exception {
-        Files.writeString(workspaceRoot.resolve("pom.xml"), "<project/>");
+    void takesTheConfiguredCommandAndDoesNotRunBeforeChange() throws Exception {
         ProjectVerificationGate gate = new ProjectVerificationGate(
                 new Workspace(workspaceRoot),
-                null,
+                "mvn -q test",
                 Duration.ofSeconds(2)
         );
 
-        assertEquals("mvn test", gate.command());
+        assertEquals("mvn -q test", gate.command());
         assertFalse(gate.required());
         assertFalse(gate.verifyIfRequired().attempted());
     }
@@ -51,14 +50,18 @@ class ProjectVerificationGateTest {
     }
 
     @Test
-    void selectsPlatformSpecificBuildWrappers() throws Exception {
+    void staysSilentWhenNoVerificationCommandWasConfigured() throws Exception {
+        // A pom in the workspace used to be enough to run the whole test suite after any
+        // mutation, including ones a test cannot judge, such as deleting a temp file.
+        Files.writeString(workspaceRoot.resolve("pom.xml"), "<project/>");
         Files.writeString(workspaceRoot.resolve("mvnw"), "");
-        Files.writeString(workspaceRoot.resolve("mvnw.cmd"), "");
-        Workspace workspace = new Workspace(workspaceRoot);
+        ProjectVerificationGate gate = new ProjectVerificationGate(
+                new Workspace(workspaceRoot), "", Duration.ofSeconds(5));
 
-        assertEquals("./mvnw test",
-                ProjectVerificationGate.detectCommand(workspace, "Linux").orElseThrow());
-        assertEquals("mvnw.cmd test",
-                ProjectVerificationGate.detectCommand(workspace, "Windows 11").orElseThrow());
+        gate.markChanged();
+
+        assertEquals("", gate.command());
+        assertFalse(gate.required());
+        assertFalse(gate.verifyIfRequired().attempted());
     }
 }

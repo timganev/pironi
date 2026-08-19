@@ -362,7 +362,12 @@ public final class AgentLoop {
 
             boolean findingSupplied = !decision.finding().isBlank();
             recordFinding(findings, decision.finding(), pinnedFindings);
-            memory.rememberFindings(findings);
+            // Only what this turn nominated as durable is written down. The finding above stays
+            // in this run: replaying "list_files returned no entries" or "I will try a relative
+            // path next" to a session a week later described a world that had moved on.
+            if (!decision.remember().isBlank()) {
+                memory.rememberFindings(List.of(decision.remember().strip()));
+            }
             String thisFinding = decision.finding().strip();
             repeatedFindings = !thisFinding.isEmpty() && thisFinding.equals(lastFinding)
                     ? repeatedFindings + 1 : 0;
@@ -831,8 +836,8 @@ public final class AgentLoop {
         int carried = Math.min(inherited, findings.size());
         if (carried > 0) {
             ledger.append(System.lineSeparator())
-                    .append("Established by earlier runs here (trust unless it is load-bearing, "
-                            + "then re-check):");
+                    .append("Established here in earlier sessions, with the date each was last "
+                            + "confirmed. Verify anything you are about to act on:");
             for (String finding : findings.subList(0, carried)) {
                 ledger.append(System.lineSeparator()).append("- ").append(finding);
             }
@@ -1048,6 +1053,7 @@ public final class AgentLoop {
                 {
                   "thought": "brief next-step summary",
                   "finding": "one sentence the last results established",
+                  "remember": "",
                   "toolCalls": [
                     {"name": "tool_name", "arguments": {"required": "values"}}
                   ],
@@ -1062,6 +1068,16 @@ public final class AgentLoop {
                 that turned out to be empty, a format that cannot be parsed. Write "nothing
                 conclusive yet" when they established nothing. Findings are replayed to you every
                 turn under "Established so far"; treat that list as settled and never re-derive it.
+                A finding says something about the work, never about which tools exist or what
+                policy allows: those change between runs, and the runtime capability report above
+                is the only authority on them.
+                remember is different and almost always "". It is the only field written to disk
+                and read by future sessions against this directory, so put something there only
+                when it passes one test: will this still be true in a week? The build system, the
+                layout of a project, a schema, an endpoint that requires a header - those keep.
+                What a listing returned today, what a file currently contains, what you are about
+                to try next, and anything about tools or permissions do not: they belong in
+                finding, which is forgotten when the task ends.
                 Tool arguments must match the documented schema exactly.
                 Copy user-specified paths and filenames verbatim, including Unicode, spaces,
                 capitalization, and extensions. Before finishing, verify every explicitly requested

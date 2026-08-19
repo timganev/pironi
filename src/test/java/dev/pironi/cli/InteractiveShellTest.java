@@ -19,6 +19,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class InteractiveShellTest {
     @Test
+    void unknownCommandPointsAtTheRealSpelling() {
+        assertEquals(" Did you mean /access allow-tool?",
+                InteractiveShell.suggestionFor("/allow-tool"));
+        assertEquals(" Directories move with /workspace PATH.",
+                InteractiveShell.suggestionFor("/deny-dir"));
+        assertEquals(" Directories move with /workspace PATH.",
+                InteractiveShell.suggestionFor("/allow-dir"));
+        assertEquals(" Did you mean /model?", InteractiveShell.suggestionFor("/modell"));
+        assertEquals(" Type /help for the list.",
+                InteractiveShell.suggestionFor("/completely-unrelated"));
+    }
+
+    @Test
     void approvalInteractionUsesShellInputAndBalancesStatusLifecycle() throws Exception {
         BufferedReader input = new BufferedReader(new StringReader("y\n"));
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();

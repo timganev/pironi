@@ -176,7 +176,11 @@ public final class InteractiveShell {
         default String rejectSkill() { return "No pending skill draft."; }
         String forgetSkill(String name);
         String pruneSkills();
-        /** Shows or changes session access: "", "allow-dir PATH", "deny-tool NAME", ... */
+        /** Shows or moves the directory writing tools may touch: "" or a path. */
+        default String workspace(String argument) { return "Workspace switching not available."; }
+        /** Shows what earlier runs established here, or "clear" to drop it. */
+        default String findings(String argument) { return "Findings not available."; }
+        /** Shows or changes tool access: "", "allow-tool NAME", "deny-tool NAME". */
         default String access(String argument) { return "Access control not available."; }
         /** Stores or lists one-line preferences: "", a fact, or "forget N". */
         default String remember(String argument) { return "Memory not available."; }
@@ -389,6 +393,10 @@ public final class InteractiveShell {
             }
             case "/access" -> println(shellCommands == null
                     ? "Access control not available." : shellCommands.access(arg));
+            case "/findings" -> println(shellCommands == null
+                    ? "Findings not available." : shellCommands.findings(arg));
+            case "/workspace" -> println(shellCommands == null
+                    ? "Workspace switching not available." : shellCommands.workspace(arg));
             case "/remember" -> println(shellCommands == null
                     ? "Memory not available." : shellCommands.remember(arg));
             case "/doctor" -> {
@@ -455,7 +463,7 @@ public final class InteractiveShell {
                 if (shellCommands != null) println(shellCommands.pruneSkills());
                 else println("Skills not available.");
             }
-            default -> printError("Unknown command: " + cmd);
+            default -> printError("Unknown command: " + cmd + suggestionFor(cmd));
         }
     }
 
@@ -550,6 +558,59 @@ public final class InteractiveShell {
         };
     }
 
+    /**
+     * Access lives under /access sub-verbs so that the inline slash menu stays short, which makes
+     * /allow-tool the mistake people (and the model, quoting a policy message) actually type. Left
+     * as a bare "Unknown command" it is a dead end: nothing on screen points at the real spelling.
+     */
+    static String suggestionFor(String command) {
+        String typed = command.startsWith("/") ? command.substring(1) : command;
+        if (typed.isEmpty()) return " Type /help for the list.";
+        for (String verb : ACCESS_VERBS) {
+            if (verb.equals(typed)) return " Did you mean /access " + verb + "?";
+        }
+        // Muscle memory outlives a removed command, and these four were one intent all along.
+        if (RETIRED_DIRECTORY_VERBS.contains(typed)) return " Directories move with /workspace PATH.";
+        String best = null;
+        int bestDistance = Integer.MAX_VALUE;
+        for (Command candidate : commands()) {
+            String name = candidate.name().substring(1);
+            int distance = editDistance(typed, name);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = candidate.name();
+            }
+        }
+        // A third of the name may differ; beyond that the "suggestion" is a guess that sends
+        // the user somewhere unrelated, which is worse than saying nothing.
+        int tolerance = Math.max(1, typed.length() / 3);
+        return best != null && bestDistance <= tolerance
+                ? " Did you mean " + best + "?"
+                : " Type /help for the list.";
+    }
+
+    private static final List<String> ACCESS_VERBS = List.of("allow-tool", "deny-tool");
+
+    private static final List<String> RETIRED_DIRECTORY_VERBS = List.of(
+            "allow-dir", "deny-dir", "remember-dir", "forget-dir");
+
+    private static int editDistance(String left, String right) {
+        int[] previous = new int[right.length() + 1];
+        int[] current = new int[right.length() + 1];
+        for (int j = 0; j <= right.length(); j++) previous[j] = j;
+        for (int i = 1; i <= left.length(); i++) {
+            current[0] = i;
+            for (int j = 1; j <= right.length(); j++) {
+                int substitute = previous[j - 1] + (left.charAt(i - 1) == right.charAt(j - 1) ? 0 : 1);
+                current[j] = Math.min(substitute, Math.min(previous[j] + 1, current[j - 1] + 1));
+            }
+            int[] swap = previous;
+            previous = current;
+            current = swap;
+        }
+        return previous[right.length()];
+    }
+
     private record Command(String name, String description) {}
 
     private static List<Command> commands() {
@@ -563,7 +624,9 @@ public final class InteractiveShell {
                 new Command("/context", "Show current conversation context"),
                 new Command("/new", "Start a clean session"),
                 new Command("/capabilities", "Show live runtime capabilities"),
-                new Command("/access", "Show or change directory and tool access"),
+                new Command("/access", "Show or change tool access"),
+                new Command("/workspace", "Show or take the directory the agent works in"),
+                new Command("/findings", "Show what earlier runs established here; 'clear' drops it"),
                 new Command("/remember", "Remember a preference; 'forget N' removes one"),
                 new Command("/doctor", "Check Java, workspace, shell and network"),
                 new Command("/sessions", "List saved sessions"),

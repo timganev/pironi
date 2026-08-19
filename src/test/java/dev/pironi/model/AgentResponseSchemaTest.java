@@ -16,7 +16,7 @@ class AgentResponseSchemaTest {
         assertEquals("object", schema.path("type").asText());
         assertFalse(schema.path("additionalProperties").asBoolean());
         assertEquals(
-                List.of("thought", "finding", "toolCalls", "finalAnswer"),
+                List.of("thought", "finding", "remember", "toolCalls", "finalAnswer"),
                 new ObjectMapper().convertValue(schema.path("required"), List.class)
         );
         assertEquals(

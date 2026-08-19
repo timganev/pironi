@@ -125,12 +125,23 @@ class SubagentManagerTest {
         // awaitCompleted decides whether to wait from the active set, so landing in that
         // window returned empty and the completed child's output vanished. Rare on a fast
         // machine, reproducible on a loaded CI runner, so repeat with an immediate child.
+        //
+        // The same window also decided how long the wait took. Hitting it made awaitCompleted
+        // sit out its whole timeout for a child that had already finished, which is why this
+        // test used to cost five seconds per hit and was the slowest in the suite. The elapsed
+        // assertion below keeps that from coming back quietly: the result was always returned,
+        // so only the clock ever showed it.
         for (int attempt = 0; attempt < 300; attempt++) {
             var manager = new SubagentManager(2,
                     (name, subtask) -> SubagentResult.completed("x", name, "done"));
             SubagentResult handle = manager.spawn("weather", "Sofia");
+            long startedAt = System.nanoTime();
             List<SubagentResult> ready = manager.awaitCompleted(java.time.Duration.ofSeconds(5));
+            long elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000;
             int index = attempt;
+            assertTrue(elapsedMillis < 2_000,
+                    () -> "attempt " + index + ": awaiting a finished child must not wait out"
+                            + " the timeout, took " + elapsedMillis + " ms");
             // Supplier form: the message calls drainCompleted(), which empties the queue, so it
             // must only run when the assertion actually fails.
             assertEquals(1, ready.size(), () ->
@@ -167,10 +178,16 @@ class SubagentManagerTest {
         });
         manager.spawn("stuck", "hang");
         assertEquals(1, manager.activeCount());
-        // A real await waits up to its deadline; the child stays active until the interrupt
-        // resolves it inside runChild.
-        manager.awaitCompleted(java.time.Duration.ofSeconds(5));
-        Thread.sleep(300); // let runChild resolve the interrupted child
+        // The stuck child never completes, so this await always burns its whole timeout: it is
+        // the deadline under test (400 ms) that has to fire, not this one. Five seconds here
+        // bought nothing and made the slowest test in the suite.
+        manager.awaitCompleted(java.time.Duration.ofSeconds(1));
+        // Poll instead of sleeping a fixed guess: runChild resolves the interrupted child in
+        // milliseconds, and waiting the worst case every run is what the fixed sleep did.
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(2).toNanos();
+        while (manager.activeCount() > 0 && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
         assertEquals(0, manager.activeCount(), "deadline interrupt resolves the stuck child");
         manager.close();
     }

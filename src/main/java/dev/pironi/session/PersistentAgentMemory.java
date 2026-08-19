@@ -20,6 +20,12 @@ public final class PersistentAgentMemory implements AgentMemory {
     private final ObjectMapper mapper;
     private final String model;
     private final Path workspace;
+    /**
+     * Findings are filed under the directory they were learned in, which /workspace can move
+     * mid-session. Reading it live keeps one project's conclusions out of another's file; the
+     * session record keeps the directory the session started in.
+     */
+    private java.util.function.Supplier<Path> currentWorkspace;
     private final int contextLimit;
     private final int maxTurns;
     private final FindingsStore findingsStore;
@@ -52,6 +58,7 @@ public final class PersistentAgentMemory implements AgentMemory {
         this.mapper = mapper;
         this.model = model;
         this.workspace = workspace;
+        this.currentWorkspace = () -> workspace;
         this.contextLimit = contextLimit;
         this.maxTurns = maxTurns;
     }
@@ -153,12 +160,36 @@ public final class PersistentAgentMemory implements AgentMemory {
         return activeSkill;
     }
 
-    @Override public synchronized java.util.List<String> priorFindings() {
-        return findingsStore == null ? java.util.List.of() : findingsStore.load(workspace);
+    /** Wired by the CLI so findings follow /workspace. */
+    public synchronized void useWorkspaceSource(java.util.function.Supplier<Path> source) {
+        if (source != null) this.currentWorkspace = source;
     }
 
-    @Override public synchronized void rememberFindings(java.util.List<String> findings) {
-        if (findingsStore != null) findingsStore.save(workspace, findings);
+    @Override public synchronized java.util.List<String> priorFindings() {
+        if (findingsStore == null) return java.util.List.of();
+        return findingsStore.load(currentWorkspace.get()).stream()
+                .map(FindingsStore.Finding::forPrompt).toList();
+    }
+
+    /**
+     * Only what the run nominated as durable reaches the file. The per-turn finding stays in the
+     * run: it exists to stop the agent repeating a dead end within one task, and a note like "I
+     * will try a relative path next" was never meant to outlive the ten seconds it described.
+     */
+    @Override public synchronized void rememberFindings(java.util.List<String> durable) {
+        if (findingsStore == null || durable.isEmpty()) return;
+        findingsStore.save(currentWorkspace.get(), durable,
+                java.time.LocalDate.now().toString(), currentSessionId());
+    }
+
+    /** Drops what earlier runs established here; the running task keeps what it has learned. */
+    public synchronized boolean forgetFindings() {
+        return findingsStore != null && findingsStore.clear(currentWorkspace.get());
+    }
+
+    /** What earlier runs established for the current workspace, with date and origin. */
+    public synchronized List<FindingsStore.Finding> storedFindings() {
+        return findingsStore == null ? List.of() : findingsStore.load(currentWorkspace.get());
     }
 
     @Override public synchronized void completed(String task, String answer) {

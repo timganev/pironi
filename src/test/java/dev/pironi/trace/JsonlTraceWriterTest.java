@@ -101,4 +101,25 @@ class JsonlTraceWriterTest {
         assertEquals("guidance", record.path("kind").asText());
         assertTrue(record.path("note").asText().contains("same finding 3 turns"));
     }
+
+    @Test
+    void prunesTraceEventsOutsideTheRetentionWindow() throws Exception {
+        // The file itself never ages - every session appends to it - so the age has to be read
+        // off the events. A line without a readable timestamp is kept: unknown is not old.
+        Path trace = root.resolve("trace.jsonl");
+        java.nio.file.Files.write(trace, java.util.List.of(
+                "{\"timestamp\":\"2026-01-01T00:00:00Z\",\"type\":\"model_response\"}",
+                "{\"timestamp\":\"" + java.time.Instant.now() + "\",\"type\":\"tool_result\"}",
+                "not json at all"
+        ));
+
+        int dropped = JsonlTraceWriter.pruneOlderThan(
+                trace, java.time.Duration.ofDays(30), new ObjectMapper());
+
+        java.util.List<String> kept = java.nio.file.Files.readAllLines(trace);
+        assertEquals(1, dropped);
+        assertEquals(2, kept.size());
+        assertTrue(kept.get(0).contains("tool_result"), kept.toString());
+        assertEquals("not json at all", kept.get(1));
+    }
 }

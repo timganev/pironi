@@ -31,7 +31,10 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public final class TestKeysRunner {
     private static final int TERMINAL_COLUMNS = 100;
-    private static final int TERMINAL_ROWS = 30;
+    // Tall enough for the whole slash menu plus the prompt. At 30 rows the 29-entry menu no
+    // longer fitted, so JLine replaced it with "do you wish to see all 29 possibilities?" and
+    // every scripted scenario stalled waiting for an answer it was never scripted to give.
+    private static final int TERMINAL_ROWS = 44;
 
     private TestKeysRunner() {
     }

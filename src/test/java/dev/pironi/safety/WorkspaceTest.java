@@ -8,11 +8,69 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WorkspaceTest {
     @TempDir
     Path temporaryDirectory;
+
+    @Test
+    void refusalNamesTheWorkspaceAndTheWayOut() throws Exception {
+        // The message a session actually hit: the file had just been read through a granted
+        // root, so "Absolute paths are not allowed" read as "no tool can ever touch it".
+        Path root = Files.createDirectory(temporaryDirectory.resolve("project"));
+        Path elsewhere = Files.createDirectory(temporaryDirectory.resolve("repo"));
+        Files.writeString(elsewhere.resolve("weather.txt"), "27C");
+        Workspace workspace = new Workspace(root);
+        java.util.List<Path> readable = java.util.List.of(elsewhere.toRealPath());
+        workspace.useReadableRoots(() -> readable);
+
+        IOException refused = assertThrows(IOException.class, () ->
+                workspace.resolveForWrite(elsewhere.resolve("weather.txt").toString()));
+
+        assertTrue(refused.getMessage().contains(root.toRealPath().toString()),
+                refused.getMessage());
+        assertTrue(refused.getMessage().contains("readable through an allowed root"),
+                refused.getMessage());
+        assertTrue(refused.getMessage().contains("/workspace " + elsewhere.toRealPath()),
+                refused.getMessage());
+    }
+
+    @Test
+    void refusalStaysQuietAboutReadAccessThatDoesNotExist() throws Exception {
+        Path root = Files.createDirectory(temporaryDirectory.resolve("only"));
+        Workspace workspace = new Workspace(root);
+
+        IOException refused = assertThrows(IOException.class, () ->
+                workspace.resolveForWrite("../outside.txt"));
+
+        assertFalse(refused.getMessage().contains("readable through"), refused.getMessage());
+        assertTrue(refused.getMessage().contains("Move the sandbox"), refused.getMessage());
+    }
+
+    @Test
+    void switchingTheWorkspaceMovesEveryScopedResolution() throws Exception {
+        Path first = Files.createDirectory(temporaryDirectory.resolve("first"));
+        Path second = Files.createDirectory(temporaryDirectory.resolve("second"));
+        Files.writeString(second.resolve("file.txt"), "there");
+        Workspace workspace = new Workspace(first);
+
+        assertThrows(IOException.class, () -> workspace.resolveExisting("file.txt"));
+        assertEquals(second.toRealPath(), workspace.switchTo(second));
+        assertEquals(second.toRealPath().resolve("file.txt"), workspace.resolveExisting("file.txt"));
+    }
+
+    @Test
+    void switchingToSomethingThatIsNotADirectoryIsRefused() throws Exception {
+        Path root = Files.createDirectory(temporaryDirectory.resolve("root"));
+        Path file = Files.writeString(temporaryDirectory.resolve("plain.txt"), "x");
+        Workspace workspace = new Workspace(root);
+
+        assertThrows(RuntimeException.class, () -> workspace.switchTo(file));
+        assertEquals(root.toRealPath(), workspace.root());
+    }
 
     @Test
     void resolvesExistingPathInsideWorkspace() throws Exception {

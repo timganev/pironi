@@ -20,7 +20,8 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
     private final RuntimeDoctor doctor;
     private dev.pironi.tool.ToolRegistry registry;
     private dev.pironi.session.UserFacts userFacts;
-    private dev.pironi.session.RememberedRoots rememberedRoots;
+    private dev.pironi.safety.Workspace workspace;
+    private java.util.function.Consumer<java.nio.file.Path> workspaceChanged = path -> { };
     private boolean personalContextLoaded;
     private Runnable accessChanged = () -> { };
 
@@ -38,8 +39,69 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
         if (callback != null) this.accessChanged = callback;
     }
 
-    void useRememberedRoots(dev.pironi.session.RememberedRoots roots) {
-        this.rememberedRoots = roots;
+    /**
+     * The callback carries the switch to everything that keeps its own copy of the workspace:
+     * the saved session, the runtime description the model reads, and the read grants.
+     */
+    void useWorkspace(dev.pironi.safety.Workspace sandbox,
+            java.util.function.Consumer<java.nio.file.Path> onChange) {
+        this.workspace = sandbox;
+        if (onChange != null) this.workspaceChanged = onChange;
+    }
+
+    /**
+     * The one command that takes a directory: reading and writing together. Splitting them
+     * meant two commands for one intent - and a granted directory that was readable and still
+     * untouchable, which read to the agent as a file no tool could ever change.
+     */
+    @Override public String workspace(String argument) {
+        if (workspace == null) return "Workspace switching not available.";
+        String trimmed = argument == null ? "" : argument.trim();
+        if (trimmed.isEmpty()) {
+            StringBuilder out = new StringBuilder("Workspace (reading and writing act here): ")
+                    .append(workspace.root());
+            java.util.List<java.nio.file.Path> readable = registry == null
+                    ? java.util.List.of()
+                    : registry.grants().grantedRoots().stream()
+                            .filter(root -> !root.equals(workspace.root())).sorted().toList();
+            if (!readable.isEmpty()) {
+                out.append("\nStill readable from earlier in this session: ").append(readable);
+            }
+            return out.append("\nChange with: /workspace PATH").toString();
+        }
+        java.nio.file.Path previous = workspace.root();
+        try {
+            java.nio.file.Path moved = workspace.switchTo(expandHome(trimmed));
+            if (moved.equals(previous)) return "Already the workspace: " + moved;
+            if (registry != null) {
+                // Record the directory being left as an explicit read grant. It stays readable
+                // either way - the read tools keep the roots they started with - but only a
+                // recorded grant appears in /workspace and in what the model is told.
+                try {
+                    registry.grants().grantRoot(previous);
+                } catch (java.io.IOException ignored) {
+                    // It was the workspace a moment ago; if it has just become unreadable,
+                    // saying so here would only distract from the switch that did work.
+                }
+            }
+            workspaceChanged.accept(moved);
+            return "Workspace switched for this session: " + moved
+                    + "\n  Reading, writing and run_command now act there;"
+                    + " " + previous + " stays readable."
+                    + "\n  Checkpoints taken before the switch still roll back to where"
+                    + " those files are. The trace stays where the session started.";
+        } catch (java.io.IOException | RuntimeException e) {
+            return "Could not switch workspace: " + e.getMessage();
+        }
+    }
+
+    private static java.nio.file.Path expandHome(String path) {
+        String home = System.getProperty("user.home", "");
+        if (path.equals("~")) return java.nio.file.Path.of(home);
+        if (path.startsWith("~/") || path.startsWith("~\\")) {
+            return java.nio.file.Path.of(home, path.substring(2));
+        }
+        return java.nio.file.Path.of(path);
     }
 
     void useUserFacts(dev.pironi.session.UserFacts facts, boolean loaded) {
@@ -91,6 +153,34 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
      * rendered inline and a handful of extra entries pushes the prompt off a short terminal,
      * which silently breaks the keyboard tests.
      */
+    /**
+     * Findings outlive the run that learned them, which is the point and also the risk: a file
+     * that has since been deleted, a layout that has since changed. Being able to see them and
+     * drop them is what keeps that trade honest.
+     */
+    @Override public String findings(String argument) {
+        if (memory == null) return "Findings not available.";
+        String trimmed = argument == null ? "" : argument.trim();
+        if (trimmed.equalsIgnoreCase("clear")) {
+            return memory.forgetFindings()
+                    ? "Cleared what earlier runs established for this workspace."
+                    : "Nothing was stored for this workspace.";
+        }
+        if (!trimmed.isEmpty()) return "Usage: /findings [clear]";
+        var stored = memory.storedFindings();
+        if (stored.isEmpty()) return "Nothing established by earlier runs here.";
+        StringBuilder out = new StringBuilder("Established by earlier runs here:");
+        for (var finding : stored) {
+            // Date and origin are for you, not for the model: /resume on that session id shows
+            // the conversation a claim came from, which is what you need when one turns out wrong.
+            out.append("\n  ").append(finding.date().isEmpty() ? "(undated)" : finding.date())
+                    .append("  ").append(finding.session().isEmpty() ? "-" : finding.session())
+                    .append("\n    ").append(finding.text());
+        }
+        return out.append("\nDrop them with /findings clear; /resume ID reopens a session.")
+                .toString();
+    }
+
     @Override public String access(String argument) {
         if (registry == null) return "Access control not available.";
         String trimmed = argument == null ? "" : argument.trim();
@@ -99,90 +189,22 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
         String verb = space < 0 ? trimmed : trimmed.substring(0, space);
         String rest = space < 0 ? "" : trimmed.substring(space + 1).trim();
         return switch (verb) {
-            case "allow-dir" -> allowDirectory(rest);
-            case "deny-dir" -> denyDirectory(rest);
             case "allow-tool" -> allowTool(rest);
             case "deny-tool" -> denyTool(rest);
-            case "remember-dir" -> rememberDirectory(rest);
-            case "forget-dir" -> forgetDirectory(rest);
-            default -> "Usage: /access [allow-dir PATH | deny-dir PATH | allow-tool NAME "
-                    + "| deny-tool NAME | remember-dir PATH | forget-dir PATH]";
+            // Directories used to be granted here as well, in three variants. Taking a
+            // directory is one intent, and /workspace is the one command for it now.
+            case "allow-dir", "deny-dir", "remember-dir", "forget-dir" ->
+                    "Directories are not granted here any more. Take one with /workspace PATH.";
+            default -> "Usage: /access [allow-tool NAME | deny-tool NAME]";
         };
     }
 
     private String showAccess() {
         var grants = registry.grants();
-        StringBuilder out = new StringBuilder("Granted this session:");
-        out.append("\n  directories: ").append(grants.grantedRoots().isEmpty()
-                ? "(none beyond startup --search-roots)" : grants.grantedRoots());
-        out.append("\n  blocked tools: ").append(grants.disabledTools().isEmpty()
-                ? "(none)" : grants.disabledTools().stream().sorted().toList());
-        if (rememberedRoots != null) {
-            try {
-                var remembered = rememberedRoots.list();
-                out.append("\n  remembered across sessions: ").append(
-                        remembered.isEmpty() ? "(none)" : remembered);
-            } catch (IOException e) {
-                out.append("\n  remembered across sessions: unreadable (").append(e.getMessage()).append(")");
-            }
-        }
-        out.append("\nChange with: /access allow-dir PATH | deny-dir PATH | allow-tool NAME "
-                + "| deny-tool NAME | remember-dir PATH | forget-dir PATH");
-        return out.toString();
-    }
-
-    private String allowDirectory(String path) {
-        if (registry == null) return "Access control not available.";
-        if (path == null || path.isBlank()) return "Usage: /access allow-dir PATH";
-        try {
-            java.nio.file.Path granted = registry.grants().grantRoot(java.nio.file.Path.of(path.trim()));
-            accessChanged.run();
-            return "Read access granted for this session: " + granted;
-        } catch (java.io.IOException | RuntimeException e) {
-            return "Could not grant access: " + e.getMessage();
-        }
-    }
-
-    private String rememberDirectory(String path) {
-        if (rememberedRoots == null) return "Access control not available.";
-        if (path == null || path.isBlank()) return "Usage: /access remember-dir PATH";
-        String granted = allowDirectory(path);
-        if (!granted.startsWith("Read access granted")) return granted;
-        try {
-            java.nio.file.Path directory = java.nio.file.Path.of(path.trim());
-            boolean added = rememberedRoots.remember(directory);
-            return granted + (added
-                    ? " It will be granted automatically in future sessions; "
-                    + "remove it with /access forget-dir."
-                    : " It was already remembered for future sessions.");
-        } catch (IOException e) {
-            return granted + " Could not persist it: " + e.getMessage();
-        }
-    }
-
-    private String forgetDirectory(String path) {
-        if (rememberedRoots == null) return "Access control not available.";
-        if (path == null || path.isBlank()) return "Usage: /access forget-dir PATH";
-        try {
-            boolean removed = rememberedRoots.forget(java.nio.file.Path.of(path.trim()));
-            // Also close it for the running session, otherwise "forget" would leave the
-            // directory readable until restart, which is the opposite of what it says.
-            String revoked = denyDirectory(path);
-            return removed
-                    ? "No longer remembered across sessions. " + revoked
-                    : "Was not remembered across sessions. " + revoked;
-        } catch (IOException e) {
-            return "Could not update the remembered list: " + e.getMessage();
-        }
-    }
-
-    private String denyDirectory(String path) {
-        if (registry == null) return "Access control not available.";
-        if (path == null || path.isBlank()) return "Usage: /access deny-dir PATH";
-        boolean removed = registry.grants().revokeRoot(java.nio.file.Path.of(path.trim()));
-        accessChanged.run();
-        return removed ? "Access revoked: " + path.trim()
-                : "Not granted in this session: " + path.trim();
+        return "Blocked tools: " + (grants.disabledTools().isEmpty()
+                ? "(none)" : grants.disabledTools().stream().sorted().toList())
+                + "\nChange with: /access allow-tool NAME | deny-tool NAME"
+                + "\nDirectories: see /workspace";
     }
 
     private String allowTool(String name) {

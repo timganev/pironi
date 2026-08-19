@@ -33,13 +33,14 @@ public final class DecisionParser {
 
             String thought = root.path("thought").asText("");
             String finding = root.path("finding").asText("");
+            String remember = root.path("remember").asText("");
             String finalAnswer = textOrNull(root.get("finalAnswer"));
             List<ToolCall> calls = parseToolCalls(root.get("toolCalls"));
 
             if ((finalAnswer == null || finalAnswer.isBlank()) && calls.isEmpty()) {
                 throw new ProtocolException("Response must contain finalAnswer or at least one tool call");
             }
-            return new AgentDecision(thought, finding, calls, finalAnswer);
+            return new AgentDecision(thought, finding, remember, calls, finalAnswer);
         } catch (JsonProcessingException e) {
             String message = e.getOriginalMessage();
             String category = message != null && (

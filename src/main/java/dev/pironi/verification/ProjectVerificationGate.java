@@ -8,7 +8,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.Duration;
-import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
@@ -17,15 +16,13 @@ public final class ProjectVerificationGate implements VerificationGate {
     private static final int MAX_OUTPUT_CHARACTERS = dev.pironi.tool.ToolOutput.MAX_CHARACTERS;
 
     private final Workspace workspace;
-    private final String command;
+    private final String overrideCommand;
     private final Duration timeout;
     private boolean changed;
 
     public ProjectVerificationGate(Workspace workspace, String overrideCommand, Duration timeout) {
         this.workspace = workspace;
-        this.command = overrideCommand == null || overrideCommand.isBlank()
-                ? detectCommand(workspace, System.getProperty("os.name", "")).orElse("")
-                : overrideCommand;
+        this.overrideCommand = overrideCommand == null ? "" : overrideCommand;
         this.timeout = timeout;
     }
 
@@ -36,7 +33,7 @@ public final class ProjectVerificationGate implements VerificationGate {
 
     @Override
     public boolean required() {
-        return changed && !command.isBlank();
+        return changed && !command().isBlank();
     }
 
     @Override
@@ -45,6 +42,7 @@ public final class ProjectVerificationGate implements VerificationGate {
             return VerificationResult.notRequired();
         }
 
+        String command = command();
         try {
             ProcessBuilder processBuilder = new ProcessBuilder(PlatformShell.command(command))
                     .directory(workspace.root().toFile())
@@ -91,31 +89,14 @@ public final class ProjectVerificationGate implements VerificationGate {
         }
     }
 
+    /**
+     * Only what the user configured. Detecting a build from a pom or a gradlew used to make
+     * every mutation pay for the project's whole test suite - 36 seconds to confirm the deletion
+     * of a temp file, which tests cannot say anything about anyway. Verification is worth running
+     * when the user says which command is worth running.
+     */
     public String command() {
-        return command;
+        return overrideCommand;
     }
 
-    static Optional<String> detectCommand(Workspace workspace, String osName) {
-        boolean windows = osName.toLowerCase().contains("win");
-        if (Files.isRegularFile(workspace.root().resolve("mvnw.cmd")) && windows) {
-            return Optional.of("mvnw.cmd test");
-        }
-        if (Files.isRegularFile(workspace.root().resolve("mvnw")) && !windows) {
-            return Optional.of("./mvnw test");
-        }
-        if (Files.isRegularFile(workspace.root().resolve("pom.xml"))) {
-            return Optional.of("mvn test");
-        }
-        if (Files.isRegularFile(workspace.root().resolve("gradlew.bat")) && windows) {
-            return Optional.of("gradlew.bat test");
-        }
-        if (Files.isRegularFile(workspace.root().resolve("gradlew")) && !windows) {
-            return Optional.of("./gradlew test");
-        }
-        if (Files.isRegularFile(workspace.root().resolve("build.gradle"))
-                || Files.isRegularFile(workspace.root().resolve("build.gradle.kts"))) {
-            return Optional.of("gradle test");
-        }
-        return Optional.empty();
-    }
 }

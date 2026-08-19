@@ -127,6 +127,36 @@ record CliOptions(
         );
     }
 
+    CliOptions withWorkspace(java.nio.file.Path newWorkspace) {
+        return new CliOptions(
+                provider,
+                baseUri,
+                model,
+                apiKey,
+                apiKeyEnvironmentName,
+                newWorkspace,
+                task,
+                approvalMode,
+                maxTurns,
+                contextSize,
+                maxOutputTokens,
+                modelTimeout,
+                tracePath,
+                pironiHome,
+                personalContextMode,
+                statusMode,
+                verifyCommand,
+                denyTools,
+                allowTools,
+                shellScope,
+                searchRoots,
+                interactive,
+                false,
+                maxSubagents,
+                subagentTimeoutSeconds
+        );
+    }
+
     CliOptions withApprovalMode(ApprovalMode newApprovalMode) {
         return new CliOptions(
                 provider,

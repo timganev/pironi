@@ -145,8 +145,18 @@ class PironiMainTest {
 
     @Test
     void autoActivityDisablesWorkspaceShellUnlessExplicitlyAllowed() {
-        CliOptions options = CliOptions.parse(
+        // An interactive session keeps the shell: every command is confirmed before it runs
+        // (RunCommandTool.requiresExplicitApproval), so auto approval never runs one unseen.
+        CliOptions interactive = CliOptions.parse(
                 new String[]{"--activity", "auto", "--model", "test"}, Map.of()
+        );
+        assertEquals(Set.of("app_control"), PironiMain.autoSafeDeniedTools(interactive));
+
+        // A batch run cannot confirm anything, so there the shell stays off at workspace scope.
+        CliOptions options = CliOptions.parse(
+                new String[]{"--activity", "auto", "--model", "test", "--no-interactive",
+                        "--task", "anything"},
+                Map.of()
         );
 
         assertEquals(Set.of("run_command", "app_control"), PironiMain.autoSafeDeniedTools(options));
@@ -162,8 +172,8 @@ class PironiMainTest {
 
         CliOptions userScoped = CliOptions.parse(
                 new String[]{
-                        "--activity", "auto", "--model", "test",
-                        "--shell-scope", "user"
+                        "--activity", "auto", "--model", "test", "--no-interactive",
+                        "--task", "anything", "--shell-scope", "user"
                 },
                 Map.of()
         );

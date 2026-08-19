@@ -216,7 +216,8 @@ public final class SubagentManager implements AutoCloseable, SubagentGateway {
         // NOT be cancelled by it (it gets its own execution window); only the original set is.
         java.util.Set<String> waitingOn = activeIds();
         long deadlineNanos = System.nanoTime() + timeout.toNanos();
-        List<SubagentResult> out = drainCompleted();
+        List<SubagentResult> out = new ArrayList<>();
+        drainInto(out, waitingOn);
         while (!waitingOn.isEmpty() && active.get() > 0) {
             long remaining = deadlineNanos - System.nanoTime();
             if (remaining <= 0) break;
@@ -224,7 +225,7 @@ public final class SubagentManager implements AutoCloseable, SubagentGateway {
             if (next == null) break;
             out.add(next.result());
             waitingOn.remove(next.id());
-            out.addAll(drainCompleted());
+            drainInto(out, waitingOn);
         }
         if (!waitingOn.isEmpty() && active.get() > 0) {
             // Bounded wait expired with original children still running: cancel the snapshot set.
@@ -233,8 +234,26 @@ public final class SubagentManager implements AutoCloseable, SubagentGateway {
         // Always drain last. A child that finished between the first drain and the loop condition
         // leaves the queue non-empty while active has already dropped to zero, so the loop is
         // skipped and its result would otherwise be returned to nobody.
-        out.addAll(drainCompleted());
+        drainInto(out, waitingOn);
         return out;
+    }
+
+    /**
+     * Drains the queue and retires every child it carried from the wait set.
+     *
+     * <p>Draining without retiring is what made a finished child cost a full timeout. finish()
+     * queues the completion before it decrements the active count, so a caller arriving in that
+     * window snapshots the child as still active, drains its result immediately - and then waits
+     * on an empty queue for a child that had already finished. Nothing was lost, the final drain
+     * still returned it, but the wait ran to the deadline: five seconds in the tests, and up to
+     * the whole configured sub-agent timeout in a real session.
+     */
+    private void drainInto(List<SubagentResult> out, java.util.Set<String> waitingOn) {
+        Completion next;
+        while ((next = completed.poll()) != null) {
+            out.add(next.result());
+            waitingOn.remove(next.id());
+        }
     }
 
     /** Returns one ready child result, or null when nothing has finished. Kept for CLI convenience. */

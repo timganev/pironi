@@ -14,13 +14,16 @@ public final class AgentResponseSchema {
         root.put("type", "object");
         root.put("additionalProperties", false);
         ArrayNode required = root.putArray("required");
-        required.add("thought").add("finding").add("toolCalls").add("finalAnswer");
+        required.add("thought").add("finding").add("remember").add("toolCalls").add("finalAnswer");
 
         ObjectNode properties = root.putObject("properties");
         properties.putObject("thought").put("type", "string");
         // Required so constrained decoding actually emits it; an empty string means
         // "nothing established this turn".
         properties.putObject("finding").put("type", "string");
+        // Required for the same reason as finding, and empty for almost every turn: only a fact
+        // that will still be true next week belongs in a file the next session reads.
+        properties.putObject("remember").put("type", "string");
 
         ObjectNode toolCalls = properties.putObject("toolCalls");
         toolCalls.put("type", "array");

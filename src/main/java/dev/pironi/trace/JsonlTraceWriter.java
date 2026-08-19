@@ -20,6 +20,46 @@ public final class JsonlTraceWriter implements TraceWriter {
     private final ObjectMapper objectMapper;
     private final BufferedWriter writer;
 
+    /**
+     * Drops events older than the retention window from a trace file before it is opened.
+     *
+     * <p>A trace is one file that only ever grows, and it holds what the agent read: arguments,
+     * tool output, excerpts of files. An age limit on the file itself would never fire, because
+     * every session touches it again - so the age has to be read off the events inside.
+     *
+     * @return how many events were dropped
+     */
+    public static int pruneOlderThan(Path path, java.time.Duration retention,
+            ObjectMapper objectMapper) {
+        if (!Files.isRegularFile(path)) return 0;
+        Instant cutoff = Instant.now().minus(retention);
+        try {
+            java.util.List<String> kept = new java.util.ArrayList<>();
+            int dropped = 0;
+            for (String line : Files.readAllLines(path, StandardCharsets.UTF_8)) {
+                if (line.isBlank()) continue;
+                if (recordedBefore(line, cutoff, objectMapper)) dropped++;
+                else kept.add(line);
+            }
+            if (dropped > 0) Files.write(path, kept, StandardCharsets.UTF_8);
+            return dropped;
+        } catch (IOException | UncheckedIOException e) {
+            // A trace that cannot be pruned is not worth failing a run over.
+            return 0;
+        }
+    }
+
+    /** A line without a readable timestamp is kept: age unknown is not the same as old. */
+    private static boolean recordedBefore(String line, Instant cutoff, ObjectMapper objectMapper) {
+        try {
+            JsonNode node = objectMapper.readTree(line);
+            String timestamp = node.path("timestamp").asText("");
+            return !timestamp.isEmpty() && Instant.parse(timestamp).isBefore(cutoff);
+        } catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException e) {
+            return false;
+        }
+    }
+
     public JsonlTraceWriter(Path path, ObjectMapper objectMapper) throws IOException {
         Path parent = path.toAbsolutePath().normalize().getParent();
         if (parent != null) {

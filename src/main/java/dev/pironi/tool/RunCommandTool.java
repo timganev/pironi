@@ -15,17 +15,44 @@ public final class RunCommandTool implements Tool {
     private final Duration defaultTimeout;
     private final int maxOutputCharacters;
     private final ShellScope shellScope;
+    private final boolean promptable;
 
     public RunCommandTool(Workspace workspace, Duration defaultTimeout, int maxOutputCharacters) {
-        this(workspace, defaultTimeout, maxOutputCharacters, ShellScope.WORKSPACE);
+        this(workspace, defaultTimeout, maxOutputCharacters, ShellScope.WORKSPACE, false);
     }
 
     public RunCommandTool(Workspace workspace, Duration defaultTimeout, int maxOutputCharacters,
             ShellScope shellScope) {
+        this(workspace, defaultTimeout, maxOutputCharacters, shellScope, false);
+    }
+
+    public RunCommandTool(Workspace workspace, Duration defaultTimeout, int maxOutputCharacters,
+            ShellScope shellScope, boolean promptable) {
         this.workspace = workspace;
         this.defaultTimeout = defaultTimeout;
         this.maxOutputCharacters = maxOutputCharacters;
         this.shellScope = shellScope;
+        this.promptable = promptable;
+    }
+
+    /**
+     * A shell command is the one tool whose effect cannot be read off its name, so it is shown
+     * and confirmed rather than auto-approved. That is what lets the shell stay available under
+     * approval=auto instead of being switched off wholesale, which is what used to happen and
+     * left ordinary work - deleting a file, say - with no route at all.
+     *
+     * <p>Only where a prompt can actually be answered. A batch run cannot ask, and a policy that
+     * always denies there would break every scripted shell step.
+     */
+    @Override public boolean requiresExplicitApproval(JsonNode arguments) {
+        return promptable;
+    }
+
+    @Override public String approvalPreview(JsonNode arguments) {
+        JsonNode command = arguments == null ? null : arguments.get("command");
+        return command == null || !command.isTextual()
+                ? "Invalid shell request: " + arguments
+                : command.textValue() + "\n  in " + workspace.root();
     }
 
     @Override

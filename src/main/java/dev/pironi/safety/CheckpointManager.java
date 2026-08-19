@@ -12,17 +12,20 @@ import java.util.UUID;
 
 public final class CheckpointManager {
     private final Workspace workspace;
-    private final Path checkpointRoot;
     private final Deque<Checkpoint> checkpoints = new ArrayDeque<>();
 
     public CheckpointManager(Workspace workspace) {
         this.workspace = workspace;
-        this.checkpointRoot = workspace.root().resolve(".pironi/checkpoints");
+    }
+
+    /** Read per call, not cached: /workspace moves the sandbox while the session runs. */
+    private Path checkpointRoot() {
+        return workspace.root().resolve(".pironi/checkpoints");
     }
 
     public Checkpoint create(Path target) throws IOException {
         String id = UUID.randomUUID().toString();
-        Path directory = checkpointRoot.resolve(id);
+        Path directory = checkpointRoot().resolve(id);
         Files.createDirectories(directory);
         boolean existed = Files.exists(target);
         if (existed) {
@@ -30,7 +33,8 @@ public final class CheckpointManager {
         }
         Checkpoint checkpoint = new Checkpoint(
                 id,
-                workspace.root().relativize(target).toString(),
+                displayName(target),
+                target.toAbsolutePath().normalize(),
                 existed,
                 directory
         );
@@ -48,7 +52,10 @@ public final class CheckpointManager {
             throw new IOException("No checkpoint is available in this session");
         }
 
-        Path target = workspace.resolveForWrite(checkpoint.relativePath());
+        // The absolute path is stored with the checkpoint rather than re-resolved against the
+        // workspace: after /workspace the current sandbox is a different directory, and
+        // restoring a file into it would put it somewhere it never was.
+        Path target = checkpoint.target();
         if (checkpoint.existed()) {
             Path staged = Files.createTempFile(target.getParent(), ".pironi-rollback-", ".tmp");
             try {
@@ -83,14 +90,73 @@ public final class CheckpointManager {
         }
     }
 
+    /**
+     * Drops the copies this session took, because none of them can be rolled back any more: the
+     * stack lives in memory and ends with the process. Left behind, they are a full copy of every
+     * file the agent touched, kept for ever - including files it was asked to delete.
+     *
+     * @return how many were removed
+     */
+    public int discardAll() {
+        int removed = 0;
+        for (Checkpoint checkpoint : checkpoints) {
+            try {
+                deleteCheckpointDirectory(checkpoint);
+                removed++;
+            } catch (IOException ignored) {
+                // A checkpoint that will not delete is not worth failing a shutdown over.
+            }
+        }
+        checkpoints.clear();
+        return removed;
+    }
+
+    /**
+     * Removes checkpoints left by runs that ended without discarding theirs - a crash, a killed
+     * terminal, or any version before this cleanup existed. Age is the only safe test: another
+     * Pironi may be running in the same workspace right now, and its checkpoints are minutes old.
+     *
+     * @return how many were removed
+     */
+    public int pruneOrphans(java.time.Duration olderThan) {
+        Path root = checkpointRoot();
+        if (!Files.isDirectory(root)) return 0;
+        long cutoff = System.currentTimeMillis() - olderThan.toMillis();
+        int removed = 0;
+        try (var entries = Files.list(root)) {
+            for (Path directory : entries.toList()) {
+                try {
+                    if (!Files.isDirectory(directory)) continue;
+                    if (Files.getLastModifiedTime(directory).toMillis() > cutoff) continue;
+                    Files.deleteIfExists(directory.resolve("content"));
+                    Files.deleteIfExists(directory);
+                    removed++;
+                } catch (IOException ignored) {
+                    // Skip what will not delete; the next run tries again.
+                }
+            }
+        } catch (IOException ignored) {
+            return removed;
+        }
+        return removed;
+    }
+
     private static void deleteCheckpointDirectory(Checkpoint checkpoint) throws IOException {
         Files.deleteIfExists(checkpoint.directory().resolve("content"));
         Files.deleteIfExists(checkpoint.directory());
     }
 
+    /** Names the file the way the user saw it: relative while it is inside the workspace. */
+    private String displayName(Path target) {
+        Path absolute = target.toAbsolutePath().normalize();
+        return absolute.startsWith(workspace.root())
+                ? workspace.root().relativize(absolute).toString() : absolute.toString();
+    }
+
     public record Checkpoint(
             String id,
             String relativePath,
+            Path target,
             boolean existed,
             Path directory
     ) {

@@ -960,6 +960,7 @@ class AgentLoopTest {
         };
         RecordingModelClient model = new RecordingModelClient(
                 "{\"thought\":\"look\",\"finding\":\"calendar store.json is readable\","
+                        + "\"remember\":\"the calendar lives in store.json\","
                         + "\"toolCalls\":[{\"name\":\"read_file\",\"arguments\":{\"path\":\"a\"}}],"
                         + "\"finalAnswer\":null}",
                 "{\"thought\":\"done\",\"toolCalls\":[],\"finalAnswer\":\"Reported.\"}"
@@ -972,7 +973,9 @@ class AgentLoopTest {
         String followUp = model.requests.get(1).getLast().content();
         assertTrue(followUp.contains("- OSA logs are PII-redacted"), followUp);
         assertTrue(followUp.contains("- calendar store.json is readable"), followUp);
-        assertEquals(2, handedOn.size());
+        // The turn's finding steers this run and stops there; only what the turn nominated as
+        // durable is handed to the next session.
+        assertEquals(List.of("the calendar lives in store.json"), handedOn);
     }
 
     @Test
@@ -1038,8 +1041,9 @@ class AgentLoopTest {
         String ledger = AgentLoop.findingsLedger(
                 List.of("OSA logs are PII-redacted", "calendar store.json is readable"), 1);
 
-        assertTrue(ledger.contains("Established by earlier runs here"), ledger);
-        assertTrue(ledger.contains("re-check"), ledger);
+        assertTrue(ledger.contains("Established here in earlier sessions"), ledger);
+        assertTrue(ledger.contains("date each was last confirmed"), ledger);
+        assertTrue(ledger.contains("Verify anything you are about to act on"), ledger);
         assertTrue(ledger.contains("Established so far (do not re-derive):"), ledger);
     }
 

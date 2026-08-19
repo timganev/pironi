@@ -15,38 +15,72 @@ import java.util.List;
  * <p>Without this every run rediscovers the same dead ends: the same unreadable store, the same
  * empty table, the same interface that answers but returns nothing. Those conclusions cost turns
  * to reach and nothing to keep.</p>
+ *
+ * <p>Each line records when the fact was last confirmed and which session confirmed it. The date
+ * goes to the model, because "established here" with no date reads as a claim about the present -
+ * which is how a note about a file deleted the day before came back as current. The session id is
+ * for the user: {@code /resume} on it shows the conversation the claim came from.</p>
  */
 public final class FindingsStore {
+    private static final String SEPARATOR = "\t";
     private final Path directory;
 
     public FindingsStore(Path pironiHome) {
         this.directory = pironiHome.resolve("findings");
     }
 
-    public List<String> load(Path workspace) {
+    /** One durable fact: when it was last confirmed, by which session, and what it says. */
+    public record Finding(String date, String session, String text) {
+        public Finding {
+            date = date == null ? "" : date;
+            session = session == null ? "" : session;
+            text = text == null ? "" : text;
+        }
+
+        /** What the model sees. Undated lines predate the format and stay as they are. */
+        public String forPrompt() {
+            return date.isEmpty() ? text : "(" + date + ") " + text;
+        }
+    }
+
+    public List<Finding> load(Path workspace) {
         Path file = fileFor(workspace);
         if (!Files.isRegularFile(file)) return List.of();
         try {
-            List<String> lines = new ArrayList<>();
+            List<Finding> findings = new ArrayList<>();
             for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
                 String trimmed = line.strip();
-                if (!trimmed.isEmpty()) lines.add(trimmed);
+                if (trimmed.isEmpty()) continue;
+                String[] parts = trimmed.split(SEPARATOR, 3);
+                findings.add(parts.length < 3
+                        ? new Finding("", "", trimmed)
+                        : new Finding(parts[0], parts[1], parts[2]));
             }
-            return List.copyOf(lines);
+            return List.copyOf(findings);
         } catch (IOException e) {
             return List.of();
         }
     }
 
-    public void save(Path workspace, List<String> findings) {
-        if (findings.isEmpty()) return;
-        // Merge rather than replace: a run that trimmed its in-memory list must not persist the
-        // loss, or each run quietly erases part of what the previous one paid to learn.
-        List<String> merged = new ArrayList<>(load(workspace));
-        for (String finding : findings) {
-            if (!merged.contains(finding)) merged.add(finding);
+    /**
+     * Adds what this run established, keeping one entry per distinct text.
+     *
+     * <p>A repeat refreshes the date rather than adding a second line: a fact confirmed again
+     * today is fresher, and the ledger should say so instead of growing.
+     */
+    public void save(Path workspace, List<String> texts, String date, String session) {
+        if (texts.isEmpty()) return;
+        List<Finding> merged = new ArrayList<>(load(workspace));
+        for (String text : texts) {
+            // One fact, one line: a newline or a tab in the model's text would otherwise split
+            // the record and the next load would read half a sentence as a whole finding.
+            String value = text.replaceAll("[\\p{Cntrl}]+", " ").strip();
+            if (value.isEmpty()) continue;
+            int existing = indexOfText(merged, value);
+            if (existing >= 0) merged.set(existing, new Finding(date, session, value));
+            else merged.add(new Finding(date, session, value));
         }
-        List<String> kept = merged;
+        List<Finding> kept = merged;
         if (merged.size() > AgentLoop.MAX_FINDINGS) {
             // Keep both ends. Dropping the head would discard exactly the inherited entries the
             // loop pins, and persist a loss the pinning exists to prevent.
@@ -56,10 +90,29 @@ public final class FindingsStore {
         }
         try {
             Files.createDirectories(directory);
-            Files.write(fileFor(workspace), kept, StandardCharsets.UTF_8);
+            Files.write(fileFor(workspace), kept.stream()
+                    .map(finding -> finding.date() + SEPARATOR + finding.session()
+                            + SEPARATOR + finding.text())
+                    .toList(), StandardCharsets.UTF_8);
         } catch (IOException ignored) {
             // losing the carry-over must never fail a run
         }
+    }
+
+    /** @return true when a file existed and is now gone */
+    public boolean clear(Path workspace) {
+        try {
+            return Files.deleteIfExists(fileFor(workspace));
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    private static int indexOfText(List<Finding> findings, String text) {
+        for (int i = 0; i < findings.size(); i++) {
+            if (findings.get(i).text().equals(text)) return i;
+        }
+        return -1;
     }
 
     private Path fileFor(Path workspace) {

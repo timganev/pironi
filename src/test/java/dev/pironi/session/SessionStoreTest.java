@@ -87,4 +87,27 @@ class SessionStoreTest {
                 mapper.readTree(checkpoint).path("messages").get(0).path("content").asText()
         );
     }
+
+    @Test
+    void prunesTranscriptsOutsideTheRetentionWindow() throws Exception {
+        // A transcript holds the whole conversation, including what the agent read on the way.
+        // Keeping every one for ever is an archive nobody asked for.
+        SessionStore store = new SessionStore(temporaryDirectory, new ObjectMapper());
+        store.startSession("model", Path.of("/tmp/project"), 10_000, 8);
+        store.appendTurn(ChatMessage.user("hello"), 3, 2);
+        Path sessions = temporaryDirectory.resolve("sessions");
+        Path old = Files.createFile(sessions.resolve("2026-01-01T0000-old-1111.jsonl"));
+        Files.createFile(sessions.resolve("2026-01-01T0000-old-1111.meta.json"));
+        Files.setLastModifiedTime(old, java.nio.file.attribute.FileTime.fromMillis(
+                System.currentTimeMillis() - java.time.Duration.ofDays(90).toMillis()));
+
+        assertEquals(1, store.pruneOlderThan(java.time.Duration.ofDays(30)));
+
+        assertFalse(Files.exists(old));
+        assertFalse(Files.exists(sessions.resolve("2026-01-01T0000-old-1111.meta.json")));
+        try (var remaining = Files.list(sessions)) {
+            assertEquals(1, remaining.filter(p -> p.toString().endsWith(".jsonl")).count(),
+                    "the running session survives its own pruning");
+        }
+    }
 }

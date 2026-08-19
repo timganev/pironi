@@ -214,6 +214,45 @@ public final class SessionStore {
         return results;
     }
 
+    /**
+     * Deletes sessions whose files have not been touched inside the retention window.
+     *
+     * <p>A session transcript holds the whole conversation, including whatever the agent read on
+     * the way. Keeping every one for ever is an archive nobody asked for; keeping the recent ones
+     * is what /resume and /search actually need.
+     *
+     * @return how many sessions were removed
+     */
+    public int pruneOlderThan(java.time.Duration retention) {
+        long cutoff = System.currentTimeMillis() - retention.toMillis();
+        int removed = 0;
+        try (Stream<Path> files = Files.list(sessionsDir)) {
+            for (Path file : files.filter(p -> p.toString().endsWith(".jsonl")).toList()) {
+                try {
+                    if (Files.getLastModifiedTime(file).toMillis() > cutoff) continue;
+                    String id = file.getFileName().toString().replace(".jsonl", "");
+                    if (id.equals(currentMeta == null ? "" : currentMeta.id())) continue;
+                    Files.deleteIfExists(file);
+                    Files.deleteIfExists(sessionsDir.resolve(id + ".meta.json"));
+                    Files.deleteIfExists(sessionsDir.resolve(id + ".ckpt.json"));
+                    removed++;
+                } catch (IOException ignored) {
+                    // Skip what will not delete; the next run tries again.
+                }
+            }
+        } catch (IOException e) {
+            return removed;
+        }
+        if (removed > 0) {
+            try {
+                rebuildIndex();
+            } catch (IOException ignored) {
+                // The index is derived; a stale one is repaired on the next write.
+            }
+        }
+        return removed;
+    }
+
     // ── index ──────────────────────────────────────────────────────────
 
     private void updateIndex(SessionMeta meta) {

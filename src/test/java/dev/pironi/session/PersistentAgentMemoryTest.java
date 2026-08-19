@@ -9,6 +9,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.nio.file.Files;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -310,6 +311,67 @@ class PersistentAgentMemoryTest {
         String preview = memory.pendingSkill();
         assertTrue(preview.contains("First precise step"));
         assertFalse(preview.contains("generic answer"));
+    }
+
+    @Test void onlyWhatWasNominatedAsDurableIsWrittenDown() throws Exception {
+        // The per-turn finding is working memory for one task; the file is read by every future
+        // session against this directory, so it takes only what the run said would keep.
+        ObjectMapper mapper = new ObjectMapper();
+        Path workspace = Files.createDirectory(temporaryDirectory.resolve("project"));
+        FindingsStore store = new FindingsStore(temporaryDirectory);
+        PersistentAgentMemory memory = memoryWith(store, workspace, mapper, () -> workspace);
+
+        memory.rememberFindings(List.of("the build here is Maven"));
+
+        List<FindingsStore.Finding> stored = store.load(workspace);
+        assertEquals(List.of("the build here is Maven"),
+                stored.stream().map(FindingsStore.Finding::text).toList());
+        assertEquals(java.time.LocalDate.now().toString(), stored.getFirst().date());
+        assertFalse(stored.getFirst().session().isBlank(), "the origin session must be recorded");
+    }
+
+    @Test void findingsAreFiledUnderTheDirectoryTheSessionIsInNow() throws Exception {
+        // /workspace can move a session mid-task; what it learns afterwards belongs to the
+        // directory it is in, not to the one it started in.
+        ObjectMapper mapper = new ObjectMapper();
+        Path first = Files.createDirectory(temporaryDirectory.resolve("first"));
+        Path second = Files.createDirectory(temporaryDirectory.resolve("second"));
+        FindingsStore store = new FindingsStore(temporaryDirectory);
+        AtomicReference<Path> where = new AtomicReference<>(first);
+        PersistentAgentMemory memory = memoryWith(store, first, mapper, where::get);
+
+        memory.rememberFindings(List.of("first project uses Gradle"));
+        where.set(second);
+        memory.rememberFindings(List.of("second project uses Maven"));
+
+        assertEquals(List.of("first project uses Gradle"),
+                store.load(first).stream().map(FindingsStore.Finding::text).toList());
+        assertEquals(List.of("second project uses Maven"),
+                store.load(second).stream().map(FindingsStore.Finding::text).toList());
+    }
+
+    @Test void clearingFindingsRemovesWhatEarlierRunsEstablished() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        Path workspace = Files.createDirectory(temporaryDirectory.resolve("cleared"));
+        FindingsStore store = new FindingsStore(temporaryDirectory);
+        store.save(workspace, List.of("a stale conclusion"), "2026-07-01", "old-session");
+        PersistentAgentMemory memory = memoryWith(store, workspace, mapper, () -> workspace);
+
+        assertEquals(1, memory.storedFindings().size());
+        assertTrue(memory.forgetFindings());
+        assertEquals(List.of(), memory.storedFindings());
+        assertFalse(memory.forgetFindings());
+    }
+
+    private PersistentAgentMemory memoryWith(FindingsStore store, Path workspace,
+            ObjectMapper mapper, java.util.function.Supplier<Path> source) throws Exception {
+        PersistentAgentMemory memory = new PersistentAgentMemory(
+                new SessionStore(temporaryDirectory, mapper),
+                new ContextCompressor(10_000, mapper), new SkillStore(temporaryDirectory), mapper,
+                "model", workspace, 10_000, 8, store
+        );
+        memory.useWorkspaceSource(source);
+        return memory;
     }
 
     private PersistentAgentMemory memory(

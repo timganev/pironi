@@ -333,6 +333,35 @@ while `/doctor` checks Java, workspace permissions, shell and network access.
 ```
 
 The change takes effect immediately and is stored in the last-session profile.
+
+`/workspace` shows where the agent is working and moves it without restarting.
+The agent can also propose a move itself with the `switch_workspace` tool, which
+always asks: the approval prompt names the directory and the move happens only
+on a yes. Answering an out-of-workspace request with "type /workspace PATH" made
+the user the messenger for a decision they were already making, so the tool is
+registered in interactive sessions only - a batch run has nobody to ask.
+
+Both routes are the same switch:
+
+```text
+/workspace
+/workspace ~/repos/pironi
+```
+
+Taking a directory grants reading and writing together. Earlier versions split
+them - `/access allow-dir` for reading, the startup `--workspace` for writing,
+plus `remember-dir` to persist a read grant - so one intent needed two commands
+and produced a directory that was readable and still untouchable. Those verbs
+are gone; `/access` now covers tools only.
+
+Moving takes the file tools, `run_command` and the verification command with
+it, and is stored in the last-session profile. Directories taken earlier in the
+session stay readable, and `/workspace` lists them. Checkpoints taken before a
+move still roll back to where those files actually are; the trace stays where
+the session started. Only the shell can move the workspace - no tool can, and
+no state persists it across sessions: a document the model was asked to read
+must not be able to talk it into writing elsewhere, and a directory taken once
+must not silently come back next time.
 Pironi also injects the live provider, model, workspace, approval, context and
 status values into every agent task as authoritative runtime metadata, so the
 model does not need to inspect source or configuration files to answer those
@@ -478,12 +507,19 @@ OpenRouter is a cloud provider, so `--personal-context auto` does not send
 - `--activity auto` is a convenience override for `--approval auto`, including
   when `--approval ask` also appears in the command.
 
-Pironi distinguishes the host shell from the `run_command` tool. With the
-default workspace shell scope, auto-safe mode may keep `run_command`
-policy-disabled even though Bash, PowerShell, or CMD exists on the machine. The
+Pironi distinguishes the host shell from the `run_command` tool. In an
+interactive session the shell stays available under every approval mode and
+each command is shown and confirmed before it runs, so `auto` does not hand the
+shell a blank cheque. A non-interactive run cannot confirm anything, so there
+auto-safe mode keeps `run_command` policy-disabled under the default workspace
+shell scope even though Bash, PowerShell, or CMD exists on the machine. The
 startup capability note and `/capabilities` show the exact reason and recovery;
 the agent receives the same manifest and must not describe a policy-disabled
 tool as a missing host capability.
+
+There is no delete tool. Deleting goes through `run_command` (`rm`, `del`),
+which means it is shown and confirmed like any other command instead of being
+one auto-approved tool call.
 
 Interactive sessions are persisted under `~/.pironi/sessions`. `/sessions`
 lists them, `/resume [ID]` schedules a saved checkpoint for the next request,
@@ -744,11 +780,15 @@ to later sessions without changing prompts, agent identity, or trace content.
 - `pptx_create`
 - `run_command`
 
-Writing and moving paths are restricted to the selected workspace. Read-only
-tools may also use configured `--search-roots`. `apply_patch` requires
+Reading and writing both follow the workspace, which `/workspace PATH` moves;
+directories taken earlier in the session stay readable, and `--search-roots`
+adds read-only roots at startup. `apply_patch` requires
 one exact old-text match, shows a diff before approval, creates a checkpoint,
-and writes atomically. Before a final answer after a mutation, Pironi
-automatically runs the configured verification command or detects Maven/Gradle.
+and writes atomically. Before a final answer after a mutation, Pironi runs the
+verification command given by `--verify-command`, and nothing at all when none
+was given. Detecting a build from a `pom.xml` or a `gradlew` was worse than it
+sounds: every mutation paid for the project's whole test suite, including ones
+no test can judge.
 `list_files` accepts workspace-relative directories and absolute directories
 below configured search roots. It omits common generated/private directories such as `.git`,
 `.pironi`, `.idea`, `target`, `build`, `.gradle`, and `node_modules`. When a
@@ -809,7 +849,8 @@ blocks `sudo`; `unrestricted` removes the lexical checks and must be used only
 in an isolated environment.
 
 `move_file` operates only inside the workspace, refuses overwrite, creates
-checkpoints and verifies SHA-256 after the move. `write_file` creates missing
+checkpoints and verifies SHA-256 after the move. There is no delete tool:
+deleting goes through `run_command` (`rm`, `del`), which asks before it runs. `write_file` creates missing
 parent directories safely. `find_files` does not follow
 results outside an allowed real root and bounds visited files, result count and
 content size. When it stops at either bound it says so, instead of reporting no
