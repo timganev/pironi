@@ -123,7 +123,7 @@ public final class FindFilesTool implements Tool {
                             String text = Files.readString(real, StandardCharsets.UTF_8);
                             if (!text.contains(contains)) return FileVisitResult.CONTINUE;
                         }
-                        results.add(real.toString());
+                        results.add(realRoot.relativize(real).toString());
                     } catch (IOException ignored) {
                         // A single unreadable or transient path must not abort the whole search.
                     }
@@ -142,19 +142,25 @@ public final class FindFilesTool implements Tool {
             });
             // "No matches" and "I stopped looking" are different answers. Reporting the first
             // when the second is true is how an agent concludes a file does not exist.
+            // Paths under one root share a long prefix. Repeating it on every line cost 23 000
+            // characters for a hundred results in a deep tree - more than twenty times what the
+            // same listing costs relative to the root, which is stated once.
+            String header = "Under " + realRoot + System.lineSeparator();
             if (gaveUp[0]) {
                 String limit = "[search stopped after visiting " + maxVisited + " entries and did "
                         + "not cover the whole tree; narrow root or use list_files to see where the "
                         + "files are]";
                 return ToolResult.success(results.isEmpty()
                         ? "No matches so far. " + limit
-                        : String.join("\n", results) + System.lineSeparator() + limit);
+                        : header + String.join("\n", results) + System.lineSeparator() + limit);
             }
             if (results.size() >= maxResults) {
-                return ToolResult.success(String.join("\n", results) + System.lineSeparator()
+                return ToolResult.success(header + String.join("\n", results)
+                        + System.lineSeparator()
                         + "[stopped at maxResults=" + maxResults + "; there may be more matches]");
             }
-            return ToolResult.success(results.isEmpty() ? "No matches." : String.join("\n", results));
+            return ToolResult.success(results.isEmpty()
+                    ? "No matches." : header + String.join("\n", results));
         } catch (IllegalArgumentException | IOException e) {
             return ToolResult.failure(e.getMessage());
         }

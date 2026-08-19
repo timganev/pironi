@@ -113,6 +113,8 @@ public final class PironiMain {
             exitCode = 2;
         } catch (Exception e) {
             System.err.println("Pironi failed: " + e.getMessage());
+            String hint = resumeHint(currentSessionId);
+            if (!hint.isEmpty()) System.err.println(hint);
             exitCode = 1;
         }
         System.exit(exitCode);
@@ -158,14 +160,15 @@ public final class PironiMain {
         );
 
         Set<Path> hiddenAgentPaths = Set.of(options.tracePath().toAbsolutePath().normalize());
+        List<Path> readRoots = readRoots(options.searchRoots(), options.shellScope());
         HeaderResolver headerResolver = buildHeaderResolver(options);
         List<Tool> availableTools = new ArrayList<>(List.of(
-                new ListFilesTool(workspace, 500, options.searchRoots(), hiddenAgentPaths),
+                new ListFilesTool(workspace, 500, readRoots, hiddenAgentPaths),
                 new ReadFileTool(
-                        workspace, ToolOutput.MAX_CHARACTERS, options.searchRoots(),
+                        workspace, ToolOutput.MAX_CHARACTERS, readRoots,
                         hiddenAgentPaths
                 ),
-                new InspectFileTool(workspace, options.searchRoots()),
+                new InspectFileTool(workspace, readRoots),
                 new SystemInfoTool(workspace),
                 new AppControlTool(),
                 new dev.pironi.tool.ProcessInspectTool(),
@@ -181,7 +184,7 @@ public final class PironiMain {
                 new OfficeOpenXmlTool(workspace, OfficeOpenXmlTool.Format.DOCX),
                 new OfficeOpenXmlTool(workspace, OfficeOpenXmlTool.Format.PPTX),
                 new RollbackCheckpointTool(checkpoints),
-                new FindFilesTool(options.searchRoots(), hiddenAgentPaths),
+                new FindFilesTool(readRoots, hiddenAgentPaths),
                 new HttpGetTool(headerResolver),
                 new NetworkSpeedTool(),
                 new RunCommandTool(
@@ -354,6 +357,7 @@ public final class PironiMain {
             // Print the session id + resume command so a crashed/closed CLI can be picked
             // up again. Session is created lazily here (idempotent) before the loop runs.
             String sessionId = memory.currentSessionId();
+            currentSessionId = sessionId;
             if (interactive) {
                 System.out.println(sessionBanner(sessionId));
             }
@@ -872,6 +876,43 @@ public final class PironiMain {
                         : options.searchRoots() + " plus granted this session: "
                                 + grants.grantedRoots()
         );
+    }
+
+
+    /**
+     * Where the read-only file tools may look. They used to see only {@code --search-roots} while
+     * the shell saw everything its scope allowed, and the gap cost real work: the agent wrote a
+     * decompressed file to /tmp and then could not read it back, and it treated the search roots
+     * as the edge of the world, never looking outside them for data the shell could reach. A tool
+     * that reads less than the shell can is a trap, not a guardrail - the guardrail is the scope.
+     */
+    static List<Path> readRoots(List<Path> searchRoots, dev.pironi.tool.ShellScope shellScope) {
+        List<Path> roots = new ArrayList<>(searchRoots);
+        switch (shellScope) {
+            case WORKSPACE -> {
+                // The shell cannot leave the workspace either; nothing to widen.
+            }
+            case USER -> roots.add(Path.of(System.getProperty("user.home")));
+            case UNRESTRICTED -> {
+                roots.add(Path.of(System.getProperty("user.home")));
+                java.nio.file.FileSystems.getDefault().getRootDirectories().forEach(roots::add);
+            }
+        }
+        return List.copyOf(roots);
+    }
+
+    /**
+     * Names the session for the crash handler. The loop checkpoints after every turn, but a run
+     * that died mid-turn printed only what broke - nothing said the work was still on disk, so
+     * headless runs were restarted from zero.
+     */
+    private static volatile String currentSessionId = "";
+
+    /** Points a crashed run at its own checkpoint. Empty before the session exists. */
+    static String resumeHint(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) return "";
+        return "Turns completed before the failure are checkpointed as session " + sessionId
+                + ". Start Pironi and enter: /resume " + sessionId;
     }
 
     /**

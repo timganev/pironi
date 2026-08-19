@@ -16,6 +16,27 @@ class FindFilesToolTest {
     @TempDir Path root;
 
     @Test
+    void resultsAreRelativeToTheRootWhichIsStatedOnce() throws Exception {
+        Path deep = Files.createDirectories(
+                root.resolve("Outlook 15 Profiles/Main Profile/Osa/Logs_2026"));
+        for (int index = 0; index < 5; index++) {
+            Files.writeString(deep.resolve("entry-" + index + ".xmlgz"), "x");
+        }
+        FindFilesTool tool = new FindFilesTool(List.of(root));
+
+        ToolResult found = tool.execute(new ObjectMapper().createObjectNode()
+                .put("root", root.toString()).put("name", "*.xmlgz").put("maxResults", 5));
+
+        // A hundred results in a real tree cost 23 000 characters because every line repeated the
+        // same 179-character prefix; the root belongs in the output once.
+        assertTrue(found.output().startsWith("Under " + root.toRealPath()), found.output());
+        assertTrue(found.output().contains(
+                "Outlook 15 Profiles/Main Profile/Osa/Logs_2026/entry-0.xmlgz"), found.output());
+        assertFalse(found.output().contains(root.toRealPath() + "/Outlook 15 Profiles"),
+                "an absolute path per line is the cost we removed");
+    }
+
+    @Test
     void searchesOnlyAllowedRootsByNameAndContent() throws Exception {
         Files.writeString(root.resolve("note.md"), "marker-7319");
         Files.writeString(root.resolve("other.txt"), "marker-7319");
@@ -44,7 +65,8 @@ class FindFilesToolTest {
         );
 
         assertTrue(result.success(), result.output());
-        assertTrue(result.output().contains(expected.toRealPath().toString()));
+        assertTrue(result.output().contains(
+                workspace.toRealPath().relativize(expected.toRealPath()).toString()));
     }
 
     @Test
@@ -57,8 +79,8 @@ class FindFilesToolTest {
                 .put("root", root.toString()).put("name", "*"));
 
         assertTrue(result.success(), result.output());
-        assertTrue(result.output().contains(visible.toRealPath().toString()));
-        assertFalse(result.output().contains(hidden.toRealPath().toString()));
+        assertTrue(result.output().contains(visible.getFileName().toString()));
+        assertFalse(result.output().contains(hidden.getFileName().toString()));
     }
 
     @Test
@@ -79,7 +101,8 @@ class FindFilesToolTest {
         );
 
         assertTrue(result.success(), result.output());
-        assertTrue(result.output().contains(expected.toRealPath().toString()));
+        assertTrue(result.output().contains(
+                root.toRealPath().relativize(expected.toRealPath()).toString()));
         assertFalse(result.output().contains("Application Data"));
     }
 

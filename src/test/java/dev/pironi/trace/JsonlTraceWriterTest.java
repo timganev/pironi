@@ -82,4 +82,23 @@ class JsonlTraceWriterTest {
         assertEquals("argument-secret", arguments.path("api_key").asText(),
                 "redaction must not mutate live tool arguments");
     }
+
+    @Test
+    void recordsWhatTheHarnessToldTheModel(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir)
+            throws Exception {
+        // Traces held the model's words and the tools' output but never the harness's own, so
+        // there was no way to tell from a trace whether a mechanism had fired.
+        java.nio.file.Path path = dir.resolve("trace.jsonl");
+        try (JsonlTraceWriter writer = new JsonlTraceWriter(path, new ObjectMapper())) {
+            writer.harnessNote(7, "guidance", "Note: you have reported the same finding 3 turns"
+                    + " running.");
+        }
+
+        var record = new ObjectMapper().readTree(java.nio.file.Files.readString(path).strip());
+
+        assertEquals("harness_note", record.path("type").asText());
+        assertEquals(7, record.path("turn").asInt());
+        assertEquals("guidance", record.path("kind").asText());
+        assertTrue(record.path("note").asText().contains("same finding 3 turns"));
+    }
 }

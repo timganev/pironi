@@ -61,6 +61,16 @@ public final class JsonlTraceWriter implements TraceWriter {
     }
 
     @Override
+    public synchronized void protocolWarning(int turn, String warning) {
+        write(event("protocol_warning", turn).put("warning", warning));
+    }
+
+    @Override
+    public synchronized void harnessNote(int turn, String kind, String note) {
+        write(event("harness_note", turn).put("kind", kind).put("note", note));
+    }
+
+    @Override
     public synchronized void toolResult(
             int turn,
             String toolName,

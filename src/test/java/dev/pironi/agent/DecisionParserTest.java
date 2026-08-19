@@ -91,4 +91,22 @@ class DecisionParserTest {
         org.junit.jupiter.api.Assertions.assertEquals("", decision.finding());
         org.junit.jupiter.api.Assertions.assertEquals("ready", decision.finalAnswer());
     }
+
+    @Test
+    void namesTrailingContentThatJacksonWouldHaveDropped() throws Exception {
+        DecisionParser parser = new DecisionParser(new ObjectMapper());
+        String withStrayBrace =
+                "{\"thought\":\"probe\",\"finding\":\"f\",\"toolCalls\":[],"
+                        + "\"finalAnswer\":\"ready\"}}";
+
+        // It still parses - Jackson reads the first value and drops the rest - but a run that
+        // silently tolerates malformed output leaves no sign it happened.
+        org.junit.jupiter.api.Assertions.assertEquals("ready",
+                parser.parse(withStrayBrace).finalAnswer());
+        org.junit.jupiter.api.Assertions.assertTrue(
+                parser.trailingContent(withStrayBrace).contains("trailing content"),
+                parser.trailingContent(withStrayBrace));
+        org.junit.jupiter.api.Assertions.assertEquals("", parser.trailingContent(
+                "{\"thought\":\"probe\",\"toolCalls\":[],\"finalAnswer\":\"ready\"}"));
+    }
 }

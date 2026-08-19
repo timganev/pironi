@@ -42,7 +42,9 @@ public final class AgentLoop {
      */
     public static final int MAX_FINDINGS = 40;
     /** The same conclusion this many turns running means the agent has stopped learning. */
-    private static final int REPEATED_FINDING_THRESHOLD = 4;
+    // Three, not four. At a minute or more per turn, waiting for a fourth identical finding
+    // spent five turns watching the agent stand still.
+    private static final int REPEATED_FINDING_THRESHOLD = 3;
     /** Below this a tool result is an answer, not a discovery, and does not count as progress. */
     private static final int MIN_INFORMATIVE_CHARACTERS = 40;
     /** The same answer this many times is a loop even when the arguments keep changing. */
@@ -50,11 +52,40 @@ public final class AgentLoop {
     /** Past this many spent attempts the tool stops running rather than advising. */
     private static final int APPROACH_BLOCK_THRESHOLD = 8;
     /**
-     * Interpreters can do anything, so a run of failures says nothing about the next call. They
-     * still get the advisory ledger entry; they just never get walled off.
+     * Programs that can do anything, so a run of failures says nothing about the next call.
+     * Interpreters are the obvious case; search tools are the same in practice - eleven fruitless
+     * finds for one thing said nothing about a find for something else, and walling the program
+     * off cost a run the one directory it had not looked in. They still get the advisory ledger
+     * entry; they are only walled off once the signature names what they were aimed at.
      */
     private static final java.util.Set<String> GENERAL_PURPOSE_PROGRAMS = java.util.Set.of(
-            "python", "python3", "bash", "sh", "zsh", "perl", "ruby", "node"
+            "python", "python3", "bash", "sh", "zsh", "perl", "ruby", "node",
+            "find", "grep", "egrep", "fgrep", "rg", "mdfind", "strings"
+    );
+
+    /**
+     * Words that position a command rather than being one. The agent writes
+     * {@code cd "some/path" && real_command} constantly - twelve of fifteen commands in one run -
+     * and keying on the first word collapsed all of them into a single signature, so the wall
+     * blocked "cd" and with it almost everything the agent could write.
+     */
+    private static final java.util.Set<String> COMMAND_PREFIXES = java.util.Set.of(
+            // Bash and cmd.exe both position with cd/pushd/popd; "set" is the cmd assignment and
+            // a bash builtin, and export/source/. are bash only but harmless to name on Windows.
+            "cd", "pushd", "popd", "export", "set", "unset", "source", "."
+    );
+
+    /**
+     * Command separators on both shells: bash uses {@code && || ; &}, cmd.exe uses
+     * {@code && || &}. A single {@code &} inside a quoted URL splits too eagerly, which costs
+     * nothing here - only the first word of the first acting segment is read.
+     */
+    private static final java.util.regex.Pattern SEPARATORS =
+            java.util.regex.Pattern.compile("&&|\\|\\||;|&");
+
+    /** Flags after which a search program names the thing it is looking for. */
+    private static final java.util.Set<String> TARGET_FLAGS = java.util.Set.of(
+            "-name", "-iname", "-path", "-ipath", "-regex", "-iregex", "-e", "--include"
     );
     private final ModelClient modelClient;
     private final DecisionParser decisionParser;
@@ -279,6 +310,7 @@ public final class AgentLoop {
             activeTurn = turn;
             int remainingTurns = maxTurns - turn + 1;
             if (remainingTurns <= 3) {
+                traceWriter.harnessNote(turn, "turn_budget", turnBudgetMessage(remainingTurns));
                 appendBudgetWarning(messages, remainingTurns);
             }
             if (subagentEligible) {
@@ -309,6 +341,8 @@ public final class AgentLoop {
                     );
                 }
                 decision = decisionParser.parse(response.content());
+                String trailing = decisionParser.trailingContent(response.content());
+                if (!trailing.isEmpty()) traceWriter.protocolWarning(turn, trailing);
                 protocolErrors = 0;
             } catch (ProtocolException e) {
                 protocolErrors++;
@@ -319,10 +353,10 @@ public final class AgentLoop {
                     memory.finished(false);
                     return new AgentResult(false, "Protocol error limit exceeded: " + e.getMessage(), turn);
                 }
-                messages.add(ChatMessage.user(
-                        protocolRepairMessage(e) + findingsLedger(findings)
-                                + exhaustedApproachLedger()
-                ));
+                String repair = protocolRepairMessage(e) + findingsLedger(findings)
+                        + exhaustedApproachLedger();
+                traceWriter.harnessNote(turn, "protocol_repair", repair);
+                messages.add(ChatMessage.user(repair));
                 continue;
             }
 
@@ -357,10 +391,11 @@ public final class AgentLoop {
                         + "Note: " + dropped + " further tool calls in that batch were not run. "
                         + "Send at most " + MAX_TOOL_CALLS_PER_TURN
                         + " tool calls per response and read the results before asking for more.";
-                messages.add(ChatMessage.user(
-                        result.userMessage() + missingFinding + stuckFinding + overflow
-                                + findingsLedger(findings, pinnedFindings) + exhaustedApproachLedger()
-                ));
+                // The tool output is already traced; only the harness's own words are new.
+                String guidance = missingFinding + stuckFinding + overflow
+                        + findingsLedger(findings, pinnedFindings) + exhaustedApproachLedger();
+                if (!guidance.isBlank()) traceWriter.harnessNote(turn, "guidance", guidance);
+                messages.add(ChatMessage.user(result.userMessage() + guidance));
                 if (subagentEligible && !asyncSubagents && subagentGateway.activeCount() > 0) {
                     awaitSubagentBarrier(turn, messages);
                 }
@@ -385,7 +420,9 @@ public final class AgentLoop {
             if (decision.isFinished()) {
                 VerificationResult verification = verifyChanges(turn);
                 if (!verification.success()) {
-                    messages.add(ChatMessage.user(verificationFailureMessage(verification)));
+                    String failure = verificationFailureMessage(verification);
+                    traceWriter.harnessNote(turn, "verification_failed", failure);
+                    messages.add(ChatMessage.user(failure));
                     continue;
                 }
                 traceWriter.completed(turn, decision.finalAnswer());
@@ -634,12 +671,11 @@ public final class AgentLoop {
         for (String line : command.asText().split("\\R")) {
             String trimmed = line.strip();
             if (trimmed.isEmpty() || trimmed.startsWith("#")) continue;
-            String first = trimmed.split("\\s+")[0];
-            int slash = first.lastIndexOf('/');
-            String program = slash < 0 ? first : first.substring(slash + 1);
+            String segment = firstActingSegment(trimmed);
+            String program = programName(segment.split("\\s+")[0]);
             if (program.isEmpty()) return call.name();
             if (!GENERAL_PURPOSE_PROGRAMS.contains(program)) return call.name() + ":" + program;
-            String target = interpreterTarget(trimmed);
+            String target = commandTarget(segment);
             return target.isEmpty()
                     ? call.name() + ":" + program
                     : call.name() + ":" + program + ":" + target;
@@ -647,12 +683,43 @@ public final class AgentLoop {
         return call.name();
     }
 
+
+
+    /** The bare program, with either platform's path separator stripped. */
+    private static String programName(String word) {
+        int separator = Math.max(word.lastIndexOf('/'), word.lastIndexOf('\\'));
+        return separator < 0 ? word : word.substring(separator + 1);
+    }
+
     /**
-     * What an interpreter is actually reaching for. "python3 sqlite3 against an empty database"
-     * and "python3 gzip against a log" are different approaches; without this they collapse into
-     * one signature that can neither be walled off nor left alone safely.
+     * The part of a command line that does the work. Positioning words and plain assignments are
+     * skipped; an assignment that wraps a substitution hands back what is inside it, so
+     * {@code f=$(find . -name '*.log')} is a find rather than an anonymous assignment. If a line
+     * only positions, the positioning word stands - repeating that alone is its own dead end.
      */
-    static String interpreterTarget(String command) {
+    static String firstActingSegment(String line) {
+        String[] segments = SEPARATORS.split(line);
+        for (String candidate : segments) {
+            String segment = candidate.strip();
+            if (segment.isEmpty()) continue;
+            var substitution = java.util.regex.Pattern
+                    .compile("^[A-Za-z_][A-Za-z0-9_]*=\\$\\((.+)\\)$").matcher(segment);
+            if (substitution.matches()) return substitution.group(1).strip();
+            String word = segment.split("\\s+")[0];
+            if (word.contains("=")) continue;
+            if (COMMAND_PREFIXES.contains(programName(word))) continue;
+            return segment;
+        }
+        return segments.length == 0 ? line : segments[0].strip();
+    }
+
+    /**
+     * What a general-purpose program is actually reaching for. "python3 sqlite3 against an empty
+     * database" and "python3 gzip against a log" are different approaches, as are "find -name
+     * '*.olk15*'" and "find -name '*calendar*'"; without this they collapse into one signature
+     * that can neither be walled off nor left alone safely.
+     */
+    static String commandTarget(String command) {
         var imports = java.util.regex.Pattern
                 .compile("\\bimport\\s+([A-Za-z_][A-Za-z0-9_]*(?:\\s*,\\s*[A-Za-z_][A-Za-z0-9_]*)*)")
                 .matcher(command);
@@ -663,13 +730,22 @@ public final class AgentLoop {
                     .sorted().collect(Collectors.joining("+"));
         }
         String[] words = command.split("\\s+");
+        // A search names its subject after a flag; the path it starts from barely changes and
+        // would key every search in a tree to the same approach.
+        for (int index = 1; index < words.length - 1; index++) {
+            if (TARGET_FLAGS.contains(words[index])) return unquote(words[index + 1]);
+        }
         for (int index = 1; index < words.length; index++) {
-            String word = words[index].replaceAll("^[\"']+", "");
+            String word = unquote(words[index]);
             if (word.startsWith("-") || word.isEmpty()) continue;
             int slash = word.lastIndexOf('/');
             return slash < 0 ? word : word.substring(slash + 1);
         }
         return "";
+    }
+
+    private static String unquote(String word) {
+        return word.replaceAll("^[\"']+", "").replaceAll("[\"']+$", "");
     }
 
     /**
@@ -708,6 +784,10 @@ public final class AgentLoop {
     static void recordFinding(List<String> findings, String finding, int pinned) {
         if (finding == null || finding.isBlank()) return;
         String trimmed = finding.strip();
+        // "nothing conclusive yet" is not a finding. Nagging about a missing finding taught the
+        // model to fill the field with a placeholder on the first turn, and that placeholder then
+        // sat in the ledger for the whole run and was carried to the next one on disk.
+        if (uninformativeFinding(trimmed)) return;
         if (findings.contains(trimmed)) return;
         findings.add(trimmed);
         // Never evict the entry just added: once the pinned prefix fills the whole budget the
@@ -722,6 +802,20 @@ public final class AgentLoop {
      * Re-renders what the agent has established, so a conclusion outlives the raw tool output it
      * came from. Read-only work leaves no artifact, so without this it gets repeated.
      */
+
+    /**
+     * A finding states something established. A short hedge states that nothing was, which the
+     * absence of an entry already says - and says it without occupying the ledger for good.
+     */
+    static boolean uninformativeFinding(String finding) {
+        String lower = finding.toLowerCase(java.util.Locale.ROOT);
+        return finding.length() < MIN_INFORMATIVE_CHARACTERS
+                && (lower.startsWith("nothing") || lower.startsWith("none")
+                    || lower.startsWith("no finding") || lower.startsWith("n/a")
+                    || lower.startsWith("unknown") || lower.startsWith("not yet")
+                    || lower.startsWith("tbd"));
+    }
+
     static String findingsLedger(List<String> findings) {
         return findingsLedger(findings, 0);
     }
@@ -1073,10 +1167,10 @@ public final class AgentLoop {
         ));
         messages.clear();
         messages.add(ChatMessage.system(buildSystemPrompt()));
-        messages.add(ChatMessage.user(
-                compressed + artifactLedger(successfulMutations) + findingsLedger(findings)
-                        + exhaustedApproachLedger()
-        ));
+        String carried = compressed + artifactLedger(successfulMutations) + findingsLedger(findings)
+                + exhaustedApproachLedger();
+        traceWriter.harnessNote(0, "compressed", carried);
+        messages.add(ChatMessage.user(carried));
         messages.addAll(tail);
         memory.checkpoint(messages, task);
     }

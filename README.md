@@ -299,6 +299,13 @@ java -jar target/pironi-0.1.0-SNAPSHOT.jar \
   --model MODEL
 ```
 
+A request is retried up to four times with doubling backoff when the socket
+drops and when the server answers 5xx or 429. A runner that dies mid-generation
+does not always break the connection - Ollama then answers 500 with the runner's
+error in the body - so status alone is not enough to tell a transient failure
+from a real one. A 4xx other than 429 is the request's own fault and is not
+retried. The trace records the attempt count for every response.
+
 The local defaults are:
 
 - workspace: the current working directory;
@@ -487,6 +494,37 @@ Model-reported prompt and output token counts drive the compression threshold.
 `/new` closes the current session and starts a clean one without restarting
 Pironi or changing the selected model.
 
+## What survives a run
+
+Two mechanisms keep the agent from re-deriving work it has already paid for.
+
+Within a run, each decision may carry a `finding`: one sentence stating what
+was just established. Findings are deduplicated and re-rendered every turn, so
+they survive history truncation and semantic compression.
+
+Across runs, findings are stored per workspace under `~/.pironi/findings/`, one
+file per workspace path. A later run in the same workspace starts with them
+already in context, labelled as inherited and open to re-checking rather than
+as settled fact. Inherited entries are pinned: this run's own conclusions
+cannot evict them, and trimming keeps both ends of the list. The store merges
+rather than overwrites, so two runs in the same workspace do not erase each
+other.
+
+This means results depend on earlier runs in the same workspace. Delete the
+matching file, or point `--pironi-home` elsewhere, to start from nothing.
+Treat these files like traces: they hold conclusions drawn from the task and
+from the data the agent read.
+
+Pironi also refuses an approach that has stopped producing anything. Repeated
+tool calls are keyed by tool plus program, and for general-purpose programs -
+interpreters and search tools - by what they were aimed at, so `python3` for
+sqlite and `python3` for gzip stay separate, as do `find -name '*.log'` and
+`find -name '*.conf'`. After several attempts that return nothing new, the
+approach is listed as exhausted in the agent's context; past a hard threshold
+the tool call is refused outright with a message naming the count. The tool is
+still enabled - only that one approach is closed. This is deliberate: an
+advisory note was tried first, and the agent cited it and then ignored it.
+
 Skills live under `~/.pironi/skills/NAME/SKILL.md`. Pironi performs a small
 lexical metadata scan and automatically loads at most one unambiguous relevant
 skill; it does not use embeddings or load every skill body. `/skill NAME`
@@ -520,6 +558,11 @@ change files or external state. In auto mode, opt in explicitly with an exact
 `read-only` when evaluating a new model.
 
 ## Context files and privacy
+
+Besides the trace, Pironi writes two kinds of task-derived content to disk:
+sessions under `~/.pironi/sessions` and cross-run findings under
+`~/.pironi/findings`. Both can contain material the agent read while working.
+Treat them as you would the trace.
 
 Pironi can load layered context without requiring one monolithic memory file:
 
@@ -708,7 +751,11 @@ and writes atomically. Before a final answer after a mutation, Pironi
 automatically runs the configured verification command or detects Maven/Gradle.
 `list_files` accepts workspace-relative directories and absolute directories
 below configured search roots. It omits common generated/private directories such as `.git`,
-`.pironi`, `.idea`, `target`, `build`, `.gradle`, and `node_modules`.
+`.pironi`, `.idea`, `target`, `build`, `.gradle`, and `node_modules`. When a
+listing is too large to send, it returns a profile of the tree instead of the
+first N paths: file count and total size, counts by extension, the largest
+directories, and the newest and largest files. An alphabetical prefix answers
+none of the questions that matter in an unfamiliar tree.
 `--deny-tools` removes exact tool names from this set and rejects unknown names
 at startup. It does not restrict filesystem access through `run_command`.
 `run_command` requires mutation approval when present, but does not trigger a
@@ -742,6 +789,17 @@ Shell commands use Bash on Linux/macOS and `cmd.exe` on Windows. Wrapper-based
 verification selects `mvnw`/`gradlew` on Unix and their `.cmd`/`.bat`
 counterparts on Windows.
 
+Bash runs without `pipefail`. It reported the honest failure of `false | tail -1`,
+but `producer | head` is the ordinary way to sample a large output and exits 141
+(SIGPIPE) under `pipefail`; inside a substitution such as
+`f=$(find . | head -1) && ...` that status short-circuits the whole command line,
+so nothing after it runs. The cost of that outweighed the benefit.
+
+A non-zero exit is reported as `exitCode=N` with the cause named when the shell
+is reporting a signal: 137 (SIGKILL, usually out of memory), 139 (SIGSEGV), 143
+(SIGTERM), 130 (SIGINT), 141 (SIGPIPE), plus 126 and 127. Codes 1-125 belong to
+the program that produced them and are passed through unannotated.
+
 `--shell-scope workspace` is the default and rejects explicit absolute paths,
 parent traversal, home shortcuts, directory-changing commands and `sudo`.
 This is a conservative lexical guardrail, not an operating-system sandbox;
@@ -754,7 +812,9 @@ in an isolated environment.
 checkpoints and verifies SHA-256 after the move. `write_file` creates missing
 parent directories safely. `find_files` does not follow
 results outside an allowed real root and bounds visited files, result count and
-content size.
+content size. When it stops at either bound it says so, instead of reporting no
+matches: "did not find it" and "stopped looking" are different answers, and a
+search that gives up quietly invites the wrong conclusion.
 
 Before a multi-tool batch starts, Pironi validates known file-tool arguments
 and approval decisions. A failed preflight prevents the other calls from

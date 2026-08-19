@@ -11,6 +11,21 @@ public interface TraceWriter extends AutoCloseable {
 
     default void modelError(int turn, String error) {}
 
+    /**
+     * A protocol anomaly the run survived. Default no-op so existing writers and test doubles are
+     * unaffected. Kept apart from {@link #protocolError} so tolerating something does not read as
+     * a failed turn when the trace is counted.
+     */
+    default void protocolWarning(int turn, String warning) {}
+
+    /**
+     * What the harness itself told the model: ledgers, repair instructions, budget warnings, the
+     * note that a finding has stopped moving. Traces recorded the model's words and the tools'
+     * output but never our own, so there was no way to tell whether a mechanism had fired.
+     * Default no-op so existing writers and test doubles are unaffected.
+     */
+    default void harnessNote(int turn, String kind, String note) {}
+
     void toolResult(int turn, String toolName, JsonNode arguments, ToolResult result);
 
     void completed(int turn, String finalAnswer);

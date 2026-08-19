@@ -40,7 +40,7 @@ class RunCommandToolTest {
     }
 
     @Test
-    void reportsCommandFailureOnEveryPlatformAndPipefailOnUnix() throws Exception {
+    void reportsCommandFailureOnEveryPlatform() throws Exception {
         RunCommandTool tool = new RunCommandTool(
                 new Workspace(workspaceRoot),
                 Duration.ofSeconds(2),
@@ -50,14 +50,70 @@ class RunCommandToolTest {
         boolean windows = isWindows();
         // The workspace lexical guard intentionally treats /b as an absolute-path token.
         // This cmd process is already isolated by /c, so plain `exit 7` is sufficient.
-        String command = windows ? "exit 7" : "false | tail -1";
+        String command = windows ? "exit 7" : "exit 7";
         ToolResult result = tool.execute(
                 new ObjectMapper().createObjectNode().put("command", command)
         );
 
         assertFalse(result.success());
-        assertTrue(result.output().startsWith(windows ? "exitCode=7" : "exitCode=1"));
+        assertTrue(result.output().startsWith("exitCode=7"));
         assertFalse(tool.requiresVerification());
+    }
+
+    @Test
+    void samplingALargeOutputWithHeadIsNotAFailure() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeFalse(isWindows());
+        RunCommandTool tool = new RunCommandTool(
+                new Workspace(workspaceRoot),
+                Duration.ofSeconds(10),
+                4_000
+        );
+
+        // Under pipefail this exited 141, and inside a substitution the non-zero status
+        // short-circuited the rest of the command line, so nothing after it ran at all.
+        ToolResult result = tool.execute(new ObjectMapper().createObjectNode()
+                .put("command", "f=$(seq 1 100000 | head -1) && echo \"got $f\""));
+
+        assertTrue(result.success(), result.output());
+        assertTrue(result.output().contains("got 1"), result.output());
+    }
+
+    @Test
+    void signalNamesAreNotInventedForCmdExe() {
+        // 128+N is a POSIX shell convention. On cmd.exe an exit code is whatever the program
+        // chose, so calling 137 "out of memory" there would invent a cause that does not exist.
+        assertTrue(RunCommandTool.cause(137, "/bin/bash").contains("out of memory"));
+        assertEquals("", RunCommandTool.cause(137, "cmd.exe"));
+        assertEquals("", RunCommandTool.cause(141, "cmd.exe"));
+        // cmd has one convention of its own worth naming.
+        assertTrue(RunCommandTool.cause(9009, "cmd.exe").contains("command not found"));
+        assertEquals("", RunCommandTool.cause(9009, "/bin/bash"));
+    }
+
+    @Test
+    void namesTheSignalBehindAnExitCode() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeFalse(isWindows());
+        RunCommandTool tool = new RunCommandTool(
+                new Workspace(workspaceRoot),
+                Duration.ofSeconds(10),
+                2_000
+        );
+
+        // "exitCode=137" on its own reads as an ordinary failure, so the same command gets
+        // retried or a readable source is written off; the cause is what lets the model adapt.
+        ToolResult killed = tool.execute(new ObjectMapper().createObjectNode()
+                .put("command", "kill -9 $$"));
+        assertFalse(killed.success());
+        assertTrue(killed.output().contains("out of memory"), killed.output());
+
+        ToolResult missing = tool.execute(new ObjectMapper().createObjectNode()
+                .put("command", "definitely-not-a-real-command"));
+        assertFalse(missing.success());
+        assertTrue(missing.output().contains("command not found"), missing.output());
+
+        ToolResult ordinary = tool.execute(new ObjectMapper().createObjectNode()
+                .put("command", "exit 3"));
+        assertTrue(ordinary.output().startsWith("exitCode=3\n"), ordinary.output());
     }
 
     @Test

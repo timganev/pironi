@@ -113,8 +113,10 @@ public final class RunCommandTool implements Tool {
                 output = output.substring(0, maxOutputCharacters)
                         + "\n[truncated after " + maxOutputCharacters + " characters]";
             }
-            String result = "exitCode=" + process.exitValue() + "\n" + output;
-            return process.exitValue() == 0
+            int exitCode = process.exitValue();
+            String result = "exitCode=" + exitCode + cause(exitCode, PlatformShell.name())
+                    + "\n" + output;
+            return exitCode == 0
                     ? ToolResult.success(result)
                     : ToolResult.failure(result);
         } catch (IllegalArgumentException | IOException | ExecutionException e) {
@@ -125,4 +127,34 @@ public final class RunCommandTool implements Tool {
         }
     }
 
+    /**
+     * What a bare number does not say. A shell reports a signal death as 128+N, and "exitCode=137"
+     * alone reads as an ordinary failure - so the same command gets tried again, or a readable
+     * source gets written off as unreadable. Naming the cause is what lets the model adapt; it
+     * corrected itself unprompted every time an error said something specific. Codes 1-125 are the
+     * program's own and are left alone: inventing meanings for them would mislead in the other
+     * direction.
+     */
+    static String cause(int exitCode, String shell) {
+        // 128+N is how a POSIX shell reports a signal. cmd.exe has no such convention: an exit
+        // code there is whatever the program chose, so 137 may be an ordinary application status
+        // and naming it "out of memory" would invent a cause. Only 9009 is cmd's own.
+        if (shell.toLowerCase(java.util.Locale.ROOT).contains("cmd")) {
+            return exitCode == 9009
+                    ? " (command not found - check the name, or whether it is installed)"
+                    : "";
+        }
+        return switch (exitCode) {
+            case 126 -> " (not executable)";
+            case 127 -> " (command not found - check the name, or whether it is installed)";
+            case 130 -> " (interrupted, SIGINT)";
+            case 137 -> " (killed, SIGKILL - usually out of memory; process the data in pieces "
+                    + "rather than reading it all at once)";
+            case 139 -> " (crashed, SIGSEGV - the same command will crash again)";
+            case 141 -> " (SIGPIPE - the reader closed the pipe early, which is what \"| head\" "
+                    + "does; any output above is complete up to that point)";
+            case 143 -> " (terminated, SIGTERM)";
+            default -> "";
+        };
+    }
 }

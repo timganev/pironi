@@ -12,10 +12,12 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OllamaClientTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -70,5 +72,84 @@ class OllamaClientTest {
         } finally {
             server.stop(0);
         }
+    }
+
+    @Test
+    void retriesServerErrorsAndReportsTheAttemptsWhenTheyPersist() throws Exception {
+        // A runner that dies mid-generation does not break the socket: Ollama answers 500 with
+        // the runner's error in the body. That is a completed exchange, so it reached none of
+        // the retrying and ended a run that had 22 turns of work behind it.
+        AtomicInteger attempts = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/api/chat", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            byte[] body;
+            int status;
+            if (attempts.incrementAndGet() < 3) {
+                status = 500;
+                body = "{\"error\":\"EOF\"}".getBytes(StandardCharsets.UTF_8);
+            } else {
+                status = 200;
+                body = """
+                        {"message":{"role":"assistant","content":"{\\"finalAnswer\\":\\"ok\\"}"},"done":true,"done_reason":"stop"}
+                        """.getBytes(StandardCharsets.UTF_8);
+            }
+            exchange.sendResponseHeaders(status, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+
+        try {
+            OllamaClient client = client(server.getAddress().getPort());
+
+            ModelResponse response = client.chat(List.of(ChatMessage.user("hello")));
+
+            assertEquals("{\"finalAnswer\":\"ok\"}", response.content());
+            assertEquals(3, attempts.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void clientErrorsAreNotRetried() throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/api/chat", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            attempts.incrementAndGet();
+            byte[] body = "{\"error\":\"model not found\"}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(404, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+
+        try {
+            OllamaClient client = client(server.getAddress().getPort());
+
+            java.io.IOException error = org.junit.jupiter.api.Assertions.assertThrows(
+                    java.io.IOException.class,
+                    () -> client.chat(List.of(ChatMessage.user("hello")))
+            );
+
+            assertTrue(error.getMessage().contains("HTTP 404"), error.getMessage());
+            assertEquals(1, attempts.get(), "a rejected request is the caller's fault, not transient");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private OllamaClient client(int port) {
+        return new OllamaClient(
+                HttpClient.newHttpClient(),
+                objectMapper,
+                URI.create("http://127.0.0.1:" + port + "/api/chat"),
+                "test-model",
+                Duration.ofSeconds(5),
+                8_192,
+                512
+        );
     }
 }

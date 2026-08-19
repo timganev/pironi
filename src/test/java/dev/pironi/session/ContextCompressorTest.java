@@ -53,6 +53,17 @@ class ContextCompressorTest {
         assertFalse(prompt.contains("r4"));
     }
 
+    @Test void compressesFromHalfTheWindow() {
+        ContextCompressor compressor = new ContextCompressor(131_072, new ObjectMapper());
+
+        compressor.addTokens(60_000, 0);
+        assertFalse(compressor.shouldCompress());
+        // Run 13 peaked at 47k of a 131k window and hit its turn limit without ever compressing,
+        // so the per-turn ledger copies stayed in the history for the whole run.
+        compressor.addTokens(70_000, 0);
+        assertTrue(compressor.shouldCompress());
+    }
+
     @Test void clampsThresholdAndCanBeDisabled() {
         ContextCompressor compressor = new ContextCompressor(100, new ObjectMapper());
         compressor.setThreshold(2);

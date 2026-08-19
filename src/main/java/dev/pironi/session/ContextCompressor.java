@@ -17,7 +17,10 @@ public final class ContextCompressor {
     private final ObjectMapper mapper;
     private long runningPromptTokens;
     private long runningOutputTokens;
-    private double threshold = 0.70;
+    // Half the window, not 70%: the ledgers re-rendered each turn accumulate stale copies in
+    // the history, and at the old default a 131k-token run reached its turn limit without ever
+    // compressing them away.
+    private double threshold = 0.50;
     private boolean enabled = true;
     private String lastSummary = "";
 

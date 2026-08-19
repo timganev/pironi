@@ -19,6 +19,11 @@ public final class OllamaClient implements ModelClient {
     /** A local server can drop a connection or unload the model; one attempt is not enough. */
     private static final int MAX_REQUEST_ATTEMPTS = 4;
     private static final long RETRY_BACKOFF_MILLIS = 1_000;
+
+    /** Transient on the server side: worth sending the same request again. */
+    private static boolean retryable(int statusCode) {
+        return statusCode / 100 == 5 || statusCode == 429;
+    }
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final URI endpoint;
@@ -112,28 +117,42 @@ public final class OllamaClient implements ModelClient {
 
         // A dropped socket or an unloaded model used to end the whole run. Retrying is safe
         // here because nothing has been streamed to the caller yet.
+        //
+        // A runner that dies mid-generation does not always break the socket: Ollama answers 500
+        // with the runner's own error in the body, which is a completed exchange and so reached
+        // none of the retrying below when this only caught IOException. Server errors and
+        // throttling are retried on the same terms; a 4xx is the request's own fault and stands.
         HttpResponse<Stream<String>> response = null;
         int requestAttempts = 0;
         long backoffMillis = RETRY_BACKOFF_MILLIS;
         while (response == null) {
             requestAttempts++;
+            boolean lastAttempt = requestAttempts >= MAX_REQUEST_ATTEMPTS;
             try {
-                response = httpClient.send(request, HttpResponse.BodyHandlers.ofLines());
+                HttpResponse<Stream<String>> attempt =
+                        httpClient.send(request, HttpResponse.BodyHandlers.ofLines());
+                if (retryable(attempt.statusCode()) && !lastAttempt) {
+                    attempt.body().close();
+                } else {
+                    response = attempt;
+                    continue;
+                }
             } catch (IOException e) {
-                if (requestAttempts >= MAX_REQUEST_ATTEMPTS) {
+                if (lastAttempt) {
                     throw new IOException(
                             "Ollama request failed after " + requestAttempts + " attempts: "
                                     + e.getMessage(), e
                     );
                 }
-                Thread.sleep(backoffMillis);
-                backoffMillis *= 2;
             }
+            Thread.sleep(backoffMillis);
+            backoffMillis *= 2;
         }
         if (response.statusCode() / 100 != 2) {
             try (Stream<String> lines = response.body()) {
                 throw new IOException(
-                        "Ollama returned HTTP " + response.statusCode() + ": "
+                        "Ollama returned HTTP " + response.statusCode()
+                                + " after " + requestAttempts + " attempt(s): "
                                 + lines.limit(20).reduce("", (left, right) -> left + right)
                 );
             }

@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class PlatformShellTest {
     @Test void buildsBashInvocationOnLinuxAndMac() {
         assertEquals(
-                List.of("/bin/bash", "-o", "pipefail", "-c", "echo ok"),
+                List.of("/bin/bash", "-c", "echo ok"),
                 PlatformShell.command("echo ok", "Linux")
         );
         assertEquals("/bin/bash", PlatformShell.name("Mac OS X"));

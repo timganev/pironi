@@ -106,18 +106,28 @@ public final class ApplyPatchTool implements Tool {
             if (oldText.isEmpty()) {
                 throw new IllegalArgumentException("oldText must not be empty for an existing file");
             }
-            int first = original.indexOf(oldText);
+            // A file checked out on Windows has CRLF endings while the model writes LF, so an
+            // exact match fails on text that is plainly there and the error reads "not found".
+            // Match the file's own endings instead, and write the replacement in the same shape.
+            String targetOld = oldText;
+            String targetNew = newText;
+            int first = original.indexOf(targetOld);
+            if (first < 0 && original.contains("\r\n") && !oldText.contains("\r")) {
+                targetOld = oldText.replace("\n", "\r\n");
+                targetNew = newText.replace("\n", "\r\n");
+                first = original.indexOf(targetOld);
+            }
             if (first < 0) {
                 throw new IllegalArgumentException("oldText was not found in " + relativePath);
             }
-            if (original.indexOf(oldText, first + oldText.length()) >= 0) {
+            if (original.indexOf(targetOld, first + targetOld.length()) >= 0) {
                 throw new IllegalArgumentException(
                         "oldText occurs more than once in " + relativePath
                 );
             }
             updated = original.substring(0, first)
-                    + newText
-                    + original.substring(first + oldText.length());
+                    + targetNew
+                    + original.substring(first + targetOld.length());
         }
 
         return new Patch(

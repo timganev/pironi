@@ -32,6 +32,35 @@ class PironiMainTest {
     }
 
     @Test
+    void readRootsFollowTheShellScope() {
+        Path configured = Path.of("/configured/root");
+        Path home = Path.of(System.getProperty("user.home"));
+
+        assertEquals(List.of(configured), PironiMain.readRoots(
+                List.of(configured), dev.pironi.tool.ShellScope.WORKSPACE));
+        // The shell could reach the whole home while the file tools could not, so the agent wrote
+        // a file it could no longer read and took the search roots for the edge of the world.
+        assertTrue(PironiMain.readRoots(
+                List.of(configured), dev.pironi.tool.ShellScope.USER).contains(home));
+        assertTrue(PironiMain.readRoots(
+                List.of(configured), dev.pironi.tool.ShellScope.UNRESTRICTED).contains(home));
+        assertTrue(PironiMain.readRoots(
+                        List.of(configured), dev.pironi.tool.ShellScope.UNRESTRICTED).size() > 2,
+                "unrestricted adds the filesystem roots as well");
+    }
+
+    @Test
+    void crashHintNamesTheCheckpointedSession() {
+        // The loop checkpoints every turn; a headless run that died used to print only the
+        // failure, so the finished turns looked lost and the run was started again from zero.
+        String hint = PironiMain.resumeHint("20260819-020000-outlook-e2e-79365308");
+
+        assertTrue(hint.contains("/resume 20260819-020000-outlook-e2e-79365308"), hint);
+        assertEquals("", PironiMain.resumeHint(""), "no session yet means no hint");
+        assertEquals("", PironiMain.resumeHint(null));
+    }
+
+    @Test
     void sessionBannerCarriesVersionIdAndResumeCommand() {
         String banner = PironiMain.sessionBanner("20260810-120000-project-abc12345");
         // The build is named first: a screenshot of a reported problem should say which

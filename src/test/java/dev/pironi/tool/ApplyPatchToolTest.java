@@ -47,6 +47,36 @@ class ApplyPatchToolTest {
     }
 
     @Test
+    void patchesAFileWithWindowsLineEndings() throws Exception {
+        // Git for Windows checks files out with CRLF by default while the model writes LF, so an
+        // exact match failed on text that was plainly in the file and the tool reported it as
+        // missing. This is the normal state of a Windows checkout, not an edge case.
+        Path file = Files.writeString(
+                workspaceRoot.resolve("Windows.java"), "before\r\nbug here\r\nafter\r\n");
+
+        ToolResult applied = patchTool.execute(objectMapper.readTree("""
+                {"path":"Windows.java","oldText":"before\\nbug here","newText":"before\\nfixed"}
+                """));
+
+        assertTrue(applied.success(), applied.output());
+        // The file keeps the endings it had; the patch must not convert it to LF.
+        assertEquals("before\r\nfixed\r\nafter\r\n", Files.readString(file));
+    }
+
+    @Test
+    void ambiguityIsStillDetectedAcrossLineEndings() throws Exception {
+        Path file = Files.writeString(
+                workspaceRoot.resolve("twice.txt"), "a\r\nb\r\nc\r\na\r\nb\r\n");
+
+        ToolResult result = patchTool.execute(objectMapper.readTree("""
+                {"path":"twice.txt","oldText":"a\\nb","newText":"x"}
+                """));
+
+        assertFalse(result.success(), result.output());
+        assertEquals("a\r\nb\r\nc\r\na\r\nb\r\n", Files.readString(file));
+    }
+
+    @Test
     void refusesAmbiguousReplacementWithoutChangingFile() throws Exception {
         Path file = Files.writeString(workspaceRoot.resolve("duplicate.txt"), "same same");
 

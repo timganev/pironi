@@ -46,6 +46,11 @@ public final class CollectingTraceWriter implements TraceWriter {
         add("t" + turn + " completed " + truncate(finalAnswer));
     }
 
+    @Override
+    public void harnessNote(int turn, String kind, String note) {
+        add("t" + turn + " harness_note " + kind + " " + truncate(note));
+    }
+
     /** Returns an immutable snapshot of the collected lines, oldest first. */
     public synchronized List<String> lines() {
         return List.copyOf(lines);

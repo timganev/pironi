@@ -84,4 +84,27 @@ public final class DecisionParser {
         }
         return node.textValue();
     }
+
+    /**
+     * Jackson reads the first value and drops whatever follows it, so a response with a stray
+     * closing brace parses and runs as if nothing happened. Constrained decoding should make that
+     * impossible, and when it does happen it is worth seeing rather than tolerating in silence.
+     *
+     * @return a description of the trailing content, or empty when the response is clean
+     */
+    public String trailingContent(String rawContent) {
+        if (rawContent == null || rawContent.isBlank()) return "";
+        try {
+            objectMapper.readerFor(JsonNode.class)
+                    .with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                    .readValue(rawContent);
+            return "";
+        } catch (JsonProcessingException e) {
+            String message = e.getOriginalMessage();
+            return "trailing content after the JSON object: "
+                    + (message == null ? "unparsed remainder" : message);
+        } catch (java.io.IOException e) {
+            return "";
+        }
+    }
 }
