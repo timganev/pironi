@@ -146,11 +146,17 @@ public final class CheckpointManager {
         Files.deleteIfExists(checkpoint.directory());
     }
 
-    /** Names the file the way the user saw it: relative while it is inside the workspace. */
+    /**
+     * Names the file the way the user saw it: relative while it is inside the workspace.
+     *
+     * <p>Resolved before comparing, because a caller may hand over a path spelled differently
+     * from the workspace root - /var against /private/var, RUNNER~1 against runneradmin - and
+     * then a file sitting in the workspace is announced by its full absolute path.
+     */
     private String displayName(Path target) {
-        Path absolute = target.toAbsolutePath().normalize();
-        return absolute.startsWith(workspace.root())
-                ? workspace.root().relativize(absolute).toString() : absolute.toString();
+        Path absolute = Workspace.resolvedAsFarAsPossible(target);
+        Path root = Workspace.resolvedAsFarAsPossible(workspace.root());
+        return absolute.startsWith(root) ? root.relativize(absolute).toString() : absolute.toString();
     }
 
     public record Checkpoint(

@@ -151,7 +151,7 @@ public final class Workspace {
      * the one sentence that would have explained it. Resolve as far as the filesystem allows -
      * the path itself may not exist yet, which is normal for something about to be written.
      */
-    private static Path resolvedAsFarAsPossible(Path path) {
+    static Path resolvedAsFarAsPossible(Path path) {
         Path absolute = path.toAbsolutePath().normalize();
         Path existing = absolute;
         while (existing != null && !Files.exists(existing)) existing = existing.getParent();
