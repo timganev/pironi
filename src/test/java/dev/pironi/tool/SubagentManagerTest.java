@@ -37,7 +37,13 @@ class SubagentManagerTest {
         manager.close();
     }
 
-    /** Bounded wait for the active count to settle; returns whatever it reached. */
+    /**
+     * Bounded wait for the active count to settle; returns whatever it reached.
+     *
+     * <p>Every "is it idle yet" assertion needs this. finish() queues a child's result before it
+     * clears the count, deliberately, so that a caller arriving in between drains the result
+     * instead of losing it - which means seeing a completion says nothing about the counter yet.
+     */
     private static int waitForIdle(SubagentManager manager) {
         for (int attempt = 0; attempt < 200 && manager.activeCount() > 0; attempt++) {
             try {
@@ -96,7 +102,7 @@ class SubagentManagerTest {
         assertEquals(3, all.size());
         assertEquals(java.util.Set.of("one", "two", "three"),
                 all.stream().map(SubagentManager.Completion::name).collect(java.util.stream.Collectors.toSet()));
-        assertEquals(0, manager.activeCount());
+        assertEquals(0, waitForIdle(manager));
         manager.close();
     }
 
@@ -131,7 +137,7 @@ class SubagentManagerTest {
         List<SubagentResult> ready = manager.awaitCompleted(java.time.Duration.ofSeconds(5));
         assertEquals(1, ready.size());
         assertEquals("sub_", ready.get(0).id().substring(0, 4));
-        assertEquals(0, manager.activeCount());
+        assertEquals(0, waitForIdle(manager));
         assertTrue(manager.runningHandles().isEmpty());
         manager.close();
     }
@@ -199,13 +205,7 @@ class SubagentManagerTest {
         // the deadline under test (400 ms) that has to fire, not this one. Five seconds here
         // bought nothing and made the slowest test in the suite.
         manager.awaitCompleted(java.time.Duration.ofSeconds(1));
-        // Poll instead of sleeping a fixed guess: runChild resolves the interrupted child in
-        // milliseconds, and waiting the worst case every run is what the fixed sleep did.
-        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(2).toNanos();
-        while (manager.activeCount() > 0 && System.nanoTime() < deadline) {
-            Thread.sleep(10);
-        }
-        assertEquals(0, manager.activeCount(), "deadline interrupt resolves the stuck child");
+        assertEquals(0, waitForIdle(manager), "deadline interrupt resolves the stuck child");
         manager.close();
     }
 
@@ -228,7 +228,7 @@ class SubagentManagerTest {
         // Let it finish, then no handles remain.
         manager.awaitCompleted(java.time.Duration.ofSeconds(5));
         assertTrue(manager.runningHandles().isEmpty());
-        assertEquals(0, manager.activeCount());
+        assertEquals(0, waitForIdle(manager));
         manager.close();
     }
 
@@ -281,7 +281,7 @@ class SubagentManagerTest {
         assertTrue(flagRead.await(5, java.util.concurrent.TimeUnit.SECONDS), "child body must run");
         manager.discardPendingResults();
         assertFalse(sawInterrupted.get(), "child must not start with a sticky pre-start interrupt");
-        assertEquals(0, manager.activeCount(), "cancelled child no longer counts as active");
+        assertEquals(0, waitForIdle(manager), "cancelled child no longer counts as active");
         manager.close();
     }
 
