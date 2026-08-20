@@ -152,6 +152,7 @@ public final class RunCommandTool implements Tool {
             String output = truncate(new String(outputFuture.get(), StandardCharsets.UTF_8));
             int exitCode = process.exitValue();
             String result = "exitCode=" + exitCode + cause(exitCode, PlatformShell.name())
+                    + answerNotFailure(exitCode, output)
                     + "\n" + output;
             return exitCode == 0
                     ? ToolResult.success(result)
@@ -162,6 +163,20 @@ public final class RunCommandTool implements Tool {
             Thread.currentThread().interrupt();
             return ToolResult.failure("Command interrupted");
         }
+    }
+
+    /**
+     * Some programs report an answer through the exit code. grep exits 1 when it matches
+     * nothing, diff exits 1 when files differ; both printed exactly what the caller asked for.
+     * Marked as failures, they read as broken commands, and a run retried a working approach or
+     * abandoned a good one - two of three "failed" calls in one run were this. The status is
+     * left alone, because sometimes it really is a failure; only the reading is corrected.
+     */
+    private static String answerNotFailure(int exitCode, String output) {
+        return exitCode > 0 && exitCode < 126 && !output.isBlank()
+                ? " (non-zero, but the command printed output: some programs report an answer"
+                        + " this way - grep exits 1 for no matches, diff exits 1 for differences)"
+                : "";
     }
 
     private String truncate(String output) {

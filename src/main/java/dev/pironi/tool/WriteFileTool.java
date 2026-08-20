@@ -1,6 +1,7 @@
 package dev.pironi.tool;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import dev.pironi.safety.CheckpointManager;
 import dev.pironi.safety.Workspace;
 
 import java.io.IOException;
@@ -22,9 +23,15 @@ public final class WriteFileTool implements Tool {
                     + "retyping a file to change part of it.";
 
     private final Workspace workspace;
+    private final CheckpointManager checkpointManager;
 
     public WriteFileTool(Workspace workspace) {
+        this(workspace, null);
+    }
+
+    public WriteFileTool(Workspace workspace, CheckpointManager checkpointManager) {
         this.workspace = workspace;
+        this.checkpointManager = checkpointManager;
     }
 
     @Override
@@ -74,6 +81,13 @@ public final class WriteFileTool implements Tool {
 
             Path target = workspace.resolveForWriteCreatingParents(path);
             boolean overwrote = Files.exists(target);
+            // apply_patch and move_file both snapshot before they touch anything, and this one
+            // did not - so the safe tool could be undone and the destructive one could not. An
+            // agent whose precise edit is refused reaches for a whole-file rewrite next, which
+            // is exactly when the previous contents are worth keeping.
+            String checkpoint = overwrote && checkpointManager != null
+                    ? checkpointManager.create(target).id()
+                    : "";
             Path temporary = Files.createTempFile(target.getParent(), ".pironi-", ".tmp");
             try {
                 Files.writeString(temporary, contentNode.textValue(), StandardCharsets.UTF_8);
@@ -83,6 +97,7 @@ public final class WriteFileTool implements Tool {
             }
             return ToolResult.success("Wrote " + workspace.root().relativize(target)
                     + " (" + Files.size(target) + " bytes)"
+                    + (checkpoint.isEmpty() ? "" : "; checkpoint=" + checkpoint)
                     + (overwrote ? OVERWRITE_HINT : ""));
         } catch (IllegalArgumentException | IOException e) {
             return ToolResult.failure(e.getMessage());

@@ -111,6 +111,34 @@ class RunCommandToolTest {
     }
 
     @Test
+    void anExitCodeThatIsAnAnswerSaysSo() throws Exception {
+        // grep exits 1 when it matches nothing, having printed the count the caller asked for.
+        org.junit.jupiter.api.Assumptions.assumeFalse(isWindows());
+        RunCommandTool tool = new RunCommandTool(
+                new Workspace(workspaceRoot), Duration.ofSeconds(5), 1_000);
+
+        ToolResult result = tool.execute(new ObjectMapper().readTree("""
+                {"command":"printf 'a\\n' > f.txt; grep -c zzz f.txt"}
+                """));
+
+        assertTrue(result.output().contains("exitCode=1"), result.output());
+        assertTrue(result.output().contains("some programs report an answer"), result.output());
+    }
+
+    @Test
+    void aCleanFailureIsNotExplainedAway() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeFalse(isWindows());
+        RunCommandTool tool = new RunCommandTool(
+                new Workspace(workspaceRoot), Duration.ofSeconds(5), 1_000);
+
+        ToolResult result = tool.execute(new ObjectMapper().readTree("""
+                {"command":"exit 3"}
+                """));
+
+        assertFalse(result.output().contains("some programs report an answer"), result.output());
+    }
+
+    @Test
     void signalNamesAreNotInventedForCmdExe() {
         // 128+N is a POSIX shell convention. On cmd.exe an exit code is whatever the program
         // chose, so calling 137 "out of memory" there would invent a cause that does not exist.

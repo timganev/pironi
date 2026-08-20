@@ -806,7 +806,11 @@ Reading and writing both follow the workspace, which `/workspace PATH` moves;
 directories taken earlier in the session stay readable, and `--search-roots`
 adds read-only roots at startup. `apply_patch` requires
 one exact old-text match, shows a diff before approval, creates a checkpoint,
-and writes atomically. It matches the file's own line endings: a Git for Windows
+and writes atomically. When the text is not found it names the closest line and
+the first character that differs, with both codepoints: a Latin `d` typed for a
+Cyrillic `д`, or a non-breaking space read as an ordinary one, is invisible on
+screen, and "oldText was not found" sends the model to rewrite the whole file
+instead of retrying the line. It matches the file's own line endings: a Git for Windows
 checkout is CRLF while a model writes LF, and an exact match then failed on text
 that was plainly there and reported it as missing. Before a final answer after a
 mutation, Pironi runs the verification command given by `--verify-command`, and
@@ -868,7 +872,12 @@ it timed out.
 A non-zero exit is reported as `exitCode=N` with the cause named when the shell
 is reporting a signal: 137 (SIGKILL, usually out of memory), 139 (SIGSEGV), 143
 (SIGTERM), 130 (SIGINT), 141 (SIGPIPE), plus 126 and 127. Codes 1-125 belong to
-the program that produced them and are passed through unannotated. On cmd.exe
+the program that produced them and are passed through, with one note added when
+such a code comes with output: some programs answer through the exit status.
+`grep` exits 1 when it matches nothing and `diff` exits 1 when files differ,
+having printed exactly what was asked for; read as failures, two of three
+"failed" calls in one run were commands that had worked. The status itself is
+left alone, because sometimes it really is a failure. On cmd.exe
 none of that applies - an exit code there is whatever the program chose, so
 naming a cause would invent one; only 9009 is named, as cmd's own "command not
 found".
@@ -895,7 +904,9 @@ all rejected under the workspace scope.
 `move_file` operates only inside the workspace, refuses overwrite, creates
 checkpoints and verifies SHA-256 after the move. There is no delete tool:
 deleting goes through `run_command` (`rm`, `del`), which asks before it runs.
-`write_file` creates missing parent directories safely, and says so when it
+`write_file` creates missing parent directories safely, and checkpoints a file
+before replacing it - `apply_patch` and `move_file` always did, so the safe
+tools could be undone and the destructive one could not. It also says when it
 replaced a file that already existed: rewriting a whole file to change a few
 lines is the expensive way to edit, and one run spent 4,001 of its 9,952 output
 tokens retyping the same script three times. The result points at `apply_patch`

@@ -80,6 +80,72 @@ public final class ApplyPatchTool implements Tool {
         }
     }
 
+    /**
+     * Where the text nearly matched, and how it differed.
+     *
+     * <p>"oldText was not found" is true and useless. A model that typed a Latin d for a
+     * Cyrillic д, or dropped a trailing space it could not see, reads that as "the line is not
+     * there" and rewrites the whole file instead - which is how one run destroyed the contents
+     * it was asked to extend. The difference is known at the moment of the refusal; naming it
+     * turns a rewrite into a retry.
+     */
+    static String nearestLineHint(String original, String oldText) {
+        String wanted = oldText.lines().findFirst().orElse("");
+        if (wanted.isEmpty()) return "";
+
+        String[] lines = original.split("\n", -1);
+        String best = null;
+        int bestNumber = 0;
+        double bestScore = 0;
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].endsWith("\r")
+                    ? lines[i].substring(0, lines[i].length() - 1) : lines[i];
+            double score = similarity(wanted, line);
+            if (score > bestScore) {
+                bestScore = score;
+                best = line;
+                bestNumber = i + 1;
+            }
+        }
+        // Below this the "closest" line is unrelated, and pointing at it would mislead.
+        if (best == null || bestScore < 0.5) return "";
+
+        int at = firstDifference(wanted, best);
+        return ". The closest is line " + bestNumber + ", which differs at character "
+                + (at + 1) + ": the file has " + describe(best, at)
+                + " and oldText has " + describe(wanted, at)
+                + ". Re-read the line and patch it exactly rather than rewriting the file.";
+    }
+
+    /** Matching positions over the longer of the two, which is cheap and enough to rank lines. */
+    private static double similarity(String a, String b) {
+        int longer = Math.max(a.length(), b.length());
+        if (longer == 0) return 0;
+        int shared = 0;
+        for (int i = 0; i < Math.min(a.length(), b.length()); i++) {
+            if (a.charAt(i) == b.charAt(i)) shared++;
+        }
+        return (double) shared / longer;
+    }
+
+    private static int firstDifference(String a, String b) {
+        int i = 0;
+        while (i < a.length() && i < b.length() && a.charAt(i) == b.charAt(i)) i++;
+        return i;
+    }
+
+    /** A character a reader can act on: the codepoint, because the shape may be identical. */
+    private static String describe(String text, int at) {
+        if (at >= text.length()) return "nothing (the line ends here)";
+        char c = text.charAt(at);
+        String shown = switch (c) {
+            case ' ' -> "a space";
+            case '\t' -> "a tab";
+            default -> "'" + c + "'";
+        };
+        return shown + String.format(" (U+%04X)", (int) c);
+    }
+
     private Patch prepare(JsonNode arguments) throws IOException {
         String relativePath = ToolArguments.requiredText(arguments, "path");
         String oldText = requiredString(arguments, "oldText");
@@ -118,7 +184,9 @@ public final class ApplyPatchTool implements Tool {
                 first = original.indexOf(targetOld);
             }
             if (first < 0) {
-                throw new IllegalArgumentException("oldText was not found in " + relativePath);
+                throw new IllegalArgumentException(
+                        "oldText was not found in " + relativePath + nearestLineHint(original, oldText)
+                );
             }
             if (original.indexOf(targetOld, first + targetOld.length()) >= 0) {
                 throw new IllegalArgumentException(

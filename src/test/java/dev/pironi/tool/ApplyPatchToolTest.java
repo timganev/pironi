@@ -77,6 +77,33 @@ class ApplyPatchToolTest {
     }
 
     @Test
+    void aRefusedPatchSaysWhatDiffered() {
+        // A Cyrillic д typed as a Latin d: the shapes match, so "not found" reads as "the line
+        // is not there" and the next move is a whole-file rewrite.
+        String hint = ApplyPatchTool.nearestLineHint("едно\nдве\nтри\n", "dве\n");
+
+        assertTrue(hint.contains("line 2"), hint);
+        assertTrue(hint.contains("character 1"), hint);
+        assertTrue(hint.contains("U+0434"), hint);
+        assertTrue(hint.contains("U+0064"), hint);
+    }
+
+    @Test
+    void aRefusedPatchNamesInvisibleWhitespace() {
+        String hint = ApplyPatchTool.nearestLineHint("alpha   \nbeta\n", "alpha\n");
+
+        assertTrue(hint.contains("line 1"), hint);
+        assertTrue(hint.contains("a space"), hint);
+        assertTrue(hint.contains("the line ends here"), hint);
+    }
+
+    @Test
+    void anUnrelatedFileGetsNoMisleadingHint() {
+        assertEquals("", ApplyPatchTool.nearestLineHint("wholly\nunrelated\n", "zzzzzzzz\n"));
+        assertEquals("", ApplyPatchTool.nearestLineHint("anything\n", ""));
+    }
+
+    @Test
     void refusesAmbiguousReplacementWithoutChangingFile() throws Exception {
         Path file = Files.writeString(workspaceRoot.resolve("duplicate.txt"), "same same");
 

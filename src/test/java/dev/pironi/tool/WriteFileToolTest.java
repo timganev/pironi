@@ -35,6 +35,35 @@ class WriteFileToolTest {
     }
 
     @Test
+    void snapshotsWhatItIsAboutToOverwrite() throws Exception {
+        // apply_patch and move_file both checkpoint; this one did not, so the safe tool could
+        // be undone and the destructive one could not.
+        Files.writeString(workspaceRoot.resolve("precious.txt"), "original");
+        var checkpoints = new dev.pironi.safety.CheckpointManager(new Workspace(workspaceRoot));
+        WriteFileTool tool = new WriteFileTool(new Workspace(workspaceRoot), checkpoints);
+
+        ToolResult result = tool.execute(objectMapper.readTree("""
+                {"path":"precious.txt","content":"replaced"}
+                """));
+
+        assertTrue(result.success());
+        assertTrue(result.output().contains("checkpoint="), result.output());
+    }
+
+    @Test
+    void aNewFileNeedsNoSnapshot() throws Exception {
+        var checkpoints = new dev.pironi.safety.CheckpointManager(new Workspace(workspaceRoot));
+        WriteFileTool tool = new WriteFileTool(new Workspace(workspaceRoot), checkpoints);
+
+        ToolResult result = tool.execute(objectMapper.readTree("""
+                {"path":"fresh.txt","content":"new"}
+                """));
+
+        assertTrue(result.success());
+        assertFalse(result.output().contains("checkpoint="), result.output());
+    }
+
+    @Test
     void pointsAtApplyPatchWhenAFileIsOverwritten() throws Exception {
         Files.writeString(workspaceRoot.resolve("script.sh"), "old");
         WriteFileTool tool = new WriteFileTool(new Workspace(workspaceRoot));
