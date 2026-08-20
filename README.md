@@ -526,7 +526,9 @@ lists them, `/resume [ID]` schedules a saved checkpoint for the next request,
 and `/compress now` schedules semantic compression for the next request.
 If there is not yet any older eligible history, the request remains visibly
 pending instead of being discarded.
-Model-reported prompt and output token counts drive the compression threshold.
+Model-reported prompt and output token counts drive the compression threshold,
+which defaults to half the context window. At the previous 70% a 131k-token run
+reached its turn limit without ever compressing.
 `/new` closes the current session and starts a clean one without restarting
 Pironi or changing the selected model.
 
@@ -545,6 +547,12 @@ as settled fact. Inherited entries are pinned: this run's own conclusions
 cannot evict them, and trimming keeps both ends of the list. The store merges
 rather than overwrites, so two runs in the same workspace do not erase each
 other.
+
+A hedge is not a finding. `nothing conclusive yet` and its relatives are dropped
+rather than recorded: nagging about a missing finding taught the model to fill
+the field with a placeholder, which then occupied the ledger for the whole run
+and was carried to the next one on disk. A finding repeated three turns running
+is called out.
 
 This means results depend on earlier runs in the same workspace. Delete the
 matching file, or point `--pironi-home` elsewhere, to start from nothing.
@@ -674,7 +682,12 @@ Sending personal context to a cloud provider requires the explicit
 ```
 
 The default trace is `WORKSPACE/.pironi/trace.jsonl`. A trace can contain
-prompts, model responses, tool arguments, and tool output. Treat it as
+prompts, model responses, tool arguments, and tool output. It also records what
+the harness told the model, as `harness_note` records with a `kind`: the
+findings and exhausted-approach ledgers, protocol repair instructions, turn
+budget warnings, and the note that a finding has stopped moving. Without them a
+trace showed the model's words and the tools' output but never our own, so there
+was no way to tell whether a mechanism had fired. Treat it as
 potentially sensitive and do not commit it. The active trace path is hidden
 from `list_files`, `find_files`, and `read_file`, even when a custom trace is
 placed directly in the workspace.
@@ -784,11 +797,13 @@ Reading and writing both follow the workspace, which `/workspace PATH` moves;
 directories taken earlier in the session stay readable, and `--search-roots`
 adds read-only roots at startup. `apply_patch` requires
 one exact old-text match, shows a diff before approval, creates a checkpoint,
-and writes atomically. Before a final answer after a mutation, Pironi runs the
-verification command given by `--verify-command`, and nothing at all when none
-was given. Detecting a build from a `pom.xml` or a `gradlew` was worse than it
-sounds: every mutation paid for the project's whole test suite, including ones
-no test can judge.
+and writes atomically. It matches the file's own line endings: a Git for Windows
+checkout is CRLF while a model writes LF, and an exact match then failed on text
+that was plainly there and reported it as missing. Before a final answer after a
+mutation, Pironi runs the verification command given by `--verify-command`, and
+nothing at all when none was given. Detecting a build from a `pom.xml` or a
+`gradlew` was worse than it sounds: every mutation paid for the project's whole
+test suite, including ones no test can judge.
 `list_files` accepts workspace-relative directories and absolute directories
 below configured search roots. It omits common generated/private directories such as `.git`,
 `.pironi`, `.idea`, `target`, `build`, `.gradle`, and `node_modules`. When a
@@ -835,27 +850,50 @@ but `producer | head` is the ordinary way to sample a large output and exits 141
 `f=$(find . | head -1) && ...` that status short-circuits the whole command line,
 so nothing after it runs. The cost of that outweighed the benefit.
 
+A command that runs out of time is stopped, and what it printed up to that point
+comes back with the timeout notice. Killing the process closes its output stream,
+so the bytes already read are still good - a command stopped halfway through
+18,000 files is worth far more as the half it finished than as the bare fact that
+it timed out.
+
 A non-zero exit is reported as `exitCode=N` with the cause named when the shell
 is reporting a signal: 137 (SIGKILL, usually out of memory), 139 (SIGSEGV), 143
 (SIGTERM), 130 (SIGINT), 141 (SIGPIPE), plus 126 and 127. Codes 1-125 belong to
-the program that produced them and are passed through unannotated.
+the program that produced them and are passed through unannotated. On cmd.exe
+none of that applies - an exit code there is whatever the program chose, so
+naming a cause would invent one; only 9009 is named, as cmd's own "command not
+found".
 
 `--shell-scope workspace` is the default and rejects explicit absolute paths,
 parent traversal, home shortcuts, directory-changing commands and `sudo`.
 This is a conservative lexical guardrail, not an operating-system sandbox;
 prefer `read_file`, `find_files`, `move_file` and the other scoped tools.
 `--shell-scope user` permits paths available to the current OS user but still
-blocks `sudo`; `unrestricted` removes the lexical checks and must be used only
+blocks elevation; `unrestricted` removes the lexical checks and must be used only
 in an isolated environment.
+
+The guard reads the same escapes in either shell's spelling: UNC paths
+(`\\server\share`), the Windows environment expansions (`%USERPROFILE%`,
+`%APPDATA%`, `%TEMP%` and the rest) and `runas`/`gsudo` alongside `sudo`. The
+Unix absolute-path rule applies only where "/" starts a path - on Windows it read
+every cmd switch as one, so `dir /b`, `findstr /s` and `tasklist /FO CSV` were
+all rejected under the workspace scope.
 
 `move_file` operates only inside the workspace, refuses overwrite, creates
 checkpoints and verifies SHA-256 after the move. There is no delete tool:
-deleting goes through `run_command` (`rm`, `del`), which asks before it runs. `write_file` creates missing
-parent directories safely. `find_files` does not follow
+deleting goes through `run_command` (`rm`, `del`), which asks before it runs.
+`write_file` creates missing parent directories safely, and says so when it
+replaced a file that already existed: rewriting a whole file to change a few
+lines is the expensive way to edit, and one run spent 4,001 of its 9,952 output
+tokens retyping the same script three times. The result points at `apply_patch`
+instead. `find_files` does not follow
 results outside an allowed real root and bounds visited files, result count and
 content size. When it stops at either bound it says so, instead of reporting no
 matches: "did not find it" and "stopped looking" are different answers, and a
-search that gives up quietly invites the wrong conclusion.
+search that gives up quietly invites the wrong conclusion. Results are relative
+to the search root, which is named once at the top: paths under one root share a
+long prefix, and repeating it cost 23,000 characters for a hundred results in a
+real tree.
 
 Before a multi-tool batch starts, Pironi validates known file-tool arguments
 and approval decisions. A failed preflight prevents the other calls from
@@ -886,11 +924,23 @@ Provider finish reasons and the effective `json_schema`/`json_object` response
 format are written to the JSONL trace. `length`/`max_tokens`
 responses and unexpected end-of-input JSON are classified as truncation and
 receive a targeted repair request for a shorter complete JSON object.
+
+Constrained decoding is meant to make unbalanced JSON impossible, and does not
+always deliver: a closing brace goes missing, or one stands where a bracket
+belongs. Asking again costs a whole turn, so Pironi rebuilds the closers itself,
+parses the result, and records a `protocol_warning` naming what it repaired.
+Only punctuation is rebuilt, never content. A response that ends in the middle
+of a value is left alone - what is missing there is content, and completing it
+would publish a `finalAnswer` the model never finished writing.
 The provider response schema requires exactly `thought`, `toolCalls`, and
 `finalAnswer`, rejects unknown envelope/tool-call fields, and is shared by the
 Ollama and OpenAI-compatible clients.
 Successful trace events also include the number of provider request attempts
 and any fallback source; failed requests produce a `model_error` event.
+Providers report only the time they spent generating, which leaves out queueing,
+loading a model back into memory, and the request itself - one turn reported 79
+seconds against 766 seconds of real waiting. `wallClockNanos` records what the
+call actually took, measured around the request, so a run can be accounted for.
 
 After a successful mutating file tool, Pironi owns automatic verification. The
 agent prompt tells the model not to repeat the same build through `run_command`

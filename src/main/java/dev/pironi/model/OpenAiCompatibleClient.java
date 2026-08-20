@@ -141,6 +141,7 @@ public final class OpenAiCompatibleClient implements ModelClient {
 
     private ModelResponse chat(List<ChatMessage> messages, boolean structured)
             throws IOException, InterruptedException {
+        long startNanos = System.nanoTime();
         int maxAttempts = deepSeekThinking ? 3 : 1;
         int requestAttempts = 0;
         String fallbackFrom = "";
@@ -215,7 +216,8 @@ public final class OpenAiCompatibleClient implements ModelClient {
                             ? (jsonSchemaSupported ? "json_schema" : "json_object") : "text",
                     requestAttempts,
                     fallbackFrom,
-                    schemaFailure == null ? "" : schemaFailure
+                    schemaFailure == null ? "" : schemaFailure,
+                    System.nanoTime() - startNanos
             );
         }
         throw new IOException("Provider response retry loop ended unexpectedly");

@@ -82,6 +82,7 @@ public final class JsonlTraceWriter implements TraceWriter {
         event.put("outputTokens", response.outputTokens());
         event.put("durationNanos", response.durationNanos());
         event.put("evalDurationNanos", response.evalDurationNanos());
+        if (response.wallClockNanos() > 0) event.put("wallClockNanos", response.wallClockNanos());
         event.put("finishReason", response.finishReason());
         event.put("responseFormat", response.responseFormat());
         event.put("requestAttempts", response.requestAttempts());

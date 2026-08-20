@@ -345,19 +345,38 @@ public final class AgentLoop {
                 if (!trailing.isEmpty()) traceWriter.protocolWarning(turn, trailing);
                 protocolErrors = 0;
             } catch (ProtocolException e) {
-                protocolErrors++;
-                traceWriter.protocolError(turn, e.getMessage());
-                if (protocolErrors > maxProtocolErrors) {
-                    statusReporter.idle();
-                    memory.checkpoint(messages, task);
-                    memory.finished(false);
-                    return new AgentResult(false, "Protocol error limit exceeded: " + e.getMessage(), turn);
+                // Unbalanced closers cost a whole turn to ask again for, and this model
+                // produces them often enough to be worth repairing in place.
+                AgentDecision salvaged = null;
+                String balanced = decisionParser.withBalancedClosers(response.content());
+                if (!balanced.isEmpty()) {
+                    try {
+                        salvaged = decisionParser.parse(balanced);
+                    } catch (ProtocolException stillBroken) {
+                        salvaged = null;
+                    }
                 }
-                String repair = protocolRepairMessage(e) + findingsLedger(findings)
-                        + exhaustedApproachLedger();
-                traceWriter.harnessNote(turn, "protocol_repair", repair);
-                messages.add(ChatMessage.user(repair));
-                continue;
+                if (salvaged != null) {
+                    traceWriter.protocolWarning(turn,
+                            "closers rebuilt by the harness, response used as repaired: "
+                                    + e.getMessage());
+                    decision = salvaged;
+                    protocolErrors = 0;
+                } else {
+                    protocolErrors++;
+                    traceWriter.protocolError(turn, e.getMessage());
+                    if (protocolErrors > maxProtocolErrors) {
+                        statusReporter.idle();
+                        memory.checkpoint(messages, task);
+                        memory.finished(false);
+                        return new AgentResult(false, "Protocol error limit exceeded: " + e.getMessage(), turn);
+                    }
+                    String repair = protocolRepairMessage(e) + findingsLedger(findings)
+                            + exhaustedApproachLedger();
+                    traceWriter.harnessNote(turn, "protocol_repair", repair);
+                    messages.add(ChatMessage.user(repair));
+                    continue;
+                }
             }
 
             boolean findingSupplied = !decision.finding().isBlank();

@@ -35,6 +35,31 @@ class WriteFileToolTest {
     }
 
     @Test
+    void pointsAtApplyPatchWhenAFileIsOverwritten() throws Exception {
+        Files.writeString(workspaceRoot.resolve("script.sh"), "old");
+        WriteFileTool tool = new WriteFileTool(new Workspace(workspaceRoot));
+
+        ToolResult result = tool.execute(objectMapper.readTree("""
+                {"path":"script.sh","content":"new"}
+                """));
+
+        assertTrue(result.success());
+        assertTrue(result.output().contains("apply_patch"), result.output());
+    }
+
+    @Test
+    void saysNothingAboutApplyPatchOnAFirstWrite() throws Exception {
+        WriteFileTool tool = new WriteFileTool(new Workspace(workspaceRoot));
+
+        ToolResult result = tool.execute(objectMapper.readTree("""
+                {"path":"fresh.sh","content":"new"}
+                """));
+
+        assertTrue(result.success());
+        assertFalse(result.output().contains("apply_patch"), result.output());
+    }
+
+    @Test
     void refusesWriteOutsideWorkspace() throws Exception {
         WriteFileTool tool = new WriteFileTool(new Workspace(workspaceRoot));
 

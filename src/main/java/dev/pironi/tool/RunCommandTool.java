@@ -9,6 +9,7 @@ import java.time.Duration;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public final class RunCommandTool implements Tool {
     private final Workspace workspace;
@@ -132,14 +133,16 @@ public final class RunCommandTool implements Tool {
             if (!finished) {
                 process.destroyForcibly();
                 process.waitFor(5, TimeUnit.SECONDS);
-                return ToolResult.failure("Command timed out after " + timeoutSeconds + " seconds");
+                String partial = partialOutput(outputFuture);
+                return ToolResult.failure(
+                        "Command timed out after " + timeoutSeconds + " seconds"
+                                + (partial.isEmpty()
+                                        ? " and printed nothing before it was stopped"
+                                        : ". What it printed before it was stopped:\n" + partial)
+                );
             }
 
-            String output = new String(outputFuture.get(), StandardCharsets.UTF_8);
-            if (output.length() > maxOutputCharacters) {
-                output = output.substring(0, maxOutputCharacters)
-                        + "\n[truncated after " + maxOutputCharacters + " characters]";
-            }
+            String output = truncate(new String(outputFuture.get(), StandardCharsets.UTF_8));
             int exitCode = process.exitValue();
             String result = "exitCode=" + exitCode + cause(exitCode, PlatformShell.name())
                     + "\n" + output;
@@ -151,6 +154,30 @@ public final class RunCommandTool implements Tool {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return ToolResult.failure("Command interrupted");
+        }
+    }
+
+    private String truncate(String output) {
+        return output.length() > maxOutputCharacters
+                ? output.substring(0, maxOutputCharacters)
+                        + "\n[truncated after " + maxOutputCharacters + " characters]"
+                : output;
+    }
+
+    /**
+     * What the command managed to print before it ran out of time. Killing the process closes the
+     * stream, so the reader finishes on its own and the bytes it already holds are still good.
+     * A command stopped halfway through 18,000 files is worth far more to the caller as the half
+     * it finished than as the bare fact that it timed out.
+     */
+    private String partialOutput(FutureTask<byte[]> outputFuture) {
+        try {
+            return truncate(new String(outputFuture.get(5, TimeUnit.SECONDS), StandardCharsets.UTF_8));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return "";
+        } catch (ExecutionException | TimeoutException e) {
+            return "";
         }
     }
 

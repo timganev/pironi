@@ -79,6 +79,38 @@ class RunCommandToolTest {
     }
 
     @Test
+    void aTimedOutCommandStillReportsWhatItPrinted() throws Exception {
+        // A run lost five minutes to a command that timed out mid-way through 18,000 files and
+        // came back saying only that it had timed out, leaving the model unable to tell whether
+        // the approach was close or hopeless.
+        org.junit.jupiter.api.Assumptions.assumeFalse(isWindows());
+        RunCommandTool tool = new RunCommandTool(
+                new Workspace(workspaceRoot), Duration.ofSeconds(1), 1_000);
+
+        ToolResult result = tool.execute(new ObjectMapper().readTree("""
+                {"command":"echo processed 12000 of 18646; sleep 30","timeoutSeconds":1}
+                """));
+
+        assertFalse(result.success());
+        assertTrue(result.output().contains("timed out after 1 seconds"), result.output());
+        assertTrue(result.output().contains("processed 12000 of 18646"), result.output());
+    }
+
+    @Test
+    void aTimedOutCommandThatPrintedNothingSaysSo() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeFalse(isWindows());
+        RunCommandTool tool = new RunCommandTool(
+                new Workspace(workspaceRoot), Duration.ofSeconds(1), 1_000);
+
+        ToolResult result = tool.execute(new ObjectMapper().readTree("""
+                {"command":"sleep 30","timeoutSeconds":1}
+                """));
+
+        assertFalse(result.success());
+        assertTrue(result.output().contains("printed nothing before it was stopped"), result.output());
+    }
+
+    @Test
     void signalNamesAreNotInventedForCmdExe() {
         // 128+N is a POSIX shell convention. On cmd.exe an exit code is whatever the program
         // chose, so calling 137 "out of memory" there would invent a cause that does not exist.

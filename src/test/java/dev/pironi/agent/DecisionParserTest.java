@@ -36,6 +36,67 @@ class DecisionParserTest {
     }
 
     @Test
+    void rebuildsAMissingClosingBrace() throws Exception {
+        // Run 19 turn 4: the tool call object never closed, so the array closer landed first.
+        String broken = """
+                {"thought":"t","finding":"f","toolCalls":[
+                  {"name":"write_file","arguments":{"path":"a.sh","content":"x"}
+                ]}
+                """;
+
+        String balanced = parser.withBalancedClosers(broken);
+
+        AgentDecision decision = parser.parse(balanced);
+        assertEquals(1, decision.toolCalls().size());
+        assertEquals("write_file", decision.toolCalls().getFirst().name());
+        assertEquals("x", decision.toolCalls().getFirst().arguments().path("content").asText());
+    }
+
+    @Test
+    void correctsACloserOfTheWrongKind() throws Exception {
+        // Run 19 turn 11: a brace stood where the array's bracket belonged.
+        String broken = """
+                {"thought":"t","finding":"f","toolCalls":[
+                  {"name":"run_command","arguments":{"command":"ls","timeoutSeconds":120}}
+                }
+                """;
+
+        String balanced = parser.withBalancedClosers(broken);
+
+        AgentDecision decision = parser.parse(balanced);
+        assertEquals(1, decision.toolCalls().size());
+        assertEquals("ls", decision.toolCalls().getFirst().arguments().path("command").asText());
+    }
+
+    @Test
+    void leavesBracesInsideStringsAlone() {
+        String content = """
+                {"thought":"t","toolCalls":[{"name":"run_command",
+                  "arguments":{"command":"awk '{print $1}' f | sed 's/]//'"}}],"finalAnswer":null}
+                """;
+
+        assertEquals("", parser.withBalancedClosers(content));
+    }
+
+    @Test
+    void refusesToGuessAtAnythingButClosers() {
+        // A stray closer with nothing open is a different mistake, and inventing a tool call
+        // out of it would run something the model never asked for.
+        assertEquals("", parser.withBalancedClosers("{\"thought\":\"t\"}}"));
+        // Cut off inside a string: what is missing is content, which cannot be reconstructed.
+        assertEquals("", parser.withBalancedClosers("{\"thought\":\"unfinished"));
+        assertEquals("", parser.withBalancedClosers(""));
+    }
+
+    @Test
+    void refusesToFinishAResponseThatWasCutShort() {
+        // A truncated finalAnswer would be published as if the model had finished the sentence.
+        // Ending in the middle of a value is what tells the two apart from a misplaced closer.
+        assertEquals("", parser.withBalancedClosers(
+                "{\"thought\":\"cut\",\"toolCalls\":[],\"finalAnswer\":\"visible too early\""));
+    }
+
+    @Test
     void rejectsMalformedJson() {
         ProtocolException error = assertThrows(
                 ProtocolException.class,

@@ -122,4 +122,22 @@ class JsonlTraceWriterTest {
         assertTrue(kept.get(0).contains("tool_result"), kept.toString());
         assertEquals("not json at all", kept.get(1));
     }
+
+    @Test
+    void recordsHowLongTheCallReallyTook() throws Exception {
+        // Providers report generation time only. One turn reported 79 seconds against 766
+        // seconds of real waiting, so without this the trace cannot account for a run's clock.
+        Path trace = root.resolve("wall-clock.jsonl");
+        ObjectMapper mapper = new ObjectMapper();
+        try (JsonlTraceWriter writer = new JsonlTraceWriter(trace, mapper)) {
+            writer.modelResponse(3, new ModelResponse(
+                    "{}", 100, 20, 79_000_000_000L, 0, "stop", "json_schema", 1, "", "",
+                    766_000_000_000L
+            ));
+        }
+
+        var event = mapper.readTree(Files.readAllLines(trace).getFirst());
+        assertEquals(79_000_000_000L, event.path("durationNanos").asLong());
+        assertEquals(766_000_000_000L, event.path("wallClockNanos").asLong());
+    }
 }

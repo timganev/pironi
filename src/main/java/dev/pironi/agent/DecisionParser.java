@@ -4,7 +4,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 
 public final class DecisionParser {
@@ -84,6 +86,66 @@ public final class DecisionParser {
             throw new ProtocolException("finalAnswer must be a string or null");
         }
         return node.textValue();
+    }
+
+    /**
+     * Constrained decoding is supposed to make unbalanced JSON impossible, and yet this model
+     * still emits it: a missing closing brace, or a brace standing where a bracket belongs.
+     * Rebuilding the closers costs nothing, while asking for the response again costs a whole
+     * turn. Only the punctuation is rebuilt, never content, and anything that cannot be
+     * explained by a wrong or missing closer is left alone.
+     *
+     * @return the response with its closers corrected, or empty when nothing can be corrected
+     */
+    public String withBalancedClosers(String rawContent) {
+        if (rawContent == null || rawContent.isBlank()) return "";
+        // A response cut short ends in the middle of a value, and its finalAnswer may be half
+        // written; one that merely misplaced a closer still ends by trying to close. Supplying
+        // the punctuation for a truncated answer would publish a sentence the model never
+        // finished, so only a response that reached its own end is repaired.
+        String trimmed = rawContent.stripTrailing();
+        if (!trimmed.endsWith("}") && !trimmed.endsWith("]")) return "";
+        StringBuilder repaired = new StringBuilder(rawContent.length() + 8);
+        Deque<Character> open = new ArrayDeque<>();
+        boolean changed = false;
+        boolean inString = false;
+        boolean escaped = false;
+        for (int i = 0; i < rawContent.length(); i++) {
+            char c = rawContent.charAt(i);
+            if (inString) {
+                repaired.append(c);
+                if (escaped) escaped = false;
+                else if (c == '\\') escaped = true;
+                else if (c == '"') inString = false;
+                continue;
+            }
+            switch (c) {
+                case '"' -> {
+                    inString = true;
+                    repaired.append(c);
+                }
+                case '{', '[' -> {
+                    open.push(c);
+                    repaired.append(c);
+                }
+                case '}', ']' -> {
+                    // More closers than openers is not a missing brace but a different mistake,
+                    // and guessing at it would risk running a tool call we invented.
+                    if (open.isEmpty()) return "";
+                    char expected = open.pop() == '{' ? '}' : ']';
+                    if (expected != c) changed = true;
+                    repaired.append(expected);
+                }
+                default -> repaired.append(c);
+            }
+        }
+        // Cut off inside a string means the missing part is content, which we cannot supply.
+        if (inString) return "";
+        while (!open.isEmpty()) {
+            repaired.append(open.pop() == '{' ? '}' : ']');
+            changed = true;
+        }
+        return changed ? repaired.toString() : "";
     }
 
     /**

@@ -10,29 +10,44 @@ public record ModelResponse(
         String responseFormat,
         int requestAttempts,
         String fallbackFrom,
-        String fallbackReason
+        String fallbackReason,
+        long wallClockNanos
 ) {
+    /**
+     * Providers report only the time they spent generating, which leaves out queueing, loading a
+     * model back into memory, and the request itself. One turn measured this way reported 79
+     * seconds against 766 seconds of real waiting, so a run timed on the reported number is not
+     * timed at all. Zero means nobody measured.
+     */
+    public ModelResponse(String content, long promptTokens, long outputTokens,
+            long durationNanos, long evalDurationNanos, String finishReason,
+            String responseFormat, int requestAttempts, String fallbackFrom,
+            String fallbackReason) {
+        this(content, promptTokens, outputTokens, durationNanos, evalDurationNanos,
+                finishReason, responseFormat, requestAttempts, fallbackFrom, fallbackReason, 0);
+    }
+
     public ModelResponse(String content, long promptTokens, long outputTokens, long durationNanos) {
-        this(content, promptTokens, outputTokens, durationNanos, 0, "unknown", "unknown", 1, "", "");
+        this(content, promptTokens, outputTokens, durationNanos, 0, "unknown", "unknown", 1, "", "", 0);
     }
 
     public ModelResponse(String content, long promptTokens, long outputTokens,
             long durationNanos, long evalDurationNanos) {
         this(content, promptTokens, outputTokens, durationNanos, evalDurationNanos,
-                "unknown", "unknown", 1, "", "");
+                "unknown", "unknown", 1, "", "", 0);
     }
 
     public ModelResponse(String content, long promptTokens, long outputTokens,
             long durationNanos, long evalDurationNanos, String finishReason) {
         this(content, promptTokens, outputTokens, durationNanos, evalDurationNanos,
-                finishReason, "unknown", 1, "", "");
+                finishReason, "unknown", 1, "", "", 0);
     }
 
     public ModelResponse(String content, long promptTokens, long outputTokens,
             long durationNanos, long evalDurationNanos, String finishReason,
             String responseFormat) {
         this(content, promptTokens, outputTokens, durationNanos, evalDurationNanos,
-                finishReason, responseFormat, 1, "", "");
+                finishReason, responseFormat, 1, "", "", 0);
     }
 
     public ModelResponse {

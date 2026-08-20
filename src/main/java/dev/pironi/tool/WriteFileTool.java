@@ -11,6 +11,16 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 
 public final class WriteFileTool implements Tool {
+    /**
+     * Rewriting a whole file to change a few lines is the expensive way to edit. One run spent
+     * 4,001 of its 9,952 output tokens retyping the same script three times, and each rewrite was
+     * among its slowest turns. Saying so where the model reads the result is cheaper than letting
+     * it keep paying.
+     */
+    private static final String OVERWRITE_HINT =
+            ". The file already existed; apply_patch edits in place and costs far less than "
+                    + "retyping a file to change part of it.";
+
     private final Workspace workspace;
 
     public WriteFileTool(Workspace workspace) {
@@ -63,6 +73,7 @@ public final class WriteFileTool implements Tool {
             }
 
             Path target = workspace.resolveForWriteCreatingParents(path);
+            boolean overwrote = Files.exists(target);
             Path temporary = Files.createTempFile(target.getParent(), ".pironi-", ".tmp");
             try {
                 Files.writeString(temporary, contentNode.textValue(), StandardCharsets.UTF_8);
@@ -71,7 +82,8 @@ public final class WriteFileTool implements Tool {
                 Files.deleteIfExists(temporary);
             }
             return ToolResult.success("Wrote " + workspace.root().relativize(target)
-                    + " (" + Files.size(target) + " bytes)");
+                    + " (" + Files.size(target) + " bytes)"
+                    + (overwrote ? OVERWRITE_HINT : ""));
         } catch (IllegalArgumentException | IOException e) {
             return ToolResult.failure(e.getMessage());
         }

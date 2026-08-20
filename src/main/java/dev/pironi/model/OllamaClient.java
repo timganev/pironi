@@ -91,6 +91,7 @@ public final class OllamaClient implements ModelClient {
             Consumer<String> contentChunk,
             boolean structured
     ) throws IOException, InterruptedException {
+        long startNanos = System.nanoTime();
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("model", model);
         payload.put("stream", true);
@@ -140,8 +141,9 @@ public final class OllamaClient implements ModelClient {
             } catch (IOException e) {
                 if (lastAttempt) {
                     throw new IOException(
-                            "Ollama request failed after " + requestAttempts + " attempts: "
-                                    + e.getMessage(), e
+                            "Ollama request failed after " + requestAttempts + " attempts over "
+                                    + ((System.nanoTime() - startNanos) / 1_000_000_000L)
+                                    + "s: " + e.getMessage(), e
                     );
                 }
             }
@@ -195,7 +197,8 @@ public final class OllamaClient implements ModelClient {
                 structured ? "json_schema" : "text",
                 requestAttempts,
                 "",
-                ""
+                "",
+                System.nanoTime() - startNanos
         );
     }
 }
