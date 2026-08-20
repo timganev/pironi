@@ -6,7 +6,17 @@ import java.util.regex.Pattern;
 /** Conservative lexical guardrail for shell commands; not an OS sandbox. */
 final class CommandScopePolicy {
     private static final Pattern PARENT = Pattern.compile("(^|[\\s/\\\\])\\.\\.($|[\\s/\\\\])");
-    private static final Pattern UNIX_ABSOLUTE = Pattern.compile("(^|[\\s'\"=])/(?!/)");
+    /**
+     * A slash starts a path only when a path follows it. The rule fires on a slash after a
+     * quote, which is also how every sed address and awk pattern begins: {@code sed -n
+     * '/^## .*x/p'} and {@code awk '/^## /{print}'} were both refused as if they named the root
+     * directory. A refusal there costs more than the rule saves - one run fell back to reading a
+     * 143 KB file whole, spending 38,000 tokens to reach the section the pattern would have cut
+     * out. Requiring a path character after the slash keeps {@code /etc/passwd} refused wherever
+     * it appears, including inside a quoted {@code sh -c}.
+     */
+    private static final Pattern UNIX_ABSOLUTE =
+            Pattern.compile("(^|[\\s'\"=])/(?=[A-Za-z0-9._~-])");
     private static final Pattern WINDOWS_ABSOLUTE = Pattern.compile(
             "(?i)(^|[\\s'\"=])[a-z]:[\\\\/]"
     );

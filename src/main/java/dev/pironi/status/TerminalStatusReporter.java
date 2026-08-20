@@ -146,8 +146,23 @@ public final class TerminalStatusReporter implements StatusReporter {
 
     @Override
     public void toolFinished(String toolName, boolean success, long durationMillis) {
+        toolFinished(toolName, success, durationMillis, "");
+    }
+
+    @Override
+    public void toolFinished(String toolName, boolean success, long durationMillis, String why) {
         activityLine((success ? "✓ " : "✗ ")
-                + ToolActivityFormatter.finished(toolName, success, durationMillis));
+                + ToolActivityFormatter.finished(toolName, success, durationMillis)
+                + (success ? "" : firstLine(why)));
+    }
+
+    /** One line is enough to act on, and a tool that failed may have printed a great many. */
+    private static String firstLine(String why) {
+        if (why == null || why.isBlank()) return "";
+        String line = why.strip().lines().findFirst().orElse("").strip();
+        if (line.isEmpty()) return "";
+        if (line.length() > 160) line = line.substring(0, 160) + "…";
+        return " — " + line;
     }
 
     @Override

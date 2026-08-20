@@ -67,6 +67,25 @@ class CommandScopePolicyTest {
     }
 
     @Test
+    void aPatternIsNotAPath() {
+        // Every sed address and awk pattern opens with a slash after a quote, which is exactly
+        // what the absolute-path rule looks for. Refusing them sent one run to read a 143 KB
+        // file whole instead of cutting out the section it wanted.
+        assertNull(CommandScopePolicy.rejection(
+                "sed -n '/^## .*ANF-4467/,/^## [^#]/p' ACTIVE.md", ShellScope.WORKSPACE, "Mac OS X"));
+        assertNull(CommandScopePolicy.rejection(
+                "awk '/^## /{print}' ACTIVE.md", ShellScope.WORKSPACE, "Mac OS X"));
+
+        // A real path is still a real path, wherever it is quoted.
+        assertNotNull(CommandScopePolicy.rejection(
+                "cat '/etc/passwd'", ShellScope.WORKSPACE, "Mac OS X"));
+        assertNotNull(CommandScopePolicy.rejection(
+                "sh -c 'cat /etc/passwd'", ShellScope.WORKSPACE, "Mac OS X"));
+        assertNotNull(CommandScopePolicy.rejection(
+                "sed -n '/x/p' /etc/shadow", ShellScope.WORKSPACE, "Mac OS X"));
+    }
+
+    @Test
     void ordinaryWindowsCommandsStillRun() {
         assertNull(CommandScopePolicy.rejection("mvnw.cmd test", ShellScope.WORKSPACE, "Windows 11"));
         assertNull(CommandScopePolicy.rejection("gradlew.bat build", ShellScope.WORKSPACE, "Windows 11"));

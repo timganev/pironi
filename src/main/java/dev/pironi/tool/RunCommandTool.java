@@ -97,6 +97,13 @@ public final class RunCommandTool implements Tool {
     }
 
     @Override
+    public boolean mutating(JsonNode arguments) {
+        JsonNode command = arguments == null ? null : arguments.get("command");
+        return command == null || !command.isTextual()
+                || !ReadOnlyCommand.isReadOnly(command.textValue());
+    }
+
+    @Override
     public boolean requiresVerification() {
         return false;
     }

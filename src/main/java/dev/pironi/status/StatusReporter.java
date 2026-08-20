@@ -21,6 +21,15 @@ public interface StatusReporter extends AutoCloseable {
     default void toolFinished(String toolName, boolean success, long durationMillis) {
     }
 
+    /**
+     * A failure the user can act on. "Failed run_command in 1 ms" says nothing, and the reason
+     * the harness already holds - a refused scope, a missing file - never reached the screen; a
+     * user watching a refused sed had no way to tell it from a broken command.
+     */
+    default void toolFinished(String toolName, boolean success, long durationMillis, String why) {
+        toolFinished(toolName, success, durationMillis);
+    }
+
     void idle();
 
     default void modelResponse(ModelResponse response) {

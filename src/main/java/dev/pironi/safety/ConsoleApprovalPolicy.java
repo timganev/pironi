@@ -58,7 +58,7 @@ public final class ConsoleApprovalPolicy implements ApprovalPolicy {
 
     @Override
     public ApprovalDecision decide(Tool tool, JsonNode arguments) {
-        if (!tool.mutating()) {
+        if (!tool.mutating(arguments)) {
             return ApprovalDecision.ALLOW;
         }
         return switch (mode) {

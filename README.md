@@ -334,6 +334,15 @@ while `/doctor` checks Java, workspace permissions, shell and network access.
 
 The change takes effect immediately and is stored in the last-session profile.
 
+A shell command that only reads is not treated as a mutation and runs without a
+prompt: `grep`, `sed -n`, `awk`, `ls`, `git log` and the rest of a small list of
+readers. Asking about those trained the answer out of the question - a user who
+had approved twenty harmless commands answered the twenty-first the same way,
+and the prompts that mattered arrived in the same stream as the ones that never
+did. The test is deliberately narrow: a redirection, a substitution, backticks,
+`tee`, `xargs`, `sed -i`, `find -delete` or a chain containing anything not on
+the list all count as writing and still ask.
+
 `/workspace` shows where the agent is working and moves it without restarting.
 The agent can also propose a move itself with the `switch_workspace` tool, which
 always asks: the approval prompt names the directory and the move happens only
@@ -866,6 +875,10 @@ found".
 
 `--shell-scope workspace` is the default and rejects explicit absolute paths,
 parent traversal, home shortcuts, directory-changing commands and `sudo`.
+A slash counts as a path only when a path character follows it, so `sed -n
+'/^## x/p'` and `awk '/^## /{print}'` are patterns rather than references to the
+root directory - refusing those sent one run to read a 143 KB file whole instead
+of cutting out the section it wanted, at ten times the tokens.
 This is a conservative lexical guardrail, not an operating-system sandbox;
 prefer `read_file`, `find_files`, `move_file` and the other scoped tools.
 `--shell-scope user` permits paths available to the current OS user but still

@@ -632,7 +632,8 @@ public final class AgentLoop {
             }
             statusReporter.toolFinished(
                     call.name(), result.success(),
-                    java.time.Duration.ofNanos(System.nanoTime() - toolStarted).toMillis()
+                    java.time.Duration.ofNanos(System.nanoTime() - toolStarted).toMillis(),
+                    result.success() ? "" : result.output()
             );
             if (result.success()) successCount++;
             if (result.success() && tool != null && tool.mutating()) {
