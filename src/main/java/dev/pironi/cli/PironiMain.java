@@ -295,9 +295,17 @@ public final class PironiMain {
 
         Terminal terminal = null;
         if (interactive) {
-            terminal = TerminalBuilder.builder()
-                    .system(true)
-                    .build();
+            TerminalBuilder builder = TerminalBuilder.builder()
+                    .system(true);
+            // Windows Terminal (WT_SESSION) supports the full ANSI/xterm capability set, but
+            // JLine auto-detection reports "windows" (NativeWinSysTerminal), which lacks
+            // change_scroll_region/save_cursor/restore_cursor — so the pinned status row falls
+            // back to a scrolling line and the status appears on every output row. Pinning the
+            // xterm-256color profile makes JLine Status work there like on Linux/macOS.
+            if (System.getenv("WT_SESSION") != null) {
+                builder.type("xterm-256color");
+            }
+            terminal = builder.build();
         }
 
         StatusReporter status;
