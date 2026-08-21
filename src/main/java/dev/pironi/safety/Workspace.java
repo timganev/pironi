@@ -93,6 +93,13 @@ public final class Workspace {
             throw outside("Absolute paths are not allowed: " + relativePath,
                     supplied.normalize());
         }
+        String device = DeviceNames.reservedSegment(supplied);
+        if (device != null) {
+            throw new IOException(relativePath + " names the reserved Windows device "
+                    + device.toUpperCase(java.util.Locale.ROOT)
+                    + ", not a file. An extension does not change that. Writing there produces "
+                    + "an entry no other Windows program can open. Choose a different name.");
+        }
         Path candidate = root.resolve(supplied).normalize();
         ensureInside(candidate);
         return candidate;

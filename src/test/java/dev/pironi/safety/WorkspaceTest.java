@@ -102,7 +102,14 @@ class WorkspaceTest {
     void rejectsSymlinkEscapingWorkspace() throws Exception {
         Path root = Files.createDirectory(temporaryDirectory.resolve("workspace"));
         Path outside = Files.createDirectory(temporaryDirectory.resolve("outside"));
-        Files.createSymbolicLink(root.resolve("escape"), outside);
+        try {
+            Files.createSymbolicLink(root.resolve("escape"), outside);
+        } catch (IOException | UnsupportedOperationException e) {
+            // Windows grants this only under Developer Mode or elevation, and the rule under test
+            // is about the escape, not about who may build one.
+            org.junit.jupiter.api.Assumptions.abort(
+                    "symbolic links are not available to this account: " + e.getMessage());
+        }
         Workspace workspace = new Workspace(root);
 
         assertThrows(IOException.class, () -> workspace.resolveForWrite("escape/file.txt"));
@@ -119,5 +126,22 @@ class WorkspaceTest {
 
         assertTrue(failure.getMessage().contains("Absolute paths are not allowed"),
                 failure.getMessage());
+    }
+
+    @Test
+    @org.junit.jupiter.api.condition.EnabledOnOs(org.junit.jupiter.api.condition.OS.WINDOWS)
+    void aReservedDeviceNameIsRefusedInsteadOfWrittenTo() throws Exception {
+        // NIO writes NUL.txt and reads it back, so the harness reported success while leaving a
+        // directory entry that PowerShell, cmd and Explorer all report missing.
+        Workspace workspace = new Workspace(temporaryDirectory);
+
+        IOException failure = assertThrows(
+                IOException.class, () -> workspace.resolveForWrite("NUL.txt"));
+
+        assertTrue(failure.getMessage().contains("reserved Windows device"), failure.getMessage());
+        assertTrue(failure.getMessage().contains("NUL"), failure.getMessage());
+        assertThrows(IOException.class, () -> workspace.resolveForWrite("CON"));
+        // A name that merely begins the same way is an ordinary file.
+        workspace.resolveForWrite("console.txt");
     }
 }
