@@ -236,6 +236,14 @@ record CliOptions(
         String task = values.containsKey("task-file")
                 ? readTaskFile(values.get("task-file"))
                 : values.get("task");
+        if (!values.containsKey("task-file") && looksMangledByConsoleEncoding(task)) {
+            throw new IllegalArgumentException(
+                    "--task lost characters to the console code page ("
+                            + System.getProperty("sun.jnu.encoding", "unknown")
+                            + "): the text arrived as \"" + task + "\". Command-line arguments are "
+                            + "decoded before the JVM starts, so this cannot be recovered here. "
+                            + "Save the task as UTF-8 and pass --task-file instead.");
+        }
         boolean interactive = interactive(values);
         if (!interactive && (task == null || task.isBlank())) {
             throw new IllegalArgumentException("--task or --task-file is required with --no-interactive");
@@ -362,10 +370,24 @@ record CliOptions(
     private static String readTaskFile(String value) {
         Path path = Path.of(value).toAbsolutePath().normalize();
         try {
-            return Files.readString(path, StandardCharsets.UTF_8);
+            return ByteOrderMark.stripped(Files.readString(path, StandardCharsets.UTF_8));
         } catch (IOException e) {
             throw new IllegalArgumentException("Cannot read --task-file " + path + ": " + e.getMessage());
         }
+    }
+
+    /**
+     * Whether a task arrived with its non-ASCII characters already replaced by question marks.
+     *
+     * <p>On Windows the launcher decodes arguments with the ANSI code page, so Cyrillic passed to
+     * {@code --task} reaches the JVM as {@code ???????} and the model is asked the wrong question.
+     * Two question marks in a row are what survives that; one is ordinary punctuation.
+     */
+    static boolean looksMangledByConsoleEncoding(String task) {
+        if (task == null || task.isBlank()) return false;
+        String encoding = System.getProperty("sun.jnu.encoding", "");
+        if (encoding.equalsIgnoreCase("UTF-8")) return false;
+        return task.contains("??") || task.indexOf('�') >= 0;
     }
 
     private static List<Path> parseSearchRoots(String raw, Path workspace) {

@@ -209,7 +209,7 @@ public final class InteractiveShell {
             }
 
             if (line == null) break;
-            line = line.strip();
+            line = ByteOrderMark.stripped(line).strip();
             if (line.isBlank()) continue;
 
             if (line.equals("/exit") || line.equals("/quit")) {

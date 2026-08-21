@@ -18,6 +18,22 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CliOptionsTest {
+
+    @Test
+    void aTaskAlreadyReducedToQuestionMarksIsRecognised() {
+        // Only meaningful where the launcher decoded arguments with a non-UTF-8 code page; the
+        // check reads the property rather than the platform so both paths are exercised here.
+        String encoding = System.getProperty("sun.jnu.encoding", "");
+        boolean lossy = !encoding.equalsIgnoreCase("UTF-8");
+
+        assertEquals(lossy, CliOptions.looksMangledByConsoleEncoding("Echo back: ???????"));
+        // One question mark is a question, not a loss.
+        assertTrue(!CliOptions.looksMangledByConsoleEncoding("What is the build command?"));
+        assertTrue(!CliOptions.looksMangledByConsoleEncoding("Здравей"));
+        assertTrue(!CliOptions.looksMangledByConsoleEncoding(""));
+        assertTrue(!CliOptions.looksMangledByConsoleEncoding(null));
+    }
+
     @TempDir
     Path temporaryDirectory;
 
