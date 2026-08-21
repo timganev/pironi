@@ -131,7 +131,10 @@ class SessionStoreTest {
         store.saveCheckpoint("{\"version\":1,\"messages\":[]}");
         store.saveMeta();
 
-        assertEquals(wanted, store.latestSessionId("/work/one").orElseThrow());
-        assertTrue(store.latestSessionId("/work/nothing-here").isEmpty());
+        // The store keeps what Path.toString() produced, which spells the same directory
+        // "\work\one" on Windows; asking with the literal compared two platforms' spellings.
+        assertEquals(wanted,
+                store.latestSessionId(Path.of("/work/one").toString()).orElseThrow());
+        assertTrue(store.latestSessionId(Path.of("/work/nothing-here").toString()).isEmpty());
     }
 }
