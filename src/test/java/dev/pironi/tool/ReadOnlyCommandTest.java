@@ -44,6 +44,20 @@ class ReadOnlyCommandTest {
     }
 
     @Test
+    void discardingOutputIsNotWriting() {
+        // The exact commands a live session was asked to approve four times for one edit.
+        assertTrue(ReadOnlyCommand.isReadOnly("find . -maxdepth 3 -name ACTIVE.md 2>/dev/null"));
+        assertTrue(ReadOnlyCommand.isReadOnly("grep -n 'Tim-4' ACTIVE.md"));
+        assertTrue(ReadOnlyCommand.isReadOnly("sed -n '/^## .*Tim-3/,/^## [^#]/p' ACTIVE.md"));
+        assertTrue(ReadOnlyCommand.isReadOnly("ls -la 2>/dev/null"));
+        assertTrue(ReadOnlyCommand.isReadOnly("dir /b 2>NUL", "Windows 11"));
+
+        // A discard is the only redirect that keeps a reader a reader.
+        assertFalse(ReadOnlyCommand.isReadOnly("grep x f.txt 2>/dev/null > out.txt"));
+        assertFalse(ReadOnlyCommand.isReadOnly("cat f.txt > /dev/null/../out"));
+    }
+
+    @Test
     void aRedirectionIsAWrite() {
         assertFalse(ReadOnlyCommand.isReadOnly("grep foo bar.txt > out.txt"));
         assertFalse(ReadOnlyCommand.isReadOnly("echo hi >> log.txt"));

@@ -45,6 +45,14 @@ public final class ReadOnlyCommand {
     /** Anything that turns a reader into a writer, or hides another program inside. */
     private static final Pattern ESCAPE = Pattern.compile("[>`]|\\$\\(|<\\(|\\btee\\b|\\bxargs\\b");
 
+    /**
+     * Discarding output is not writing. {@code 2>/dev/null} is how a reader silences its own
+     * noise, and counting it as a write made ordinary commands - {@code find . -name x
+     * 2>/dev/null} above all - ask for approval they did not need.
+     */
+    private static final Pattern DISCARD =
+            Pattern.compile("\\d?>>?\\s*(/dev/null|(?i:nul))(?=\\s|$)");
+
     private static final Pattern SEPARATOR = Pattern.compile("&&|\\|\\||;|\\||&");
 
     private ReadOnlyCommand() {
@@ -56,9 +64,10 @@ public final class ReadOnlyCommand {
 
     static boolean isReadOnly(String command, String osName) {
         if (command == null || command.isBlank()) return false;
-        if (ESCAPE.matcher(command).find()) return false;
+        String withoutDiscards = DISCARD.matcher(command).replaceAll(" ");
+        if (ESCAPE.matcher(withoutDiscards).find()) return false;
         boolean windows = osName.toLowerCase(Locale.ROOT).contains("win");
-        for (String segment : SEPARATOR.split(command)) {
+        for (String segment : SEPARATOR.split(withoutDiscards)) {
             if (!segmentOnlyReads(segment.strip(), windows)) return false;
         }
         return true;

@@ -46,6 +46,10 @@ public final class RunCommandTool implements Tool {
      * always denies there would break every scripted shell step.
      */
     @Override public boolean requiresExplicitApproval(JsonNode arguments) {
+        // A call that only reads has nothing to approve. Asking anyway is what trained the
+        // answer out of the question, and it regressed the moment the approval policy began
+        // consulting this method before the read/write split.
+        if (!mutating(arguments)) return false;
         return promptable;
     }
 
