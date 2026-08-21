@@ -13,7 +13,7 @@ class ReadOnlyCommandTest {
         assertTrue(ReadOnlyCommand.isReadOnly("awk '/^## /{print}' ACTIVE.md"));
         assertTrue(ReadOnlyCommand.isReadOnly("ls -la src | head -20"));
         assertTrue(ReadOnlyCommand.isReadOnly("git log --oneline -5"));
-        assertTrue(ReadOnlyCommand.isReadOnly("find . -name '*.md' | wc -l"));
+        assertTrue(ReadOnlyCommand.isReadOnly("find . -name '*.md' | wc -l", "Linux"));
         assertTrue(ReadOnlyCommand.isReadOnly("cat notes.md"));
         assertTrue(ReadOnlyCommand.isReadOnly("/usr/bin/grep -c foo bar.txt"));
     }
@@ -46,7 +46,7 @@ class ReadOnlyCommandTest {
     @Test
     void discardingOutputIsNotWriting() {
         // The exact commands a live session was asked to approve four times for one edit.
-        assertTrue(ReadOnlyCommand.isReadOnly("find . -maxdepth 3 -name ACTIVE.md 2>/dev/null"));
+        assertTrue(ReadOnlyCommand.isReadOnly("find . -maxdepth 3 -name ACTIVE.md 2>/dev/null", "Linux"));
         assertTrue(ReadOnlyCommand.isReadOnly("grep -n 'Tim-4' ACTIVE.md"));
         assertTrue(ReadOnlyCommand.isReadOnly("sed -n '/^## .*Tim-3/,/^## [^#]/p' ACTIVE.md"));
         assertTrue(ReadOnlyCommand.isReadOnly("ls -la 2>/dev/null"));
@@ -70,8 +70,10 @@ class ReadOnlyCommandTest {
         // sed edits in place, find deletes and runs whatever it is told to.
         assertFalse(ReadOnlyCommand.isReadOnly("sed -i '' 's/a/b/' notes.md"));
         assertFalse(ReadOnlyCommand.isReadOnly("sed -i.bak 's/a/b/' notes.md"));
-        assertFalse(ReadOnlyCommand.isReadOnly("find . -name '*.tmp' -delete"));
-        assertFalse(ReadOnlyCommand.isReadOnly("find . -exec rm {} ;"));
+        // find on Windows is a text search with no -delete, so this rule names its platform
+        // instead of inheriting the runner's - it passed on Linux and failed on Windows.
+        assertFalse(ReadOnlyCommand.isReadOnly("find . -name '*.tmp' -delete", "Linux"));
+        assertFalse(ReadOnlyCommand.isReadOnly("find . -exec rm {} ;", "Linux"));
         assertFalse(ReadOnlyCommand.isReadOnly("git commit -m x"));
         assertFalse(ReadOnlyCommand.isReadOnly("git push"));
     }
@@ -80,7 +82,7 @@ class ReadOnlyCommandTest {
     void anythingThatHidesAnotherProgramIsAWrite() {
         assertFalse(ReadOnlyCommand.isReadOnly("cat $(which rm)"));
         assertFalse(ReadOnlyCommand.isReadOnly("echo `rm -rf x`"));
-        assertFalse(ReadOnlyCommand.isReadOnly("find . -name '*.md' | xargs rm"));
+        assertFalse(ReadOnlyCommand.isReadOnly("find . -name '*.md' | xargs rm", "Linux"));
         assertFalse(ReadOnlyCommand.isReadOnly("rm -rf build"));
         assertFalse(ReadOnlyCommand.isReadOnly("mvn clean verify"));
         assertFalse(ReadOnlyCommand.isReadOnly("grep foo a.txt && rm a.txt"));
