@@ -40,6 +40,7 @@ record CliOptions(
         Set<String> allowTools,
         ShellScope shellScope,
         ShellScope readScope,
+        String resumeSession,
         List<Path> searchRoots,
         boolean interactive,
         boolean noTui,
@@ -49,13 +50,13 @@ record CliOptions(
     private static final Path DEFAULT_WORKSPACE = Path.of(
             System.getProperty("user.dir", ".")
     ).toAbsolutePath().normalize();
-    private static final Set<String> BOOLEAN_FLAGS = Set.of("interactive", "no-interactive", "no-tui");
+    private static final Set<String> BOOLEAN_FLAGS = Set.of("interactive", "no-interactive", "no-tui", "continue");
     private static final Set<String> VALUE_OPTIONS = Set.of(
             "provider", "base-url", "api-key-env", "model", "workspace", "task", "task-file",
             "approval", "activity", "max-turns", "context", "max-output-tokens",
             "timeout-seconds", "trace", "pironi-home", "personal-context", "status",
             "verify-command", "deny-tools", "allow-tools", "shell-scope", "read-scope",
-            "search-roots",
+            "search-roots", "resume",
             "max-subagents", "subagent-timeout-seconds"
     );
     private static final Set<String> KNOWN_OPTIONS = java.util.stream.Stream.concat(
@@ -85,6 +86,7 @@ record CliOptions(
                 allowTools,
                 shellScope,
                 readScope,
+                resumeSession,
                 searchRoots,
                 interactive,
                 false,
@@ -123,6 +125,7 @@ record CliOptions(
                 allowTools,
                 shellScope,
                 readScope,
+                resumeSession,
                 searchRoots,
                 interactive,
                 false,
@@ -154,6 +157,7 @@ record CliOptions(
                 allowTools,
                 shellScope,
                 readScope,
+                resumeSession,
                 searchRoots,
                 interactive,
                 false,
@@ -185,6 +189,7 @@ record CliOptions(
                 allowTools,
                 shellScope,
                 readScope,
+                resumeSession,
                 searchRoots,
                 interactive,
                 false,
@@ -328,6 +333,10 @@ record CliOptions(
                         "read-scope",
                         environment.getOrDefault("PIRONI_DEFAULT_READ_SCOPE", "unrestricted")
                 )),
+                // --continue is --resume with the id left to the workspace's own history, which
+                // is the common case: a crashed headless run printed its session id and then had
+                // no way to use it, because /resume exists only in the interactive shell.
+                values.containsKey("continue") ? "" : values.get("resume"),
                 searchRoots,
                 interactive,
                 false,

@@ -110,4 +110,28 @@ class SessionStoreTest {
                     "the running session survives its own pruning");
         }
     }
+
+    @Test
+    void continuingTakesTheNewestResumableSessionInThisWorkspaceOnly() throws Exception {
+        // The newest session overall belongs to whatever ran last, which may be another project;
+        // and a session is recorded the moment it starts, so the newest often holds nothing.
+        SessionStore store = new SessionStore(temporaryDirectory, new ObjectMapper());
+
+        store.startSession("m", Path.of("/work/one"), 1000, 8);
+        store.saveCheckpoint("{\"version\":1,\"messages\":[]}");
+        store.saveMeta();
+        String wanted = store.currentMeta().id();
+
+        Thread.sleep(1_100);
+        store.startSession("m", Path.of("/work/one"), 1000, 8);
+        store.saveMeta();
+
+        Thread.sleep(1_100);
+        store.startSession("m", Path.of("/work/other"), 1000, 8);
+        store.saveCheckpoint("{\"version\":1,\"messages\":[]}");
+        store.saveMeta();
+
+        assertEquals(wanted, store.latestSessionId("/work/one").orElseThrow());
+        assertTrue(store.latestSessionId("/work/nothing-here").isEmpty());
+    }
 }

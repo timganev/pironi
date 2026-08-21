@@ -695,10 +695,21 @@ Sending personal context to a cloud provider requires the explicit
 --status auto|always|never
 --deny-tools NAME,NAME
 --allow-tools NAME,NAME
+--continue
+--resume SESSION-ID
 --shell-scope workspace|user|unrestricted
 --read-scope workspace|user|unrestricted
 --search-roots PATH,PATH
 ```
+
+`--continue` reopens the newest resumable session that ran in this workspace and
+`--resume SESSION-ID` reopens one by name, so a headless run that died mid-task
+can pick up where it stopped. The loop checkpoints after every turn, and until
+these existed the id it printed on the way down could only be used from the
+interactive shell - so batch runs were restarted from zero with the work sitting
+on disk. `--continue` never reaches outside the workspace, because the newest
+session overall belongs to whatever ran last, and it skips sessions holding
+nothing to restore, because a session is recorded the moment it starts.
 
 The default trace is `WORKSPACE/.pironi/trace.jsonl`. A trace can contain
 prompts, model responses, tool arguments, and tool output. It also records what

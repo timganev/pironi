@@ -55,7 +55,10 @@ class PironiMainTest {
         // failure, so the finished turns looked lost and the run was started again from zero.
         String hint = PironiMain.resumeHint("20260819-020000-outlook-e2e-79365308");
 
-        assertTrue(hint.contains("/resume 20260819-020000-outlook-e2e-79365308"), hint);
+        // The id was only usable from the interactive shell, so the hint pointed at a route a
+        // batch run could not take.
+        assertTrue(hint.contains("--continue"), hint);
+        assertTrue(hint.contains("--resume 20260819-020000-outlook-e2e-79365308"), hint);
         assertEquals("", PironiMain.resumeHint(""), "no session yet means no hint");
         assertEquals("", PironiMain.resumeHint(null));
     }

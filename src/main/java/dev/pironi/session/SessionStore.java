@@ -194,6 +194,26 @@ public final class SessionStore {
         }
     }
 
+    /**
+     * The newest resumable session that ran in this directory.
+     *
+     * <p>Two filters, both learned the hard way. The workspace one keeps continuing from reaching
+     * into another project's conversation, which the newest session overall may well be. The
+     * checkpoint one skips sessions that hold nothing to restore - a session is recorded the
+     * moment it starts, including the one a resume itself opens, so the newest is often empty.
+     */
+    public Optional<String> latestSessionId(String workspace) {
+        try {
+            return listSessions().stream()
+                    .filter(meta -> meta.workspace().equals(workspace))
+                    .map(SessionMeta::id)
+                    .filter(id -> loadCheckpoint(id).isPresent())
+                    .findFirst();
+        } catch (IOException e) {
+            return Optional.empty();
+        }
+    }
+
     // ── search ─────────────────────────────────────────────────────────
 
     public List<String> searchSessions(String query) throws IOException {

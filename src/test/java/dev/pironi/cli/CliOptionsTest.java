@@ -13,6 +13,7 @@ import java.util.Set;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -380,5 +381,19 @@ class CliOptionsTest {
                 Map.of()
         );
         assertEquals(4, custom.maxSubagents());
+    }
+
+    @Test
+    void resumeNamesASessionAndContinueLeavesItToTheWorkspace() {
+        // A crashed headless run printed its session id and then had no way to use it: /resume
+        // exists only in the interactive shell, so the work on disk was restarted from zero.
+        CliOptions named = CliOptions.parse(
+                new String[]{"--model", "m", "--resume", "2026-08-21T2148-ws-abc"}, Map.of());
+        assertEquals("2026-08-21T2148-ws-abc", named.resumeSession());
+
+        CliOptions latest = CliOptions.parse(new String[]{"--model", "m", "--continue"}, Map.of());
+        assertEquals("", latest.resumeSession());
+
+        assertNull(CliOptions.parse(new String[]{"--model", "m"}, Map.of()).resumeSession());
     }
 }

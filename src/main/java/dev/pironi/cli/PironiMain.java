@@ -648,6 +648,9 @@ public final class PironiMain {
                 return exitCode;
             }
 
+            String resumed = resumeIfAsked(options, memory);
+            if (!resumed.isEmpty()) System.out.println(resumed);
+
             AgentResult result = loop.run(options.task());
             checkpoints.discardAll();
             System.out.println(result.output());
@@ -790,6 +793,22 @@ public final class PironiMain {
         } catch (java.io.IOException e) {
             return "";
         }
+    }
+
+    /**
+     * Reopens an earlier conversation before the task runs.
+     *
+     * <p>A run that died mid-turn printed the session id it had been checkpointed as, and then
+     * the only way to use it was an interactive {@code /resume} - so headless runs were restarted
+     * from zero although the work was on disk. {@code --continue} takes the newest session in this
+     * workspace, never the newest overall, which would be another project's conversation.
+     *
+     * @return what happened, or empty when neither flag was given
+     */
+    private static String resumeIfAsked(CliOptions options, PersistentAgentMemory memory) {
+        String requested = options.resumeSession();
+        if (requested == null) return "";
+        return requested.isBlank() ? memory.resumeLatestHere() : memory.resume(requested);
     }
 
     static Set<String> autoSafeDeniedTools(CliOptions options) {
@@ -973,7 +992,7 @@ public final class PironiMain {
     static String resumeHint(String sessionId) {
         if (sessionId == null || sessionId.isBlank()) return "";
         return "Turns completed before the failure are checkpointed as session " + sessionId
-                + ". Start Pironi and enter: /resume " + sessionId;
+                + ". Continue with --continue, or --resume " + sessionId;
     }
 
     /**

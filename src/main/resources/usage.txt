@@ -20,6 +20,8 @@ Agent:
   --no-interactive                             one-shot; requires --task or --task-file
   --task TEXT                                  optional initial interactive task
   --task-file PATH                             read the task as UTF-8; conflicts with --task
+  --continue                                   reopen the newest session in this workspace
+  --resume SESSION-ID                          reopen that session
   --max-turns N                                 default: 8
   --context N                                   Ollama 8192, OpenRouter 200000, DeepSeek 1000000
   --max-output-tokens N                         default: 4096

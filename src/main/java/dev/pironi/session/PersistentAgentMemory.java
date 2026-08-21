@@ -182,6 +182,18 @@ public final class PersistentAgentMemory implements AgentMemory {
         sessions.updateStatus(success ? "completed" : "failed");
     }
 
+    /**
+     * Reopens the newest session that ran in this workspace, so continuing needs no session id.
+     *
+     * @return the same report {@link #resume} gives, or why there was nothing to continue
+     */
+    public synchronized String resumeLatestHere() {
+        var id = sessions.latestSessionId(workspace.toString());
+        return id.isEmpty()
+                ? "No earlier session in " + workspace + " to continue."
+                : resume(id.get());
+    }
+
     public synchronized String resume(String id) {
         String sourceId = id == null || id.isBlank()
                 ? sessions.latestSessionId().orElse("") : id;
