@@ -7,6 +7,7 @@ import dev.pironi.agent.AgentMemory;
 import dev.pironi.model.ChatMessage;
 import dev.pironi.model.ModelResponse;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -353,6 +354,34 @@ public final class PersistentAgentMemory implements AgentMemory {
         return skills.save(canonical, redacted)
                 ? "Skill saved: " + canonical
                 : "Could not save skill: " + canonical;
+    }
+
+    /**
+     * Removes a skill the user no longer wants. The store keeps the folder under .archive, the
+     * same place a replaced version goes, so a name deleted by mistake can come back.
+     */
+    public synchronized String deleteSkill(String name) {
+        String canonical = SkillStore.canonicalName(name == null ? "" : name);
+        if (canonical.isBlank()) return "Cannot delete: invalid ASCII skill name.";
+        if (!skills.exists(canonical)) {
+            return "No skill named " + canonical + "." + available();
+        }
+        if (!skills.archive(canonical)) return "Could not delete skill: " + canonical;
+        // A deleted skill must stop steering this turn as well as later ones.
+        if (canonical.equals(activeSkill)) {
+            activeSkill = "";
+            activeSkillContent = "";
+        }
+        return "Skill deleted: " + canonical + " (recoverable from .archive)";
+    }
+
+    private String available() {
+        try {
+            List<String> names = skills.list().stream().map(SkillStore.SkillEntry::name).toList();
+            return names.isEmpty() ? " No skills are stored." : " Stored skills: " + String.join(", ", names);
+        } catch (IOException e) {
+            return "";
+        }
     }
 
 

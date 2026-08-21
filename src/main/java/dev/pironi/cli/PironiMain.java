@@ -187,6 +187,7 @@ public final class PironiMain {
                 new dev.pironi.tool.ProcessInspectTool(),
                 new dev.pironi.tool.ProcessControlTool(),
                 new SaveSkillTool(memory),
+                new dev.pironi.tool.DeleteSkillTool(memory),
                 new WriteFileTool(workspace, checkpoints),
                 new ApplyPatchTool(workspace, checkpoints),
                 new MoveFileTool(workspace, checkpoints),

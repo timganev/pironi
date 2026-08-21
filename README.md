@@ -589,6 +589,11 @@ does the same for the last verified turn. Saving again under the same name
 replaces it and archives the previous version, so a correction is one more
 request rather than a review.
 
+`delete_skill` removes one by name. Without it an agent asked to delete a skill
+could only explain that it had no way to, while holding write access to the
+folder it had just written into. The folder moves to `.archive` rather than
+disappearing, which is where a replaced version already went.
+
 It used to be a draft that `/accept-skill` had to accept. The ceremony cost more
 than it protected: the draft lived only in the process, so a skill that was
 asked for, written and approved was gone at `/exit`, and `/accept-skill` refused
