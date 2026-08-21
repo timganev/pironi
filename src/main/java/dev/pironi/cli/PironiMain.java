@@ -76,6 +76,12 @@ public final class PironiMain {
     /** How long session transcripts and trace events are kept. */
     private static final Duration RETENTION = Duration.ofDays(30);
 
+    /** How long a skill may go unapplied before it is archived. */
+    private static final int SKILL_UNUSED_DAYS = 60;
+
+    /** How long an archived skill waits to be restored before it is deleted for good. */
+    private static final int ARCHIVED_SKILL_DAYS = 30;
+
     private PironiMain() {
     }
 
@@ -148,6 +154,10 @@ public final class PironiMain {
                 options.tracePath(), RETENTION, objectMapper);
         ContextCompressor compressor = new ContextCompressor(options.contextSize(), objectMapper);
         SkillStore skills = new SkillStore(options.pironiHome());
+        // A skill nobody applies is noise in every later prompt, so it is archived rather than
+        // kept - and archiving alone never frees anything, so the archive is emptied in turn.
+        skills.pruneStale(SKILL_UNUSED_DAYS);
+        skills.purgeArchived(ARCHIVED_SKILL_DAYS);
         PersistentAgentMemory memory = new PersistentAgentMemory(
                 sessions, compressor, skills, objectMapper, options.model(),
                 options.workspace(), options.contextSize(), options.maxTurns(),
@@ -188,6 +198,7 @@ public final class PironiMain {
                 new dev.pironi.tool.ProcessControlTool(),
                 new SaveSkillTool(memory),
                 new dev.pironi.tool.DeleteSkillTool(memory),
+                new dev.pironi.tool.RestoreSkillTool(memory),
                 new WriteFileTool(workspace, checkpoints),
                 new ApplyPatchTool(workspace, checkpoints),
                 new MoveFileTool(workspace, checkpoints),

@@ -280,6 +280,7 @@ public final class PersistentAgentMemory implements AgentMemory {
         if (content.isEmpty()) return "Skill not found: " + name;
         activeSkill = name;
         activeSkillContent = content.get();
+        skills.markUsed(name);
         return "Skill activated: " + name + " (" + activeSkillContent.length() + " chars)";
     }
 
@@ -375,6 +376,28 @@ public final class PersistentAgentMemory implements AgentMemory {
         return "Skill deleted: " + canonical + " (recoverable from .archive)";
     }
 
+    /** Brings back a skill that was deleted, or archived for going unused. */
+    public synchronized String restoreSkill(String name) {
+        String canonical = SkillStore.canonicalName(name == null ? "" : name);
+        if (canonical.isBlank()) return "Cannot restore: invalid ASCII skill name.";
+        if (skills.exists(canonical)) return "Skill " + canonical + " is already in the store.";
+        if (!skills.restore(canonical)) {
+            return "Nothing archived under " + canonical + "." + archived();
+        }
+        return "Skill restored: " + canonical;
+    }
+
+    private String archived() {
+        try {
+            List<String> names = skills.listArchived();
+            return names.isEmpty()
+                    ? " Nothing is archived."
+                    : " Archived skills: " + String.join(", ", names);
+        } catch (IOException e) {
+            return "";
+        }
+    }
+
     private String available() {
         try {
             List<String> names = skills.list().stream().map(SkillStore.SkillEntry::name).toList();
@@ -401,6 +424,7 @@ public final class PersistentAgentMemory implements AgentMemory {
         skills.load(name).ifPresent(content -> {
             activeSkill = name;
             activeSkillContent = truncate(content, 8_000);
+            skills.markUsed(name);
         });
     }
 

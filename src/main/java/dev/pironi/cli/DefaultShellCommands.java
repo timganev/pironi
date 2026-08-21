@@ -329,9 +329,13 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
         return skills.archive(name) ? "Skill archived: " + name : "Not found: " + name;
     }
 
+    @Override public String restoreSkill(String name) {
+        return memory.restoreSkill(name);
+    }
+
     @Override public String pruneSkills() {
         try {
-            int n = skills.pruneStale(90);
+            int n = skills.pruneStale(60) + skills.purgeArchived(30);
             return "Pruned " + n + " stale skills.";
         } catch (IOException e) {
             return "Error: " + e.getMessage();

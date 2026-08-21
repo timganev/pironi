@@ -594,6 +594,18 @@ could only explain that it had no way to, while holding write access to the
 folder it had just written into. The folder moves to `.archive` rather than
 disappearing, which is where a replaced version already went.
 
+`restore_skill` and `/restore-skill NAME` bring one back out of `.archive`.
+
+Skills expire in two stages. A skill that has not been applied for 60 days is
+archived at startup, and an archived skill is deleted for good after a further
+30. Both windows also run on `/prune-skills`.
+
+"Not applied" means applied, not edited. The staleness check used to read
+`SKILL.md`'s modification time, which would have archived a skill used every day
+and never corrected - the working ones first. A skill now stamps `.used` when it
+is selected, automatically or by `/skill NAME`, and restoring one refreshes that
+stamp so it is not handed straight back to the next prune.
+
 It used to be a draft that `/accept-skill` had to accept. The ceremony cost more
 than it protected: the draft lived only in the process, so a skill that was
 asked for, written and approved was gone at `/exit`, and `/accept-skill` refused

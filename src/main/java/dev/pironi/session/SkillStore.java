@@ -264,6 +264,9 @@ public final class SkillStore {
             Path dst = skillsDir.resolve(name);
             if (!Files.exists(src)) return false;
             Files.move(src, dst);
+            // A skill archived for going unused carries an old usage stamp, and restoring it
+            // without a fresh one would hand it straight back to the next prune.
+            markUsed(name);
             rebuildIndex();
             return true;
         } catch (IOException e) {
@@ -287,11 +290,72 @@ public final class SkillStore {
         int pruned = 0;
         Instant cutoff = Instant.now().minus(maxDaysUnused, ChronoUnit.DAYS);
         for (SkillEntry entry : list()) {
-            if (Instant.ofEpochMilli(entry.mtime()).isBefore(cutoff)) {
+            if (lastUsed(entry.name(), entry.mtime()).isBefore(cutoff)) {
                 if (archive(entry.name())) pruned++;
             }
         }
         return pruned;
+    }
+
+    /**
+     * Deletes archived skills for good once they have sat unclaimed. Archiving alone only moves a
+     * folder, so without this nothing is ever actually removed and .archive grows for ever.
+     */
+    public int purgeArchived(int maxDaysArchived) throws IOException {
+        int purged = 0;
+        Instant cutoff = Instant.now().minus(maxDaysArchived, ChronoUnit.DAYS);
+        Path archive = skillsDir.resolve(".archive");
+        for (String name : listArchived()) {
+            Path dir = archive.resolve(name);
+            if (Instant.ofEpochMilli(dir.toFile().lastModified()).isBefore(cutoff)) {
+                if (deleteRecursively(dir)) purged++;
+            }
+        }
+        return purged;
+    }
+
+    private static boolean deleteRecursively(Path dir) {
+        try (Stream<Path> paths = Files.walk(dir)) {
+            for (Path path : paths.sorted(java.util.Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
+            }
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    // ── usage ────────────────────────────────────────────────────
+
+    /**
+     * Records that a skill was applied. Staleness used to read SKILL.md's modification time, which
+     * says when a skill was last edited, not when it was last used: a skill applied every day but
+     * never corrected looked untouched and would have been archived out from under the user.
+     */
+    public void markUsed(String name) {
+        if (!validName(name)) return;
+        Path dir = skillsDir.resolve(name);
+        if (!Files.isDirectory(dir)) return;
+        try {
+            Files.writeString(dir.resolve(".used"), Instant.now().toString(),
+                    StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            // A usage stamp that cannot be written is not worth failing a run over; the skill
+            // keeps its previous stamp and stays eligible for a later prune.
+        }
+    }
+
+    /** When a skill was last applied, falling back to when it was written. */
+    public Instant lastUsed(String name, long fallbackMillis) {
+        Path marker = skillsDir.resolve(name).resolve(".used");
+        if (Files.isRegularFile(marker)) {
+            try {
+                return Instant.parse(Files.readString(marker, StandardCharsets.UTF_8).trim());
+            } catch (IOException | RuntimeException e) {
+                // An unreadable stamp is treated as no stamp rather than as age zero.
+            }
+        }
+        return Instant.ofEpochMilli(fallbackMillis);
     }
 
     // ── index ──────────────────────────────────────────────────────────

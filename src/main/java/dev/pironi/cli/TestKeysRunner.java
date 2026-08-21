@@ -233,6 +233,7 @@ public final class TestKeysRunner {
             @Override public String loadSkill(String name) { return "[skill " + name + "]"; }
             @Override public String saveSkill(String title) { return "[save " + title + "]"; }
             @Override public String forgetSkill(String name) { return "[forget " + name + "]"; }
+            @Override public String restoreSkill(String name) { return "[restore " + name + "]"; }
             @Override public String pruneSkills() { return "[prune]"; }
         };
     }

@@ -170,6 +170,7 @@ public final class InteractiveShell {
         String loadSkill(String name);
         String saveSkill(String title);
         String forgetSkill(String name);
+        String restoreSkill(String name);
         String pruneSkills();
         /** Shows or moves the directory writing tools may touch: "" or a path. */
         default String workspace(String argument) { return "Workspace switching not available."; }
@@ -440,6 +441,10 @@ public final class InteractiveShell {
                 if (shellCommands != null) println(shellCommands.forgetSkill(arg));
                 else println("Skills not available.");
             }
+            case "/restore-skill" -> {
+                if (shellCommands != null) println(shellCommands.restoreSkill(arg));
+                else println("Skills not available.");
+            }
             case "/prune-skills" -> {
                 if (shellCommands != null) println(shellCommands.pruneSkills());
                 else println("Skills not available.");
@@ -611,6 +616,7 @@ public final class InteractiveShell {
                 new Command("/skill", "Load a skill by name"),
                 new Command("/save-skill", "Propose last turn as a skill draft"),
                 new Command("/forget-skill", "Archive a skill"),
+                new Command("/restore-skill", "Restore an archived skill"),
                 new Command("/prune-skills", "Remove stale skills"),
                 new Command("/exit", "Close this session"),
                 new Command("/quit", "Close this session")
