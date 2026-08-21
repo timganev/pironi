@@ -1,6 +1,6 @@
 package dev.pironi.session;
 
-import dev.pironi.agent.AgentLoop;
+import dev.pironi.agent.FindingsLedger;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -68,11 +68,11 @@ public final class FindingsStore {
             else merged.add(new Finding(date, session, value));
         }
         List<Finding> kept = merged;
-        if (merged.size() > AgentLoop.MAX_FINDINGS) {
+        if (merged.size() > FindingsLedger.MAX_FINDINGS) {
             // Keep both ends.
-            int half = AgentLoop.MAX_FINDINGS / 2;
+            int half = FindingsLedger.MAX_FINDINGS / 2;
             kept = new ArrayList<>(merged.subList(0, half));
-            kept.addAll(merged.subList(merged.size() - (AgentLoop.MAX_FINDINGS - half), merged.size()));
+            kept.addAll(merged.subList(merged.size() - (FindingsLedger.MAX_FINDINGS - half), merged.size()));
         }
         try {
             Files.createDirectories(directory);

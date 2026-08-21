@@ -61,7 +61,7 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
         }
         java.nio.file.Path previous = workspace.root();
         try {
-            java.nio.file.Path moved = workspace.switchTo(expandHome(trimmed));
+            java.nio.file.Path moved = workspace.switchTo(dev.pironi.safety.UserPath.of(trimmed));
             if (moved.equals(previous)) return "Already the workspace: " + moved;
             if (registry != null) {
                 // Record the directory being left as an explicit read grant.
@@ -81,15 +81,6 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
         } catch (java.io.IOException | RuntimeException e) {
             return "Could not switch workspace: " + e.getMessage();
         }
-    }
-
-    private static java.nio.file.Path expandHome(String path) {
-        String home = System.getProperty("user.home", "");
-        if (path.equals("~")) return java.nio.file.Path.of(home);
-        if (path.startsWith("~/") || path.startsWith("~\\")) {
-            return java.nio.file.Path.of(home, path.substring(2));
-        }
-        return java.nio.file.Path.of(path);
     }
 
     void useUserFacts(dev.pironi.session.UserFacts facts, boolean loaded) {
@@ -333,17 +324,6 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
     @Override public String saveSkill(String title) {
         return memory.saveLastTurnAsSkill(title);
     }
-
-    @Override public String pendingSkill() { return memory.pendingSkill(); }
-
-    @Override public String acceptSkill(String mode) {
-        if (!mode.isBlank() && !mode.equalsIgnoreCase("replace")) {
-            return "Usage: /accept-skill [replace]";
-        }
-        return memory.acceptPendingSkill(mode.equalsIgnoreCase("replace"));
-    }
-
-    @Override public String rejectSkill() { return memory.rejectPendingSkill(); }
 
     @Override public String forgetSkill(String name) {
         return skills.archive(name) ? "Skill archived: " + name : "Not found: " + name;

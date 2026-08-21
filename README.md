@@ -584,15 +584,16 @@ skill; it does not use embeddings or load every skill body. `/skill NAME`
 selects one explicitly, `/skill off` suppresses automatic selection for the
 session, and `/skill auto` enables it again.
 
-Learning is reviewable and never writes durable memory immediately.
-`propose_skill` can prepare an ephemeral structured draft only after an
-explicit first-party correction describes a reusable workflow. `/save-skill NAME`
-is the manual equivalent for the last verified turn. Review with
-`/pending-skill`, persist with `/accept-skill`, or discard with
-`/reject-skill`. `/new`, `/resume`, process exit and rejection clear a
-pending draft. Existing skills are never silently overwritten:
-`/accept-skill replace` requires the reviewed original hash still to match and
-archives the previous version before an atomic replacement.
+`save_skill` writes a skill when the user asks for one, and `/save-skill NAME`
+does the same for the last verified turn. Saving again under the same name
+replaces it and archives the previous version, so a correction is one more
+request rather than a review.
+
+It used to be a draft that `/accept-skill` had to accept. The ceremony cost more
+than it protected: the draft lived only in the process, so a skill that was
+asked for, written and approved was gone at `/exit`, and `/accept-skill` refused
+the skill name that the agent had told the user to type. Secrets are still
+redacted before anything is written, and identity files are still not skills.
 
 Skills are procedural guidance below identity, privacy, project rules and
 approval policy. They cannot authorize external messages, change `SOUL.md` or

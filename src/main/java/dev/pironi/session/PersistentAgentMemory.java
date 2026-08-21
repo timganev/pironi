@@ -36,9 +36,6 @@ public final class PersistentAgentMemory implements AgentMemory {
     private String lastAnswer = "";
     private String resumedFrom = "";
     private boolean autoSkillSelection = true;
-    private String pendingSkillName = "";
-    private String pendingSkillContent = "";
-    private String pendingSkillExpectedHash = "";
     private boolean compressionRequested;
 
     public PersistentAgentMemory(SessionStore sessions, ContextCompressor compressor,
@@ -213,7 +210,6 @@ public final class PersistentAgentMemory implements AgentMemory {
             autoSkillSelection = root.path("skillMode").asText("manual").equals("auto");
             String skill = root.path("activeSkill").asText("");
             if (!skill.isBlank()) loadSkillContent(skill);
-            clearPendingSkill();
             compressor.restoreSummary(root.path("summary").asText(""));
             if (sessions.currentMeta() != null) sessions.updateStatus("closed");
             sessions.startSession(model, workspace, contextLimit, maxTurns);
@@ -242,7 +238,6 @@ public final class PersistentAgentMemory implements AgentMemory {
         activeSkill = "";
         activeSkillContent = "";
         autoSkillSelection = true;
-        clearPendingSkill();
         lastTask = "";
         lastAnswer = "";
         compressionRequested = false;
@@ -276,13 +271,9 @@ public final class PersistentAgentMemory implements AgentMemory {
     }
 
     public synchronized String saveLastTurnAsSkill(String title) {
-        if (!pendingSkillContent.isBlank()) {
-            return "A skill draft is already pending and was not replaced. Review it with "
-                    + "/pending-skill, then accept or reject it first.";
-        }
         if (lastTask.isBlank() || lastAnswer.isBlank()) return "No completed turn to save.";
         String name = title == null || title.isBlank() ? "last-turn" : title;
-        return proposeSkill(
+        return saveSkill(
                 name,
                 "Reusable workflow proposed from a completed Pironi turn",
                 List.of(truncate(lastAnswer, 2_000)),
@@ -292,7 +283,7 @@ public final class PersistentAgentMemory implements AgentMemory {
         );
     }
 
-    public synchronized String proposeSkill(
+    public synchronized String saveSkill(
             String name,
             String description,
             List<String> steps,
@@ -340,53 +331,18 @@ public final class PersistentAgentMemory implements AgentMemory {
         if (redacted.length() > 8_000) {
             return "Skill proposal rejected: draft exceeds 8000 characters.";
         }
-        pendingSkillName = canonical;
-        pendingSkillContent = redacted;
-        pendingSkillExpectedHash = skills.contentHash(canonical).orElse("");
-        return "Skill draft ready (not saved): " + canonical
-                + ". Review with /pending-skill, then use /accept-skill or /reject-skill.";
-    }
-
-    public synchronized String pendingSkill() {
-        return pendingSkillContent.isBlank()
-                ? "No pending skill draft."
-                : "Pending skill '" + pendingSkillName + "' (not saved):\n" + pendingSkillContent;
-    }
-
-    public synchronized String acceptPendingSkill() {
-        return acceptPendingSkill(false);
-    }
-
-    public synchronized String acceptPendingSkill(boolean replace) {
-        if (pendingSkillContent.isBlank()) return "No pending skill draft.";
-        if (skills.exists(pendingSkillName)) {
-            if (!replace) {
-                return "Skill already exists and was not overwritten: " + pendingSkillName
-                        + ". Use /accept-skill replace after reviewing the draft.";
+        if (skills.exists(canonical)) {
+            String existingHash = skills.contentHash(canonical).orElse("");
+            if (!skills.replace(canonical, existingHash, redacted)) {
+                return "Could not replace skill: " + canonical;
             }
-            if (!skills.replace(
-                    pendingSkillName, pendingSkillExpectedHash, pendingSkillContent
-            )) {
-                return "Skill replacement refused because the existing version changed or "
-                        + "could not be archived: " + pendingSkillName;
-            }
-            String replaced = pendingSkillName;
-            clearPendingSkill();
-            return "Skill accepted, previous version archived, and replaced: " + replaced;
+            return "Skill updated (previous version archived): " + canonical;
         }
-        boolean saved = skills.save(pendingSkillName, pendingSkillContent);
-        if (!saved) return "Could not save pending skill: " + pendingSkillName;
-        String accepted = pendingSkillName;
-        clearPendingSkill();
-        return "Skill accepted and saved: " + accepted;
+        return skills.save(canonical, redacted)
+                ? "Skill saved: " + canonical
+                : "Could not save skill: " + canonical;
     }
 
-    public synchronized String rejectPendingSkill() {
-        if (pendingSkillContent.isBlank()) return "No pending skill draft.";
-        String rejected = pendingSkillName;
-        clearPendingSkill();
-        return "Skill draft rejected: " + rejected;
-    }
 
     private void selectRelevantSkill(String task) {
         if (!autoSkillSelection) return;
@@ -405,12 +361,6 @@ public final class PersistentAgentMemory implements AgentMemory {
             activeSkill = name;
             activeSkillContent = truncate(content, 8_000);
         });
-    }
-
-    private void clearPendingSkill() {
-        pendingSkillName = "";
-        pendingSkillContent = "";
-        pendingSkillExpectedHash = "";
     }
 
     private static void appendList(

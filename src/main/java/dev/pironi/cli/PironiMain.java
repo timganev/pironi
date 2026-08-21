@@ -29,7 +29,7 @@ import dev.pironi.tool.FindFilesTool;
 import dev.pironi.tool.MoveFileTool;
 import dev.pironi.tool.NetworkSpeedTool;
 import dev.pironi.tool.ReadFileTool;
-import dev.pironi.tool.ProposeSkillTool;
+import dev.pironi.tool.SaveSkillTool;
 import dev.pironi.tool.RunCommandTool;
 import dev.pironi.tool.RollbackCheckpointTool;
 import dev.pironi.tool.SpawnSubagentTool;
@@ -186,7 +186,7 @@ public final class PironiMain {
                 new AppControlTool(),
                 new dev.pironi.tool.ProcessInspectTool(),
                 new dev.pironi.tool.ProcessControlTool(),
-                new ProposeSkillTool(memory),
+                new SaveSkillTool(memory),
                 new WriteFileTool(workspace, checkpoints),
                 new ApplyPatchTool(workspace, checkpoints),
                 new MoveFileTool(workspace, checkpoints),
@@ -371,7 +371,8 @@ public final class PironiMain {
             }
             CapabilityReport capabilityReport = new CapabilityReport(
                     tools, agentContext,
-                    availableTools.stream().map(Tool::name).toList(), disabledReasons
+                    availableTools.stream().map(Tool::name).toList(), disabledReasons,
+                    savedSkills(skills)
             );
             String shellNotice = runCommandDisabledNotice(disabledReasons);
             if (!shellNotice.isEmpty()) {
@@ -771,6 +772,24 @@ public final class PironiMain {
 
     static ToolRegistry configuredTools(List<Tool> availableTools, Set<String> deniedTools) {
         return configuredTools(availableTools, deniedTools, Set.of());
+    }
+
+    /**
+     * Skills are matched and loaded before the first turn, and the model was never told they
+     * exist. Asked to use one it answered that no such mechanism was available and spent sixteen
+     * seconds searching the project for a file that was never there.
+     */
+    private static String savedSkills(SkillStore skills) {
+        try {
+            var entries = skills.list();
+            if (entries.isEmpty()) return "";
+            return entries.stream().map(entry -> entry.name() + " - " + entry.description())
+                    .collect(java.util.stream.Collectors.joining("; "))
+                    + ". They live outside the workspace, are chosen automatically from the "
+                    + "request before the first turn, and are not files to look for.";
+        } catch (java.io.IOException e) {
+            return "";
+        }
     }
 
     static Set<String> autoSafeDeniedTools(CliOptions options) {

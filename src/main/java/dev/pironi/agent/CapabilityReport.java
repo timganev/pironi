@@ -15,17 +15,25 @@ public final class CapabilityReport {
     private final AgentContext context;
     private final Set<String> implementedTools;
     private final Map<String, String> disabledReasons;
+    private final String skills;
 
     public CapabilityReport(ToolRegistry tools, AgentContext context) {
-        this(tools, context, tools.all().stream().map(tool -> tool.name()).toList(), Map.of());
+        this(tools, context, tools.all().stream().map(tool -> tool.name()).toList(), Map.of(), "");
     }
 
     public CapabilityReport(ToolRegistry tools, AgentContext context,
             Collection<String> implementedTools, Map<String, String> disabledReasons) {
+        this(tools, context, implementedTools, disabledReasons, "");
+    }
+
+    public CapabilityReport(ToolRegistry tools, AgentContext context,
+            Collection<String> implementedTools, Map<String, String> disabledReasons,
+            String skills) {
         this.tools = tools;
         this.context = context;
         this.implementedTools = Set.copyOf(implementedTools);
         this.disabledReasons = Map.copyOf(disabledReasons);
+        this.skills = skills == null ? "" : skills;
     }
 
     /** Which files the identity came from, and that they are not yours to write. */
@@ -71,6 +79,7 @@ public final class CapabilityReport {
                 exposed tools: %s
                 policy-disabled tools: %s
                 personal context: %s
+                skills: %s
                 live configuration:
                 %s
                 """.formatted(
@@ -90,6 +99,7 @@ public final class CapabilityReport {
                 names.isBlank() ? "none" : names,
                 disabledText,
                 personalContext(),
+                skills.isBlank() ? "none saved" : skills,
                 context.runtimeSession().indent(2).stripTrailing()
         ).strip();
     }

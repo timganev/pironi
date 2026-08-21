@@ -111,9 +111,7 @@ class PersistentAgentMemoryTest {
         assertTrue(memory.activateSkill("review").contains("activated"));
         assertTrue(memory.promptContext().contains("Check carefully"));
         memory.completed("fix bug", "tests pass");
-        assertTrue(memory.saveLastTurnAsSkill("lesson").contains("not saved"));
-        assertTrue(skills.load("lesson").isEmpty());
-        assertEquals("Skill accepted and saved: lesson", memory.acceptPendingSkill());
+        assertEquals("Skill saved: lesson", memory.saveLastTurnAsSkill("lesson"));
         assertTrue(skills.load("lesson").orElseThrow().contains("fix bug"));
         assertEquals("Active skill cleared.", memory.activateSkill("off"));
     }
@@ -131,8 +129,7 @@ class PersistentAgentMemoryTest {
                 Use Marina as owner for the Friday status workflow
                 """, "Workflow verified");
 
-        assertTrue(memory.saveLastTurnAsSkill("status-flow").contains("not saved"));
-        assertEquals("Skill accepted and saved: status-flow", memory.acceptPendingSkill());
+        assertEquals("Skill saved: status-flow", memory.saveLastTurnAsSkill("status-flow"));
         String saved = skills.load("status-flow").orElseThrow();
         assertTrue(saved.contains("Use Marina as owner"));
         assertFalse(saved.contains("ORION-742"));
@@ -152,9 +149,9 @@ class PersistentAgentMemoryTest {
         memory.begin("old");
         String oldId = sessions.currentMeta().id();
         memory.activateSkill("review");
-        memory.proposeSkill(
-                "temporary-draft", "Temporary workflow", List.of("Step"),
-                List.of("temporary workflow"), List.of(), "Explicit correction"
+        memory.saveSkill(
+                "kept-across-sessions", "Workflow", List.of("Step"),
+                List.of("workflow"), List.of(), "requested"
         );
         compressor.addTokens(100, 20);
 
@@ -164,7 +161,8 @@ class PersistentAgentMemoryTest {
         assertNotEquals(oldId, sessions.currentMeta().id());
         assertEquals(0, compressor.usedTokens());
         assertFalse(memory.promptContext().contains("Active skill"));
-        assertEquals("No pending skill draft.", memory.pendingSkill());
+        // A saved skill is durable by design: a new session clears the active one, not the file.
+        assertTrue(skills.load("kept-across-sessions").isPresent());
         assertEquals("closed", sessions.listSessions().stream()
                 .filter(session -> session.id().equals(oldId)).findFirst().orElseThrow().status());
     }
@@ -210,32 +208,34 @@ class PersistentAgentMemoryTest {
         assertFalse(memory.compressionPending());
     }
 
-    @Test void proposalIsEphemeralUntilAcceptedAndCanBeRejected() throws Exception {
+    @Test void askingForASkillWritesItAndAskingAgainReplacesIt() throws Exception {
+        // A draft that needed a slash command to accept died with the session, and the command
+        // refused the name the agent told the user to type. Saying "change it" costs one turn.
         ObjectMapper mapper = new ObjectMapper();
         SkillStore skills = new SkillStore(temporaryDirectory);
         PersistentAgentMemory memory = memory(
                 new SessionStore(temporaryDirectory, mapper), skills, mapper
         );
-        String proposed = memory.proposeSkill(
+
+        String saved = memory.saveSkill(
                 "weekly-status", "Prepare weekly status reports",
                 List.of("Collect owners and blockers", "Verify totals"),
-                List.of("weekly status report"), List.of("one-off incident"),
-                "The user explicitly corrected the workflow"
+                List.of("weekly status report"), List.of("one-off incident"), "requested"
         );
 
-        assertTrue(proposed.contains("not saved"));
-        assertTrue(skills.load("weekly-status").isEmpty());
-        assertTrue(memory.pendingSkill().contains("Collect owners"));
-        assertEquals("Skill draft rejected: weekly-status", memory.rejectPendingSkill());
-        assertTrue(skills.load("weekly-status").isEmpty());
+        assertEquals("Skill saved: weekly-status", saved);
+        assertTrue(skills.load("weekly-status").orElseThrow().contains("Collect owners"));
 
-        memory.proposeSkill(
+        String updated = memory.saveSkill(
                 "weekly-status", "Prepare weekly status reports",
-                List.of("Collect owners and blockers"), List.of("weekly status report"),
-                List.of(), "Explicit correction"
+                List.of("Ask the owners directly"), List.of("weekly status report"),
+                List.of(), "corrected"
         );
-        assertEquals("Skill accepted and saved: weekly-status", memory.acceptPendingSkill());
-        assertTrue(skills.load("weekly-status").isPresent());
+
+        assertEquals("Skill updated (previous version archived): weekly-status", updated);
+        assertTrue(skills.load("weekly-status").orElseThrow().contains("Ask the owners directly"));
+        assertTrue(Files.walk(temporaryDirectory.resolve("skills/.archive/versions"))
+                .anyMatch(path -> path.getFileName().toString().equals("SKILL.md")));
     }
 
     @Test void automaticSelectionLoadsOneRelevantSkillAndOffSuppressesIt() throws Exception {
@@ -269,48 +269,21 @@ class PersistentAgentMemoryTest {
                 new SessionStore(temporaryDirectory, mapper), skills, mapper
         );
 
-        assertTrue(memory.proposeSkill(
+        assertTrue(memory.saveSkill(
                 "SOUL", "Change identity", List.of("Rename agent"),
-                List.of("identity"), List.of(), "User correction"
+                List.of("identity"), List.of(), "requested"
         ).contains("not adaptive"));
-        assertTrue(memory.proposeSkill(
+
+        assertTrue(memory.saveSkill(
                 "existing", "Existing workflow", List.of("Use PASSWORD=do-not-store"),
                 List.of("existing workflow"), List.of(), "Bearer bearer-secret"
-        ).contains("not saved"));
-        String preview = memory.pendingSkill();
-        assertFalse(preview.contains("do-not-store"));
-        assertFalse(preview.contains("bearer-secret"));
-        assertTrue(preview.contains("[REDACTED]"));
-        assertTrue(memory.acceptPendingSkill().startsWith(
-                "Skill already exists and was not overwritten: existing"
-        ));
-        assertTrue(skills.load("existing").orElseThrow().contains("Original"));
-        assertEquals(
-                "Skill accepted, previous version archived, and replaced: existing",
-                memory.acceptPendingSkill(true)
-        );
-        assertTrue(skills.load("existing").orElseThrow().contains("[REDACTED]"));
+        ).startsWith("Skill updated"));
+        String written = skills.load("existing").orElseThrow();
+        assertFalse(written.contains("do-not-store"));
+        assertFalse(written.contains("bearer-secret"));
+        assertTrue(written.contains("[REDACTED]"));
         assertTrue(Files.walk(temporaryDirectory.resolve("skills/.archive/versions"))
                 .anyMatch(path -> path.getFileName().toString().equals("SKILL.md")));
-    }
-
-    @Test void saveSkillDoesNotReplaceBetterPendingProposal() throws Exception {
-        ObjectMapper mapper = new ObjectMapper();
-        PersistentAgentMemory memory = memory(
-                new SessionStore(temporaryDirectory, mapper),
-                new SkillStore(temporaryDirectory), mapper
-        );
-        memory.completed("generic request", "generic answer");
-        memory.proposeSkill(
-                "quality-draft", "Specific corrected workflow",
-                List.of("First precise step", "Second precise step"),
-                List.of("specific workflow"), List.of(), "Explicit user correction"
-        );
-
-        assertTrue(memory.saveLastTurnAsSkill("generic").contains("already pending"));
-        String preview = memory.pendingSkill();
-        assertTrue(preview.contains("First precise step"));
-        assertFalse(preview.contains("generic answer"));
     }
 
     @Test void onlyWhatWasNominatedAsDurableIsWrittenDown() throws Exception {

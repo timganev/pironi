@@ -92,7 +92,7 @@ public final class InspectFileTool implements Tool {
     }
 
     private Path resolve(String supplied) throws IOException {
-        Path path = Path.of(supplied);
+        Path path = dev.pironi.safety.UserPath.of(supplied);
         if (!path.isAbsolute()) return workspace.resolveExisting(supplied);
         Path real = path.toRealPath();
         if (effectiveRoots().stream().noneMatch(root -> real.startsWith(canonical(root)))) throw new IOException("Path is outside configured search roots: " + supplied);

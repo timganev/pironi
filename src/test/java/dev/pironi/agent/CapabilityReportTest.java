@@ -48,4 +48,26 @@ class CapabilityReportTest {
         assertTrue(report.contains("run_command: implemented but not exposed"));
         assertTrue(report.contains("run_command — blocked by auto-safe workspace policy"));
     }
+
+    @Test
+    void namesTheSavedSkillsSoTheyAreNotSearchedForAsFiles() {
+        // Asked to use a saved skill, an agent answered that no such mechanism existed and spent
+        // sixteen seconds searching the project for a file that was never there.
+        String report = new CapabilityReport(
+                new ToolRegistry(java.util.List.of()), new AgentContext("", "", ""),
+                java.util.List.of(), java.util.Map.of(),
+                "top10 - Three-day forecast. They are chosen automatically."
+        ).render();
+
+        assertTrue(report.contains("skills:"), report);
+        assertTrue(report.contains("top10"), report);
+    }
+
+    @Test
+    void saysWhenNoSkillIsSaved() {
+        String report = new CapabilityReport(
+                new ToolRegistry(java.util.List.of()), new AgentContext("", "", "")).render();
+
+        assertTrue(report.contains("skills: none saved"), report);
+    }
 }

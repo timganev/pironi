@@ -147,4 +147,25 @@ class SkillMatchingTest {
         assertTrue(decision.chosen().isEmpty());
         assertEquals(2, decision.scores().size());
     }
+
+    @Test
+    void anExcludedSkillSaysSoInsteadOfVanishing() throws Exception {
+        // A model wrote its exclusions as behaviour instructions - "do not fetch more than the
+        // 3-day forecast" - so the skill excluded itself on its own subject. Dropped from the
+        // scores entirely, that looked exactly like a skill that had never been saved.
+        SkillStore skills = new SkillStore(home);
+        skills.save("top10", """
+                ---
+                description: "Three-day weather forecast for the ten largest cities"
+                triggers: "weather forecast for top 10 cities"
+                exclusions: "Do not fetch more than the required 3-day forecast."
+                ---
+                Fetch each city.
+                """);
+
+        var decision = skills.decide("What is the 3-day weather forecast for the largest cities?");
+
+        assertTrue(decision.chosen().isEmpty());
+        assertTrue(decision.scores().contains("top10=excluded"), decision.scores().toString());
+    }
 }

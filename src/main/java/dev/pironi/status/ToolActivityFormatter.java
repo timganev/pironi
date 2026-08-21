@@ -31,7 +31,7 @@ final class ToolActivityFormatter {
                     + fallback(safeText(arguments, "sortBy"), "resource use");
             case "process_control" -> processControl(arguments);
             case "run_command" -> summarizeCommand(safeText(arguments, "command"));
-            case "propose_skill" -> "Preparing skill draft "
+            case "save_skill" -> "Saving skill "
                     + fallback(safeText(arguments, "name"), "(unnamed)");
             case "rollback_checkpoint" -> "Rolling back the latest file checkpoint";
             case "system_info" -> "Inspecting runtime capabilities";

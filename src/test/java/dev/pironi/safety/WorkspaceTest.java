@@ -107,4 +107,17 @@ class WorkspaceTest {
 
         assertThrows(IOException.class, () -> workspace.resolveForWrite("escape/file.txt"));
     }
+
+    @Test
+    void aTildePathIsRefusedAsOutsideRatherThanGluedOn() throws Exception {
+        // It used to become <workspace>/~/..., a directory that has never existed, so the refusal
+        // never came and the write landed somewhere nobody looked.
+        Workspace workspace = new Workspace(temporaryDirectory);
+
+        IOException failure = assertThrows(
+                IOException.class, () -> workspace.resolveForWrite("~/notes.md"));
+
+        assertTrue(failure.getMessage().contains("Absolute paths are not allowed"),
+                failure.getMessage());
+    }
 }

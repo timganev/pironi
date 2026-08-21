@@ -201,7 +201,7 @@ public final class ReadFileTool implements Tool {
     }
 
     private Path resolve(String supplied) throws IOException {
-        Path path = Path.of(supplied);
+        Path path = dev.pironi.safety.UserPath.of(supplied);
         if (!path.isAbsolute()) return workspace.resolveExisting(supplied);
         Path real = path.toRealPath();
         for (Path root : realAllowedRoots()) {

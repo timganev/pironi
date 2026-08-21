@@ -86,6 +86,11 @@ public final class SkillStore {
         return decide(task).chosen();
     }
 
+    /**
+     * Exclusions are matched one word at a time, not as phrases: "historical weather" keeps the
+     * skill out of every request containing "weather". A skill whose exclusions were written as
+     * behaviour instructions excludes itself on its own subject.
+     */
     public SkillDecision decide(String task) {
         if (task == null || task.isBlank()) {
             return new SkillDecision(Optional.empty(), "empty-query", List.of());
@@ -106,6 +111,10 @@ public final class SkillStore {
                 ));
                 if (!exclusions.isEmpty() && query.stream().anyMatch(
                         q -> exclusions.stream().anyMatch(e -> relatedForms(q, e)))) {
+                    // Say so rather than dropping it silently. A skill whose exclusions were
+                    // written as behaviour instructions excludes itself on its own subject, and
+                    // vanishing from the scores makes that look like it never existed.
+                    scores.add(entry.name() + "=excluded");
                     continue;
                 }
                 Set<String> metadata = tokens(
@@ -134,9 +143,7 @@ public final class SkillStore {
                     }
                 }
             }
-            scores.sort(java.util.Comparator.comparingInt(
-                    (String line) -> Integer.parseInt(line.replaceAll(".*=(\\d+)/.*", "$1"))
-            ).reversed());
+            scores.sort(java.util.Comparator.comparingInt(SkillStore::scoreOf).reversed());
             String reason = bestScore == 0 ? "no-match"
                     : bestScore < 2 ? "below-threshold"
                     : tied ? "tie"
@@ -146,6 +153,18 @@ public final class SkillStore {
                     reason, List.copyOf(scores));
         } catch (IOException e) {
             return new SkillDecision(Optional.empty(), "error", List.copyOf(scores));
+        }
+    }
+
+    /** An excluded entry carries no number; it sorts last rather than breaking the ordering. */
+    private static int scoreOf(String line) {
+        int equals = line.lastIndexOf('=');
+        int slash = line.indexOf('/', equals);
+        if (equals < 0 || slash < 0) return -1;
+        try {
+            return Integer.parseInt(line.substring(equals + 1, slash));
+        } catch (NumberFormatException e) {
+            return -1;
         }
     }
 

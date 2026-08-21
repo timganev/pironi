@@ -558,24 +558,7 @@ class AgentLoopTest {
         assertTrue(model.requests.get(4).getLast().content().contains("Do not call tools"));
     }
 
-    @Test
-    void collapsesShellVariationsOntoTheProgramTheyRun() throws Exception {
-        assertEquals("run_command:osascript", AgentLoop.approachSignature(new ToolCall(
-                "run_command",
-                objectMapper.readTree("{\"command\":\"osascript -e 'tell app' | head -5\"}")
-        )));
-        assertEquals("run_command:osascript", AgentLoop.approachSignature(new ToolCall(
-                "run_command",
-                objectMapper.readTree("{\"command\":\"# probe\\nosascript -e 'other wording'\"}")
-        )));
-        assertEquals("run_command:sqlite3", AgentLoop.approachSignature(new ToolCall(
-                "run_command",
-                objectMapper.readTree("{\"command\":\"/usr/bin/sqlite3 store.db .tables\"}")
-        )));
-        assertEquals("read_file", AgentLoop.approachSignature(new ToolCall(
-                "read_file", objectMapper.readTree("{\"path\":\"a.txt\"}")
-        )));
-    }
+
 
     @Test
     void reportsAnApproachThatStoppedProducingAnythingNew() throws Exception {
@@ -820,124 +803,17 @@ class AgentLoopTest {
         assertTrue(followUp.contains("not evidence of absence"), followUp);
     }
 
-    @Test
-    void wallsOffSinglePurposeProgramsAndAimedInterpretersButNotBareOnes() {
-        assertTrue(AgentLoop.blockable("run_command:osascript"));
-        assertTrue(AgentLoop.blockable("run_command:sqlite3"));
-        assertTrue(AgentLoop.blockable("read_file"));
-        // a bare interpreter is a capability, not an approach
-        assertTrue(!AgentLoop.blockable("run_command:python3"));
-        assertTrue(!AgentLoop.blockable("run_command:bash"));
-        // aimed at something specific, it is an approach again
-        assertTrue(AgentLoop.blockable("run_command:python3:sqlite3"));
-        assertTrue(AgentLoop.blockable("run_command:bash:osascript"));
-        // a search is as general as an interpreter: eleven fruitless finds for one thing said
-        // nothing about a find for another, and blocking the program cost a run the one
-        // directory it had not looked in
-        assertTrue(!AgentLoop.blockable("run_command:find"));
-        assertTrue(!AgentLoop.blockable("run_command:grep"));
-        assertTrue(AgentLoop.blockable("run_command:find:*calendar*"));
-    }
 
-    @Test
-    void placeholderFindingsNeverEnterTheLedger() {
-        java.util.List<String> findings = new java.util.ArrayList<>();
 
-        // Our own nag for a missing finding taught the model to answer with a hedge on turn one,
-        // and the hedge then sat in the ledger for the whole run and was carried to the next.
-        AgentLoop.recordFinding(findings, "nothing conclusive yet");
-        AgentLoop.recordFinding(findings, "none");
-        AgentLoop.recordFinding(findings, "N/A");
-        assertEquals(java.util.List.of(), findings);
 
-        // A real finding that merely begins with one of those words is still a finding.
-        AgentLoop.recordFinding(findings,
-                "Nothing in Outlook.sqlite: Mail and CalendarEvents both count 0 rows");
-        assertEquals(1, findings.size());
-    }
 
-    @Test
-    void positioningPrefixesAreNotApproaches() throws Exception {
-        // The agent writes "cd path && real_command" constantly - twelve of fifteen commands in
-        // one run - and keying on the first word blocked "cd", and with it almost everything.
-        assertEquals("run_command:sqlite3", AgentLoop.approachSignature(new ToolCall(
-                "run_command",
-                objectMapper.readTree("{\"command\":\"cd \\\"/some/dir\\\" && sqlite3 db .tables\"}")
-        )));
-        assertEquals("run_command:gunzip", AgentLoop.approachSignature(new ToolCall(
-                "run_command",
-                objectMapper.readTree("{\"command\":\"export X=1; gunzip -c a.gz\"}")
-        )));
-        // An assignment that wraps a substitution is whatever runs inside it.
-        assertEquals("run_command:find:*.log", AgentLoop.approachSignature(new ToolCall(
-                "run_command",
-                objectMapper.readTree("{\"command\":\"f=$(find . -name '*.log')\"}")
-        )));
-        // A line that only positions keeps the positioning word: repeating that alone is a dead
-        // end of its own.
-        assertEquals("run_command:cd", AgentLoop.approachSignature(new ToolCall(
-                "run_command",
-                objectMapper.readTree("{\"command\":\"cd /some/dir\"}")
-        )));
-    }
 
-    @Test
-    void positioningPrefixesAreSkippedOnCmdExeToo() throws Exception {
-        // cmd.exe positions with "cd /d", assigns with "set", and separates with a single "&".
-        assertEquals("run_command:findstr", AgentLoop.approachSignature(new ToolCall(
-                "run_command",
-                objectMapper.readTree(
-                        "{\"command\":\"cd /d C:\\\\Users\\\\me & findstr /s TODO *.java\"}")
-        )));
-        assertEquals("run_command:type", AgentLoop.approachSignature(new ToolCall(
-                "run_command",
-                objectMapper.readTree("{\"command\":\"set X=1 && type notes.txt\"}")
-        )));
-        // A program named by a Windows path is still that program.
-        assertEquals("run_command:sqlite3.exe", AgentLoop.approachSignature(new ToolCall(
-                "run_command",
-                objectMapper.readTree(
-                        "{\"command\":\"C:\\\\tools\\\\sqlite3.exe db .tables\"}")
-        )));
-    }
 
-    @Test
-    void separatesWhatASearchIsLookingFor() throws Exception {
-        assertEquals("run_command:find:*calendar*", AgentLoop.approachSignature(new ToolCall(
-                "run_command",
-                objectMapper.readTree(
-                        "{\"command\":\"find ~/Library -name '*calendar*' | head -20\"}")
-        )));
-        // Same tree, different subject: these must not collapse into one blockable approach.
-        assertEquals("run_command:find:*.olk15*", AgentLoop.approachSignature(new ToolCall(
-                "run_command",
-                objectMapper.readTree("{\"command\":\"find ~/Library -name '*.olk15*'\"}")
-        )));
-        assertEquals("run_command:grep:Subject", AgentLoop.approachSignature(new ToolCall(
-                "run_command",
-                objectMapper.readTree("{\"command\":\"grep -e Subject somefile.xml\"}")
-        )));
-    }
 
-    @Test
-    void separatesWhatAnInterpreterIsReachingFor() throws Exception {
-        assertEquals("run_command:python3:sqlite3", AgentLoop.approachSignature(new ToolCall(
-                "run_command",
-                objectMapper.readTree("{\"command\":\"python3 -c \\\"import sqlite3; q()\\\"\"}")
-        )));
-        assertEquals("run_command:python3:glob+gzip", AgentLoop.approachSignature(new ToolCall(
-                "run_command",
-                objectMapper.readTree("{\"command\":\"python3 -c \\\"import gzip, glob\\\"\"}")
-        )));
-        assertEquals("run_command:python3:report.py", AgentLoop.approachSignature(new ToolCall(
-                "run_command",
-                objectMapper.readTree("{\"command\":\"python3 scripts/report.py --days 2\"}")
-        )));
-        // single-purpose programs keep the plain signature
-        assertEquals("run_command:sqlite3", AgentLoop.approachSignature(new ToolCall(
-                "run_command", objectMapper.readTree("{\"command\":\"sqlite3 store.db .tables\"}")
-        )));
-    }
+
+
+
+
 
     @Test
     void startsFromWhatEarlierRunsEstablished() throws Exception {
@@ -978,22 +854,7 @@ class AgentLoopTest {
         assertEquals(List.of("the calendar lives in store.json"), handedOn);
     }
 
-    @Test
-    void inheritedFindingsAreNotTrimmedAwayByThisRunsOwn() {
-        List<String> findings = new ArrayList<>();
-        findings.add("calendar store.json is readable");
-        findings.add("Outlook.sqlite is empty");
-        int pinned = findings.size();
 
-        for (int index = 0; index < 60; index++) {
-            AgentLoop.recordFinding(findings, "later fact " + index, pinned);
-        }
-
-        assertEquals(AgentLoop.MAX_FINDINGS, findings.size());
-        assertEquals("calendar store.json is readable", findings.get(0));
-        assertEquals("Outlook.sqlite is empty", findings.get(1));
-        assertEquals("later fact 59", findings.getLast());
-    }
 
     @Test
     void saysSoWhenTheSameConclusionKeepsComingBack() throws Exception {
@@ -1020,49 +881,11 @@ class AgentLoopTest {
         assertTrue(later.contains("turns running. Nothing has been learned"), later);
     }
 
-    @Test
-    void aFullyInheritedLedgerStillAcceptsWhatThisRunLearns() {
-        List<String> findings = new ArrayList<>();
-        for (int index = 0; index < AgentLoop.MAX_FINDINGS; index++) {
-            findings.add("inherited " + index);
-        }
-        int pinned = findings.size();
 
-        AgentLoop.recordFinding(findings, "learned right now", pinned);
 
-        assertEquals(AgentLoop.MAX_FINDINGS, findings.size());
-        assertEquals("learned right now", findings.getLast());
-        // the oldest inherited entry gave way, not the new one
-        assertEquals("inherited 1", findings.get(0));
-    }
 
-    @Test
-    void inheritedFindingsAreOfferedForRecheckingNotAsSettled() {
-        String ledger = AgentLoop.findingsLedger(
-                List.of("OSA logs are PII-redacted", "calendar store.json is readable"), 1);
 
-        assertTrue(ledger.contains("Established here in earlier sessions"), ledger);
-        assertTrue(ledger.contains("date each was last confirmed"), ledger);
-        assertTrue(ledger.contains("Verify anything you are about to act on"), ledger);
-        assertTrue(ledger.contains("Established so far (do not re-derive):"), ledger);
-    }
 
-    @Test
-    void findingsAreDeduplicatedAndCapped() {
-        List<String> findings = new ArrayList<>();
-        AgentLoop.recordFinding(findings, "mail store is HxStore.hxd");
-        AgentLoop.recordFinding(findings, "  mail store is HxStore.hxd  ");
-        AgentLoop.recordFinding(findings, "");
-        AgentLoop.recordFinding(findings, null);
-        assertEquals(1, findings.size());
-
-        for (int index = 0; index < 60; index++) {
-            AgentLoop.recordFinding(findings, "fact " + index);
-        }
-        assertEquals(AgentLoop.MAX_FINDINGS, findings.size());
-        assertEquals("fact 59", findings.getLast());
-        assertEquals("", AgentLoop.findingsLedger(new ArrayList<>()));
-    }
 
     @Test
     void truncationKeepsTheSystemPromptAndTheTask() {

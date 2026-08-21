@@ -133,9 +133,15 @@ class SkillStoreTest {
         ).isEmpty(), "equal top scores must not select an arbitrary skill");
     }
 
-    @Test void thousandSkillMetadataScanRemainsBounded() throws Exception {
+    @Test void aThousandSkillsAreScoredOnMetadataAndNeverOnTheirBodies() throws Exception {
+        // This asserted a wall-clock budget and failed on a loaded machine while passing alone -
+        // measuring the runner rather than the code, which is what took two releases down on the
+        // Windows runner. The property it was reaching for is that scoring reads the frontmatter
+        // and not the body, and that can be proved outright: a body stuffed with the query must
+        // lose to a description that matches it.
         SkillStore store = new SkillStore(temporaryDirectory);
         Path root = temporaryDirectory.resolve("skills");
+        String query = "Reconcile quarterly supplier invoices and disputed totals";
         for (int index = 0; index < 1_000; index++) {
             Path directory = Files.createDirectories(root.resolve("workflow-" + index));
             Files.writeString(directory.resolve("SKILL.md"), """
@@ -145,22 +151,22 @@ class SkillStoreTest {
                     Body that is never loaded during metadata scoring.
                     """.formatted(index));
         }
-        Path target = root.resolve("workflow-777/SKILL.md");
-        Files.writeString(target, """
+        Files.writeString(root.resolve("workflow-777/SKILL.md"), """
                 ---
                 description: Reconcile quarterly supplier invoices and disputed totals
                 ---
                 Correct workflow.
                 """);
+        Files.writeString(root.resolve("workflow-42/SKILL.md"), """
+                ---
+                description: Generic archived business workflow 42
+                ---
+                %s %s %s
+                """.formatted(query, query, query));
 
-        long started = System.nanoTime();
-        var relevant = store.findRelevant(
-                "Reconcile quarterly supplier invoices and disputed totals"
-        );
-        long elapsedMillis = (System.nanoTime() - started) / 1_000_000;
+        var relevant = store.findRelevant(query);
 
         assertEquals("workflow-777", relevant.orElseThrow().name());
-        assertTrue(elapsedMillis < 2_000, "metadata scan took " + elapsedMillis + " ms");
         assertTrue(store.loadIndex().length() <= 2_400);
     }
 

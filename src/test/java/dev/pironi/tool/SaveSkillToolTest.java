@@ -12,10 +12,10 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class ProposeSkillToolTest {
+class SaveSkillToolTest {
     @TempDir Path temporaryDirectory;
 
-    @Test void createsDraftWithoutDurableWrite() throws Exception {
+    @Test void savesTheSkillOutright() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         SkillStore skills = new SkillStore(temporaryDirectory);
         PersistentAgentMemory memory = new PersistentAgentMemory(
@@ -23,20 +23,41 @@ class ProposeSkillToolTest {
                 new ContextCompressor(10_000, mapper), skills, mapper,
                 "model", temporaryDirectory, 10_000, 8
         );
-        ProposeSkillTool tool = new ProposeSkillTool(memory);
+        SaveSkillTool tool = new SaveSkillTool(memory);
         var arguments = mapper.createObjectNode()
                 .put("name", "weekly-status")
                 .put("description", "Prepare weekly status");
         arguments.putArray("steps").add("Collect owners").add("Verify blockers");
         arguments.putArray("triggers").add("weekly status");
-        arguments.put("evidence", "The user explicitly corrected the process");
 
         ToolResult result = tool.execute(arguments);
 
+        // Asking for a skill and getting a draft that dies with the session is not a skill.
         assertTrue(result.success(), result.output());
-        assertTrue(result.output().contains("not saved"));
-        assertTrue(skills.load("weekly-status").isEmpty());
-        assertTrue(memory.pendingSkill().contains("Collect owners"));
+        assertTrue(result.output().contains("Skill saved: weekly-status"), result.output());
+        assertTrue(skills.load("weekly-status").orElse("").contains("Collect owners"));
+    }
+
+    @Test void savingAgainReplacesAndArchives() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        SkillStore skills = new SkillStore(temporaryDirectory);
+        PersistentAgentMemory memory = new PersistentAgentMemory(
+                new SessionStore(temporaryDirectory, mapper),
+                new ContextCompressor(10_000, mapper), skills, mapper,
+                "model", temporaryDirectory, 10_000, 8
+        );
+        SaveSkillTool tool = new SaveSkillTool(memory);
+        var first = mapper.createObjectNode().put("name", "flow").put("description", "v1");
+        first.putArray("steps").add("original step");
+        assertTrue(tool.execute(first).success());
+
+        var second = mapper.createObjectNode().put("name", "flow").put("description", "v2");
+        second.putArray("steps").add("corrected step");
+        ToolResult result = tool.execute(second);
+
+        // "change it" is one turn, not a review ceremony.
+        assertTrue(result.output().contains("Skill updated"), result.output());
+        assertTrue(skills.load("flow").orElse("").contains("corrected step"));
     }
 
     @Test void rejectsMissingOrOversizedArrays() throws Exception {
@@ -46,9 +67,9 @@ class ProposeSkillToolTest {
                 new ContextCompressor(10_000, mapper), new SkillStore(temporaryDirectory), mapper,
                 "model", temporaryDirectory, 10_000, 8
         );
-        ProposeSkillTool tool = new ProposeSkillTool(memory);
+        SaveSkillTool tool = new SaveSkillTool(memory);
         var arguments = mapper.createObjectNode()
-                .put("name", "x").put("description", "x").put("evidence", "x");
+                .put("name", "x").put("description", "x");
 
         assertFalse(tool.execute(arguments).success());
         var steps = arguments.putArray("steps");

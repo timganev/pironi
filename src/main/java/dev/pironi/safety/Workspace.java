@@ -88,7 +88,7 @@ public final class Workspace {
         if (relativePath == null || relativePath.isBlank()) {
             throw new IOException("Path must not be blank");
         }
-        Path supplied = Path.of(relativePath);
+        Path supplied = UserPath.of(relativePath);
         if (supplied.isAbsolute()) {
             throw outside("Absolute paths are not allowed: " + relativePath,
                     supplied.normalize());
