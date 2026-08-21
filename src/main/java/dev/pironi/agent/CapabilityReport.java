@@ -28,6 +28,24 @@ public final class CapabilityReport {
         this.disabledReasons = Map.copyOf(disabledReasons);
     }
 
+    /**
+     * Which files the identity came from, and that they are not yours to write.
+     *
+     * <p>The content of SOUL.md reaches the model while its location did not, so an agent asked
+     * to save its own persona invented an answer: it wrote the file into the workspace, where
+     * nothing reads it, and said it was saved. Naming the paths costs one line and makes the
+     * honest answer available.
+     */
+    private String personalContext() {
+        String sources = context.personalSources();
+        if (sources.isBlank()) {
+            return "no SOUL.md or USER.md was loaded";
+        }
+        return "loaded from the following, in this order - they sit outside the workspace and "
+                + "no tool here can write them; the user edits them directly:\n"
+                + sources.indent(2).stripTrailing();
+    }
+
     public String render() {
         String names = tools.all().stream().map(tool -> tool.name())
                 .sorted().collect(Collectors.joining(", "));
@@ -59,6 +77,7 @@ public final class CapabilityReport {
                 process termination: %s
                 exposed tools: %s
                 policy-disabled tools: %s
+                personal context: %s
                 live configuration:
                 %s
                 """.formatted(
@@ -77,6 +96,7 @@ public final class CapabilityReport {
                         : "no registered process control tool",
                 names.isBlank() ? "none" : names,
                 disabledText,
+                personalContext(),
                 context.runtimeSession().indent(2).stripTrailing()
         ).strip();
     }

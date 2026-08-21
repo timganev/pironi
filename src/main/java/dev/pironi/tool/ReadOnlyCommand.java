@@ -18,6 +18,16 @@ import java.util.regex.Pattern;
  * means a silent write.
  */
 public final class ReadOnlyCommand {
+    /**
+     * cmd.exe has its own readers, and none of the Unix ones. Without these the classifier
+     * answers "this writes" to every native Windows command, so both the wider reach and the
+     * absent prompt were macOS and Linux features only.
+     */
+    private static final Set<String> WINDOWS_READERS = Set.of(
+            "dir", "type", "findstr", "more", "fc", "where", "tasklist", "tree", "ver",
+            "hostname", "whoami", "systeminfo"
+    );
+
     /** Programs that cannot alter anything on their own. */
     private static final Set<String> READERS = Set.of(
             "ls", "cat", "head", "tail", "grep", "egrep", "fgrep", "rg", "wc", "file", "stat",
@@ -41,26 +51,36 @@ public final class ReadOnlyCommand {
     }
 
     public static boolean isReadOnly(String command) {
+        return isReadOnly(command, System.getProperty("os.name", ""));
+    }
+
+    static boolean isReadOnly(String command, String osName) {
         if (command == null || command.isBlank()) return false;
         if (ESCAPE.matcher(command).find()) return false;
+        boolean windows = osName.toLowerCase(Locale.ROOT).contains("win");
         for (String segment : SEPARATOR.split(command)) {
-            if (!segmentOnlyReads(segment.strip())) return false;
+            if (!segmentOnlyReads(segment.strip(), windows)) return false;
         }
         return true;
     }
 
-    private static boolean segmentOnlyReads(String segment) {
+    private static boolean segmentOnlyReads(String segment, boolean windows) {
         if (segment.isEmpty()) return false;
         String[] words = segment.split("\\s+");
         String program = words[0];
         int slash = Math.max(program.lastIndexOf('/'), program.lastIndexOf('\\'));
         if (slash >= 0) program = program.substring(slash + 1);
         program = program.toLowerCase(Locale.ROOT);
+        if (windows) {
+            if (program.endsWith(".exe")) program = program.substring(0, program.length() - 4);
+            // find on Windows is a text search, not the Unix walker, and has no -delete.
+            if (WINDOWS_READERS.contains(program) || program.equals("find")) return true;
+        }
         if (!READERS.contains(program)) return false;
 
         // sed -i edits in place, and find can delete or run anything it likes.
         if (program.equals("sed") && segment.matches(".*\\s-[a-zA-Z]*i.*")) return false;
-        if (program.equals("find") && segment.matches(
+        if (!windows && program.equals("find") && segment.matches(
                 ".*\\s-(delete|exec|execdir|ok|okdir|fls|fprint|fprintf)\\b.*")) return false;
         if (program.equals("git")) {
             String subcommand = words.length > 1 ? words[1].toLowerCase(Locale.ROOT) : "";

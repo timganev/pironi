@@ -633,6 +633,14 @@ and configured personal homes still participate. Layers are ordered global to
 local, and the nearer layer wins when instructions conflict. Duplicate paths
 are loaded only once.
 
+The capability report names the files an identity was actually read from, and
+says they are outside the workspace and cannot be written by any tool. The
+content reached the model and its location did not, so an agent asked where its
+persona lived answered from imagination: it wrote a `soul.md` into the
+workspace, where nothing loads it, and reported success. A file whose name
+differs only in case is reported too, because a case-insensitive filesystem
+loads it and Linux silently does not.
+
 For a long `CLAUDE.md`, place this marker after the instructions that must be
 sent to the model on every turn:
 
@@ -687,6 +695,7 @@ Sending personal context to a cloud provider requires the explicit
 --deny-tools NAME,NAME
 --allow-tools NAME,NAME
 --shell-scope workspace|user|unrestricted
+--read-scope workspace|user|unrestricted
 --search-roots PATH,PATH
 ```
 
@@ -705,10 +714,30 @@ Unknown CLI options fail startup and close misspellings include a suggestion.
 `--task`; it is the recommended one-shot input on Windows when the prompt
 contains Unicode or shell-sensitive characters.
 `--allow-tools` enables exactly the named tools and cannot be combined with
-`--deny-tools`. `find_files` searches only the roots configured by
-`--search-roots`; its default root is the workspace. `list_files` and
-`read_file` accept absolute directories/files below these roots. Writing tools
-remain restricted to the workspace.
+`--deny-tools`.
+
+Reading and writing have separate scopes, because they are not the same risk.
+`--read-scope` defaults to `unrestricted`: `read_file`, `list_files`,
+`find_files` and `inspect_file` accept any path the account can read, and a
+shell command that provably only reads may name any local path. Tying reads to
+the shell scope meant a file the shell had just written could not be read back,
+and the search roots read as the edge of the world. Set `--read-scope workspace`
+to restore the narrow behaviour, or `user` for the home directory.
+
+Writing is unchanged and stays inside the workspace: `write_file`,
+`apply_patch`, `move_file` and every shell command that could write refuse paths
+outside it, and reaching further means moving the workspace with `/workspace`.
+
+Credential stores are the exception to unrestricted reading. `~/.ssh`,
+`~/.gnupg`, `~/.aws`, `~/.kube`, `~/.netrc`, `~/.password-store`, the macOS
+keychain, the Linux keyring, `/etc/shadow`, and on Windows the DPAPI, Crypto and
+Credentials directories under `%APPDATA%`/`%LOCALAPPDATA%` need explicit
+approval to read, and a shell command naming one is refused outright. The list
+is named rather than derived from hiddenness: on Unix "hidden" means a leading
+dot, which covers `~/.config`, `.git` and Pironi's own `~/.pironi`, and on
+Windows it is an attribute that `AppData` carries - so a hiddenness rule would
+forbid the Outlook data that the same task reads freely on macOS, while a
+password file in Documents stayed visible.
 
 ## Live status
 

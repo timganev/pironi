@@ -174,7 +174,7 @@ public final class PironiMain {
         );
 
         Set<Path> hiddenAgentPaths = Set.of(options.tracePath().toAbsolutePath().normalize());
-        List<Path> readRoots = readRoots(options.searchRoots(), options.shellScope());
+        List<Path> readRoots = readRoots(options.searchRoots(), options.readScope());
         HeaderResolver headerResolver = buildHeaderResolver(options);
         List<Tool> availableTools = new ArrayList<>(List.of(
                 new ListFilesTool(workspace, 500, readRoots, hiddenAgentPaths),
@@ -599,6 +599,7 @@ public final class PironiMain {
                     }
                     agentContext.updateRuntimeSession(
                             runtimeSessionDescription(moving, tools.grants()));
+                    status.workspaceChanged(moved);
                 };
                 defaultShellCommands.useWorkspace(workspace, workspaceMoved);
                 if (switchWorkspaceTool != null) {

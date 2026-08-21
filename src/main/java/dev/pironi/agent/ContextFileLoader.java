@@ -32,12 +32,13 @@ public final class ContextFileLoader {
 
         Path defaultHome = Path.of(System.getProperty("user.home"), ".pironi")
                 .toAbsolutePath().normalize();
+        List<String> sources = new ArrayList<>();
         String soul = loadPersonal
-                ? readPersonalCascade(workspace, pironiHome, defaultHome, "SOUL.md") : "";
+                ? readPersonalCascade(workspace, pironiHome, defaultHome, "SOUL.md", sources) : "";
         String user = loadPersonal
-                ? readPersonalCascade(workspace, pironiHome, defaultHome, "USER.md") : "";
+                ? readPersonalCascade(workspace, pironiHome, defaultHome, "USER.md", sources) : "";
         String project = readProjectInstructions(workspace);
-        return new AgentContext(soul, user, project);
+        return new AgentContext(soul, user, project, String.join("\n", sources));
     }
 
     private static String readProjectInstructions(Workspace workspace) throws IOException {
@@ -58,6 +59,31 @@ public final class ContextFileLoader {
         return combineLayers(layers, "CLAUDE.md");
     }
 
+    /**
+     * A file that is nearly the name we load, and on some machines exactly it.
+     *
+     * <p>An agent asked to save its persona wrote {@code soul.md} beside the {@code SOUL.md} the
+     * cascade reads. On macOS and Windows the filesystem ignores the case and the file loads; on
+     * Linux it does not, and nothing says why. The check lists the directory and compares names
+     * itself, because asking {@code Files.exists} for the other spelling answers "yes" on a
+     * case-insensitive filesystem and would invent a near miss for the file we just read.
+     */
+    private static String differentlyCasedSibling(Path home, String fileName) {
+        if (!Files.isDirectory(home)) return "";
+        try (var entries = Files.list(home)) {
+            return entries
+                    .map(entry -> entry.getFileName().toString())
+                    .filter(name -> !name.equals(fileName) && name.equalsIgnoreCase(fileName))
+                    .findFirst()
+                    .map(name -> home.resolve(name)
+                            + " (ignored: the loaded name is exactly " + fileName
+                            + ", and on Linux this spelling is a different file)")
+                    .orElse("");
+        } catch (IOException e) {
+            return "";
+        }
+    }
+
     private static String readOptional(Path path, String label) throws IOException {
         if (!Files.exists(path)) {
             return "";
@@ -72,7 +98,8 @@ public final class ContextFileLoader {
             Workspace workspace,
             Path pironiHome,
             Path defaultHome,
-            String fileName
+            String fileName,
+            List<String> sources
     ) throws IOException {
         LinkedHashSet<Path> homes = new LinkedHashSet<>();
         homes.add(defaultHome.toAbsolutePath().normalize());
@@ -84,7 +111,13 @@ public final class ContextFileLoader {
         List<String> layers = new ArrayList<>();
         for (Path home : homes) {
             String content = readOptional(home.resolve(fileName), fileName);
-            if (!content.isBlank()) layers.add(content);
+            if (!content.isBlank()) {
+                layers.add(content);
+                sources.add(home.resolve(fileName).toString());
+            } else {
+                String nearMiss = differentlyCasedSibling(home, fileName);
+                if (!nearMiss.isEmpty()) sources.add(nearMiss);
+            }
         }
         return combineLayers(layers, fileName);
     }

@@ -13,8 +13,11 @@ class CommandScopePolicyTest {
         // native command. The platform is named here rather than inherited from the host, which
         // made this assertion pass on Linux and fail on the Windows runner for that same reason.
         assertNull(CommandScopePolicy.rejection("mvn test", ShellScope.WORKSPACE, "Linux"));
-        assertNotNull(CommandScopePolicy.rejection("cat /etc/passwd", ShellScope.WORKSPACE, "Linux"));
-        assertNotNull(CommandScopePolicy.rejection("cat ../secret", ShellScope.WORKSPACE));
+        // Reading is unrestricted on this machine; the boundary is on writing.
+        assertNull(CommandScopePolicy.rejection("cat /etc/passwd", ShellScope.WORKSPACE, "Linux"));
+        assertNull(CommandScopePolicy.rejection("cat ../secret", ShellScope.WORKSPACE));
+        assertNotNull(CommandScopePolicy.rejection("cp x /etc/passwd", ShellScope.WORKSPACE, "Linux"));
+        assertNotNull(CommandScopePolicy.rejection("cat ../secret > here", ShellScope.WORKSPACE));
         assertNotNull(CommandScopePolicy.rejection("cd subdir", ShellScope.WORKSPACE));
     }
 
@@ -31,8 +34,11 @@ class CommandScopePolicyTest {
 
     @Test
     void workspaceBlocksWindowsDriveAndUncPaths() {
-        assertNotNull(CommandScopePolicy.rejection(
+        // Reading a local path is allowed now; writing to one is not.
+        assertNull(CommandScopePolicy.rejection(
                 "type C:\\Users\\me\\secret.txt", ShellScope.WORKSPACE, "Windows 11"));
+        assertNotNull(CommandScopePolicy.rejection(
+                "copy secret.txt C:\\Users\\me\\", ShellScope.WORKSPACE, "Windows 11"));
         // A UNC path is not just outside the workspace, it is off the machine.
         assertNotNull(CommandScopePolicy.rejection(
                 "type \\\\fileserver\\share\\secret.txt", ShellScope.WORKSPACE, "Windows 11"));
@@ -48,9 +54,14 @@ class CommandScopePolicyTest {
                 "%USERPROFILE%", "%HOMEPATH%", "%HOMEDRIVE%", "%APPDATA%", "%LOCALAPPDATA%",
                 "%PROGRAMDATA%", "%SYSTEMROOT%", "%WINDIR%", "%PUBLIC%", "%TEMP%", "%TMP%"
         }) {
-            assertNotNull(
+            // Reading through an expansion is allowed; writing through one is not.
+            assertNull(
                     CommandScopePolicy.rejection("type " + expansion + "\\x", ShellScope.WORKSPACE, "Windows 11"),
-                    expansion + " reaches outside the workspace and must be rejected"
+                    expansion + " names a local path, and reading it is permitted"
+            );
+            assertNotNull(
+                    CommandScopePolicy.rejection("copy x " + expansion + "\\x", ShellScope.WORKSPACE, "Windows 11"),
+                    expansion + " reaches outside the workspace and must not be written"
             );
         }
     }
@@ -67,6 +78,27 @@ class CommandScopePolicyTest {
     }
 
     @Test
+    void readingReachesAnywhereAndWritingDoesNot() {
+        // Writing is what the workspace boundary protects. A command that provably only reads
+        // may name any path, so the shell reaches as far as the file tools do.
+        assertNull(CommandScopePolicy.rejection(
+                "cat /etc/hosts", ShellScope.WORKSPACE, "Mac OS X"));
+        assertNull(CommandScopePolicy.rejection(
+                "grep -n root /etc/passwd", ShellScope.WORKSPACE, "Mac OS X"));
+
+        assertNotNull(CommandScopePolicy.rejection(
+                "cat /etc/passwd > stolen.txt", ShellScope.WORKSPACE, "Mac OS X"));
+        assertNotNull(CommandScopePolicy.rejection(
+                "echo hi > /etc/hosts", ShellScope.WORKSPACE, "Mac OS X"));
+        assertNotNull(CommandScopePolicy.rejection(
+                "sed -i '' 's/a/b/' /etc/hosts", ShellScope.WORKSPACE, "Mac OS X"));
+        assertNotNull(CommandScopePolicy.rejection(
+                "sh -c 'cat /etc/passwd'", ShellScope.WORKSPACE, "Mac OS X"));
+        assertNotNull(CommandScopePolicy.rejection(
+                "sudo cat /etc/shadow", ShellScope.WORKSPACE, "Mac OS X"));
+    }
+
+    @Test
     void aPatternIsNotAPath() {
         // Every sed address and awk pattern opens with a slash after a quote, which is exactly
         // what the absolute-path rule looks for. Refusing them sent one run to read a 143 KB
@@ -78,11 +110,14 @@ class CommandScopePolicyTest {
 
         // A real path is still a real path, wherever it is quoted.
         assertNotNull(CommandScopePolicy.rejection(
-                "cat '/etc/passwd'", ShellScope.WORKSPACE, "Mac OS X"));
+                "cp x '/etc/passwd'", ShellScope.WORKSPACE, "Mac OS X"));
         assertNotNull(CommandScopePolicy.rejection(
                 "sh -c 'cat /etc/passwd'", ShellScope.WORKSPACE, "Mac OS X"));
+        // Reading is free, but /etc/shadow is a credential store and stays out of reach.
         assertNotNull(CommandScopePolicy.rejection(
-                "sed -n '/x/p' /etc/shadow", ShellScope.WORKSPACE, "Mac OS X"));
+                "sed -n '/x/p' /etc/shadow", ShellScope.WORKSPACE, "Linux"));
+        assertNull(CommandScopePolicy.rejection(
+                "sed -n '/x/p' /etc/hosts", ShellScope.WORKSPACE, "Mac OS X"));
     }
 
     @Test
@@ -96,9 +131,9 @@ class CommandScopePolicyTest {
                 "findstr /s TODO *.java", ShellScope.WORKSPACE, "Windows 11"));
         assertNull(CommandScopePolicy.rejection(
                 "tasklist /FO CSV /NH", ShellScope.WORKSPACE, "Windows 11"));
-        // The Unix rule still applies where "/" does start a path.
-        assertNotNull(CommandScopePolicy.rejection("cat /etc/passwd", ShellScope.WORKSPACE, "Linux"));
+        // The Unix rule still applies where "/" starts a path and the command is not a reader.
+        assertNotNull(CommandScopePolicy.rejection("cp x /etc/passwd", ShellScope.WORKSPACE, "Linux"));
         assertNotNull(CommandScopePolicy.rejection(
-                "type C:\\Windows\\x", ShellScope.WORKSPACE, "Windows 11"));
+                "copy x C:\\Windows\\x", ShellScope.WORKSPACE, "Windows 11"));
     }
 }

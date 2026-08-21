@@ -39,6 +39,7 @@ record CliOptions(
         Set<String> denyTools,
         Set<String> allowTools,
         ShellScope shellScope,
+        ShellScope readScope,
         List<Path> searchRoots,
         boolean interactive,
         boolean noTui,
@@ -53,7 +54,8 @@ record CliOptions(
             "provider", "base-url", "api-key-env", "model", "workspace", "task", "task-file",
             "approval", "activity", "max-turns", "context", "max-output-tokens",
             "timeout-seconds", "trace", "pironi-home", "personal-context", "status",
-            "verify-command", "deny-tools", "allow-tools", "shell-scope", "search-roots",
+            "verify-command", "deny-tools", "allow-tools", "shell-scope", "read-scope",
+            "search-roots",
             "max-subagents", "subagent-timeout-seconds"
     );
     private static final Set<String> KNOWN_OPTIONS = java.util.stream.Stream.concat(
@@ -82,6 +84,7 @@ record CliOptions(
                 denyTools,
                 allowTools,
                 shellScope,
+                readScope,
                 searchRoots,
                 interactive,
                 false,
@@ -119,6 +122,7 @@ record CliOptions(
                 denyTools,
                 allowTools,
                 shellScope,
+                readScope,
                 searchRoots,
                 interactive,
                 false,
@@ -149,6 +153,7 @@ record CliOptions(
                 denyTools,
                 allowTools,
                 shellScope,
+                readScope,
                 searchRoots,
                 interactive,
                 false,
@@ -179,6 +184,7 @@ record CliOptions(
                 denyTools,
                 allowTools,
                 shellScope,
+                readScope,
                 searchRoots,
                 interactive,
                 false,
@@ -316,6 +322,14 @@ record CliOptions(
                 ShellScope.parse(values.getOrDefault(
                         "shell-scope",
                         environment.getOrDefault("PIRONI_DEFAULT_SHELL_SCOPE", "workspace")
+                )),
+                // Reading is not what does damage; writing is. Tying the two together meant a
+                // file the shell had just produced could not be read back, and the search roots
+                // read as the edge of the world. Writes stay inside the workspace, and reaching
+                // anywhere else to write still means moving the workspace there.
+                ShellScope.parse(values.getOrDefault(
+                        "read-scope",
+                        environment.getOrDefault("PIRONI_DEFAULT_READ_SCOPE", "unrestricted")
                 )),
                 searchRoots,
                 interactive,

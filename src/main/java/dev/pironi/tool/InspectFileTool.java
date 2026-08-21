@@ -30,9 +30,27 @@ public final class InspectFileTool implements Tool {
         this.readRoots = readRoots.stream().map(path -> path.toAbsolutePath().normalize()).toList();
     }
     @Override public String name() { return "inspect_file"; }
-    @Override public String description() { return "Inspect file size, SHA-256, timestamps, newline count and UTF-8/binary classification without returning file contents; safe for large or binary files."; }
-    @Override public String argumentSchema() { return "{\"path\":\"workspace-relative or absolute path under a configured search root\"}"; }
+    @Override public String description() { return "Inspect file size, SHA-256, timestamps, newline count and UTF-8/binary classification without returning file contents; safe for large or binary files. " + ReadReach.describe(readRoots); }
+    @Override public String argumentSchema() { return "{\"path\":\"workspace-relative or absolute path\"}"; }
     @Override public boolean mutating() { return false; }
+
+    /**
+     * Reading a credential store is refused unless a person says otherwise. The list is named
+     * rather than guessed from hiddenness: ~/.pironi and .git are hidden and ordinary, while a
+     * key file may sit anywhere. See {@link dev.pironi.safety.SecretStores}.
+     */
+    @Override
+    public boolean requiresExplicitApproval(JsonNode arguments) {
+        JsonNode supplied = arguments == null ? null : arguments.get("path");
+        if (supplied == null || !supplied.isTextual()) return false;
+        try {
+            return dev.pironi.safety.SecretStores.isProtected(
+                    java.nio.file.Path.of(supplied.textValue()));
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
 
     @Override public ToolResult execute(JsonNode arguments) {
         try {

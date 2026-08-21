@@ -209,4 +209,25 @@ class TerminalStatusReporterTest {
         long statusRows = rendered.lines().filter(l -> l.contains("ctx ~")).count();
         assertEquals(0, statusRows, "no repeated status rows on a dumb terminal: " + rendered);
     }
+
+    @Test
+    void theStatusRowFollowsTheWorkspace() {
+        var bytes = new java.io.ByteArrayOutputStream();
+        TerminalStatusReporter reporter = new TerminalStatusReporter(
+                "model", Path.of("/workspace/project"), 8_192, 8,
+                new PrintStream(bytes, true, StandardCharsets.UTF_8)
+        );
+
+        reporter.idle();
+        assertTrue(bytes.toString(StandardCharsets.UTF_8).contains("project"),
+                bytes.toString(StandardCharsets.UTF_8));
+
+        bytes.reset();
+        reporter.workspaceChanged(Path.of("/workspace/ccc"));
+
+        // The row exists to say where work is happening; after a move it named the old place.
+        String after = bytes.toString(StandardCharsets.UTF_8);
+        assertTrue(after.contains("ccc"), after);
+        assertFalse(after.contains("project"), after);
+    }
 }

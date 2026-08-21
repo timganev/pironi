@@ -55,6 +55,18 @@ final class CommandScopePolicy {
             return "shell scope " + cliName(scope) + " blocks elevation (sudo, runas)";
         }
         if (scope == ShellScope.USER) return null;
+        // Reading anywhere on this machine is allowed; writing is what the workspace boundary is
+        // for. A command that provably only reads may name any local path, so the shell reaches
+        // as far as the file tools do. Anything that could write - a redirection, a
+        // substitution, an unrecognised program - is not read-only and stays inside the
+        // workspace. A UNC path is the exception: it is not a place on this machine but a share
+        // on another, and reaching it is a different act from reading a local file.
+        String store = namedSecretStore(command, osName);
+        if (store != null) {
+            return "shell scope " + cliName(scope) + " does not reach credential stores (" + store
+                    + "); ask the user to read it, or move the workspace there deliberately";
+        }
+        if (ReadOnlyCommand.isReadOnly(command, osName) && !UNC.matcher(command).find()) return null;
         if (PARENT.matcher(command).find()
                 || (!windows && UNIX_ABSOLUTE.matcher(command).find())
                 || WINDOWS_ABSOLUTE.matcher(command).find()
@@ -66,6 +78,26 @@ final class CommandScopePolicy {
                 || DIRECTORY_CHANGE.matcher(command).find()) {
             return "shell scope workspace blocks explicit paths or directory changes outside "
                     + "the workspace; use scoped file tools or opt in with --shell-scope user";
+        }
+        return null;
+    }
+
+    /**
+     * A credential store named anywhere in the command line. The file tools ask before touching
+     * one; a shell command would otherwise walk straight past that question. Matching is on the
+     * text as written, because this guard is lexical like the others around it - it stops a
+     * command that names a key store, not one that assembles the path at run time.
+     */
+    private static String namedSecretStore(String command, String osName) {
+        for (java.nio.file.Path store : dev.pironi.safety.SecretStores.stores(osName)) {
+            String full = store.toString();
+            if (command.contains(full)) return full;
+            java.nio.file.Path fileName = store.getFileName();
+            if (fileName == null) continue;
+            String name = fileName.toString();
+            for (String prefix : new String[]{"~/", "~\\", "/", "\\", "%USERPROFILE%\\"}) {
+                if (command.contains(prefix + name)) return full;
+            }
         }
         return null;
     }

@@ -23,7 +23,7 @@ public final class TerminalStatusReporter implements StatusReporter {
     private static final String CURSOR_HOME = "\u001B[H";
 
     private volatile String model;
-    private final String workspace;
+    private volatile String workspace;
     private volatile int contextSize;
     private final int maxTurns;
     private final PrintStream output;
@@ -75,9 +75,7 @@ public final class TerminalStatusReporter implements StatusReporter {
             PrintStream output, Terminal terminal, ThemeSettings theme
     ) {
         this.model = model;
-        this.workspace = workspace.getFileName() == null
-                ? workspace.toString()
-                : workspace.getFileName().toString();
+        this.workspace = label(workspace);
         this.contextSize = contextSize;
         this.maxTurns = maxTurns;
         this.output = output;
@@ -224,6 +222,12 @@ public final class TerminalStatusReporter implements StatusReporter {
     }
 
     @Override
+    public void workspaceChanged(java.nio.file.Path moved) {
+        this.workspace = label(moved);
+        idle();
+    }
+
+    @Override
     public void configurationChanged(String model, int contextSize) {
         this.model = model;
         this.contextSize = contextSize;
@@ -231,6 +235,12 @@ public final class TerminalStatusReporter implements StatusReporter {
         lastEvalTokensPerSecond = 0;
         lastEvalRateApproximate = false;
         idle();
+    }
+
+    private static String label(java.nio.file.Path workspace) {
+        return workspace.getFileName() == null
+                ? workspace.toString()
+                : workspace.getFileName().toString();
     }
 
     static int estimateContextPercent(List<ChatMessage> messages, int contextSize) {

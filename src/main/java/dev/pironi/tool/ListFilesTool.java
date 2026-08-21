@@ -70,9 +70,8 @@ public final class ListFilesTool implements Tool {
 
     @Override
     public String description() {
-        return "List regular files below the workspace or a configured search root. Relative "
-                + "paths use the workspace; absolute paths are accepted below allowed roots: "
-                + allowedRoots;
+        return "List regular files. Relative paths use the workspace. "
+                + ReadReach.describe(allowedRoots);
     }
 
     @Override
@@ -84,6 +83,24 @@ public final class ListFilesTool implements Tool {
     public boolean mutating() {
         return false;
     }
+
+    /**
+     * Reading a credential store is refused unless a person says otherwise. The list is named
+     * rather than guessed from hiddenness: ~/.pironi and .git are hidden and ordinary, while a
+     * key file may sit anywhere. See {@link dev.pironi.safety.SecretStores}.
+     */
+    @Override
+    public boolean requiresExplicitApproval(JsonNode arguments) {
+        JsonNode supplied = arguments == null ? null : arguments.get("path");
+        if (supplied == null || !supplied.isTextual()) return false;
+        try {
+            return dev.pironi.safety.SecretStores.isProtected(
+                    java.nio.file.Path.of(supplied.textValue()));
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
 
     @Override
     public ToolResult execute(JsonNode arguments) {

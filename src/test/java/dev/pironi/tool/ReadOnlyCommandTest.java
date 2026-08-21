@@ -19,6 +19,31 @@ class ReadOnlyCommandTest {
     }
 
     @Test
+    void cmdExeHasItsOwnReaders() {
+        // Without these the classifier called every native Windows command a write, so the
+        // wider reach and the absent prompt were macOS and Linux features only.
+        assertTrue(ReadOnlyCommand.isReadOnly("dir /b src", "Windows 11"));
+        assertTrue(ReadOnlyCommand.isReadOnly("type notes.txt", "Windows 11"));
+        assertTrue(ReadOnlyCommand.isReadOnly("findstr /s TODO *.java", "Windows 11"));
+        assertTrue(ReadOnlyCommand.isReadOnly("tasklist /FO CSV", "Windows 11"));
+        assertTrue(ReadOnlyCommand.isReadOnly("where java", "Windows 11"));
+        // find on Windows is a text search, not the Unix walker.
+        assertTrue(ReadOnlyCommand.isReadOnly("find \"TODO\" notes.txt", "Windows 11"));
+        assertTrue(ReadOnlyCommand.isReadOnly("C:\\tools\\findstr.exe x f.txt", "Windows 11"));
+
+        assertFalse(ReadOnlyCommand.isReadOnly("del notes.txt", "Windows 11"));
+        assertFalse(ReadOnlyCommand.isReadOnly("copy a b", "Windows 11"));
+        assertFalse(ReadOnlyCommand.isReadOnly("dir /b > out.txt", "Windows 11"));
+        assertFalse(ReadOnlyCommand.isReadOnly("cd C:\\secrets", "Windows 11"));
+    }
+
+    @Test
+    void theUnixWalkerGuardIsUnixOnly() {
+        assertFalse(ReadOnlyCommand.isReadOnly("find . -delete", "Linux"));
+        assertTrue(ReadOnlyCommand.isReadOnly("find . -name '*.md'", "Linux"));
+    }
+
+    @Test
     void aRedirectionIsAWrite() {
         assertFalse(ReadOnlyCommand.isReadOnly("grep foo bar.txt > out.txt"));
         assertFalse(ReadOnlyCommand.isReadOnly("echo hi >> log.txt"));

@@ -41,6 +41,14 @@ public interface StatusReporter extends AutoCloseable {
     default void outputFinished() {
     }
 
+    /**
+     * The workspace moved. The status row names the directory being worked in, and it was read
+     * once at startup: after /workspace or switch_workspace the row kept naming the directory
+     * that had been left behind, which is the one thing the row exists to answer.
+     */
+    default void workspaceChanged(java.nio.file.Path workspace) {
+    }
+
     default void configurationChanged(String model, int contextSize) {
     }
 

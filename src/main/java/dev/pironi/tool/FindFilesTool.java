@@ -55,8 +55,8 @@ public final class FindFilesTool implements Tool {
 
     @Override public String name() { return "find_files"; }
     @Override public String description() {
-        return "Find files only below configured search roots, optionally by glob and text content. "
-                + "Allowed roots: " + allowedRoots;
+        return "Find files by glob and optionally by text content. "
+                + ReadReach.describe(allowedRoots);
     }
     @Override public String argumentSchema() {
         return "{\"root\":\"allowed absolute root, optional\",\"name\":\"glob, optional\","

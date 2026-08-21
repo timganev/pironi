@@ -61,10 +61,9 @@ public final class ReadFileTool implements Tool {
 
     @Override
     public String description() {
-        return "Read a UTF-8 text file inside the workspace or a configured read-only search "
-                + "root. Absolute paths are accepted only below those roots. For large files, "
-                + "use 1-based startLine with lineCount, or tailLines, to return a bounded "
-                + "line range without loading the whole file.";
+        return "Read a UTF-8 text file. " + ReadReach.describe(allowedRoots)
+                + " For large files, use 1-based startLine with lineCount, or tailLines, to "
+                + "return a bounded line range without loading the whole file.";
     }
 
     @Override
@@ -78,6 +77,24 @@ public final class ReadFileTool implements Tool {
     public boolean mutating() {
         return false;
     }
+
+    /**
+     * Reading a credential store is refused unless a person says otherwise. The list is named
+     * rather than guessed from hiddenness: ~/.pironi and .git are hidden and ordinary, while a
+     * key file may sit anywhere. See {@link dev.pironi.safety.SecretStores}.
+     */
+    @Override
+    public boolean requiresExplicitApproval(JsonNode arguments) {
+        JsonNode supplied = arguments == null ? null : arguments.get("path");
+        if (supplied == null || !supplied.isTextual()) return false;
+        try {
+            return dev.pironi.safety.SecretStores.isProtected(
+                    java.nio.file.Path.of(supplied.textValue()));
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
 
     @Override
     public ToolResult execute(JsonNode arguments) {
