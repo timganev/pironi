@@ -61,8 +61,7 @@ public final class ContextFileLoader {
 
     /**
      * A file nearly the name we load, and on some machines exactly it: {@code soul.md} loads on
-     * macOS and Windows and is a different file on Linux. Names are compared from a listing,
-     * because {@code Files.exists} answers "yes" to either spelling on macOS and Windows.
+     * macOS and Windows and is a different file on Linux.
      */
     private static String differentlyCasedSibling(Path home, String fileName) {
         if (!Files.isDirectory(home)) return "";

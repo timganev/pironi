@@ -172,11 +172,7 @@ public final class OfficeOpenXmlTool implements Tool {
         return "<w:p><w:r>" + (title ? "<w:rPr><w:b/><w:sz w:val=\"32\"/></w:rPr>" : "")
                 + "<w:t xml:space=\"preserve\">" + esc(value) + "</w:t></w:r></w:p>";
     }
-    /**
-     * A cell is numeric only when Excel round-trips it unchanged. Leading zeros, separators,
-     * currency symbols and values beyond double precision stay text: silently rewriting an IBAN
-     * is worse than losing arithmetic on it.
-     */
+    /** A cell is numeric only when Excel round-trips it unchanged. */
     private static boolean isSpreadsheetNumber(String raw) {
         String value = raw.trim();
         if (value.isEmpty() || value.length() > 17) return false;

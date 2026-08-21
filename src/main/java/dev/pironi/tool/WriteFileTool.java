@@ -79,10 +79,8 @@ public final class WriteFileTool implements Tool {
 
             Path target = workspace.resolveForWriteCreatingParents(path);
             boolean overwrote = Files.exists(target);
-            // apply_patch and move_file both snapshot before they touch anything, and this one
-            // did not - so the safe tool could be undone and the destructive one could not. An
-            // agent whose precise edit is refused reaches for a whole-file rewrite next, which
-            // is exactly when the previous contents are worth keeping.
+            // apply_patch and move_file both snapshot before they touch anything, and this one did
+            // not - so the safe tool could be undone and the destructive one could not.
             String checkpoint = overwrote && checkpointManager != null
                     ? checkpointManager.create(target).id()
                     : "";

@@ -261,14 +261,13 @@ public final class InteractiveShell {
 
     /**
      * Triggers a model turn when a sub-agent finishes, so the result appears without the user
-     * pressing Enter. Runs on a virtual thread and prints above the prompt.
+     * pressing Enter.
      */
     public Runnable autoTurnCallback() {
         return () -> {
             synchronized (autoTurnLock) {
                 if (userWriting) {
                     // User is typing — defer the result display until they press Enter.
-                    // The auto-turn will still run (below) but the output is buffered.
                 }
             }
             Thread.ofVirtual().name("pironi-auto-turn").start(() -> {
@@ -281,8 +280,8 @@ public final class InteractiveShell {
                     conversationHistory.add("User: [auto-turn]");
                     conversationHistory.add("Pironi: " + answer);
                     while (conversationHistory.size() > 8) conversationHistory.removeFirst();
-                    // Always buffer the answer — streaming from a virtual thread is unreliable
-                    // with JLine, so we show it via the REPL loop or printAgentAnswer.
+                    // Always buffer the answer — streaming from a virtual thread is unreliable with
+                    // JLine, so we show it via the REPL loop or printAgentAnswer.
                     if (userWriting) {
                         pendingAutoTurnResult = answer;
                     } else {
@@ -468,11 +467,7 @@ public final class InteractiveShell {
         printAboveByLine(text, ThemeSettings.Element.SYSTEM);
     }
 
-    /**
-     * Prints one line at a time. In raw mode - which the pinned status row requires - a bare LF
-     * moves down without returning to column one, so a multi-line block steps further right with
-     * every line, as /doctor showed on Windows.
-     */
+    /** Prints one line at a time. */
     private void printAboveByLine(String text, ThemeSettings.Element element) {
         if (lineReader == null) {
             output.println(text);
@@ -484,8 +479,8 @@ public final class InteractiveShell {
     }
 
     /**
-     * Public entry used by the sub-agent events sink to render notifications (spawn/done)
-     * above the prompt. Thread-safe: JLine synchronizes {@code printAbove} internally.
+     * Public entry used by the sub-agent events sink to render notifications (spawn/done) above the
+     * prompt.
      */
     void printAbove(String text) {
         println(text);
@@ -574,8 +569,8 @@ public final class InteractiveShell {
                 best = candidate.name();
             }
         }
-        // A third of the name may differ; beyond that the "suggestion" is a guess that sends
-        // the user somewhere unrelated, which is worse than saying nothing.
+        // A third of the name may differ; beyond that the "suggestion" is a guess that sends the
+        // user somewhere unrelated, which is worse than saying nothing.
         int tolerance = Math.max(1, typed.length() / 3);
         return best != null && bestDistance <= tolerance
                 ? " Did you mean " + best + "?"

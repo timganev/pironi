@@ -323,10 +323,7 @@ record CliOptions(
                         "shell-scope",
                         environment.getOrDefault("PIRONI_DEFAULT_SHELL_SCOPE", "workspace")
                 )),
-                // Reading is not what does damage; writing is. Tying the two together meant a
-                // file the shell had just produced could not be read back, and the search roots
-                // read as the edge of the world. Writes stay inside the workspace, and reaching
-                // anywhere else to write still means moving the workspace there.
+                // Reading is not what does damage; writing is.
                 ShellScope.parse(values.getOrDefault(
                         "read-scope",
                         environment.getOrDefault("PIRONI_DEFAULT_READ_SCOPE", "unrestricted")

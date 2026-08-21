@@ -6,12 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/**
- * Which build is running. There was no way to tell before - no {@code --version}, nothing in the
- * banner or the manifest - so a fix could not be told apart from a stale copy in a download
- * folder. Portable archives carry {@code version.txt} beside the jar; a source build reports
- * {@code dev}.
- */
+/** Which build is running. */
 public final class BuildVersion {
     private BuildVersion() {
     }

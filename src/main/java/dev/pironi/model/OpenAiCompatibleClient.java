@@ -44,11 +44,7 @@ public final class OpenAiCompatibleClient implements ModelClient {
         );
     }
 
-    /**
-     * Pins HTTP/1.1. Over cleartext there is no ALPN, so the client attempts an h2c upgrade;
-     * Uvicorn declines it and drops the request body, and vLLM answers {@code HTTP 400 'msg':
-     * 'Field required'}. HTTPS providers negotiate through ALPN and are unaffected.
-     */
+    /** Pins HTTP/1.1. */
     private static HttpClient defaultHttpClient() {
         return HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)

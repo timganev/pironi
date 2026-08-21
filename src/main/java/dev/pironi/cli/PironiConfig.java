@@ -6,9 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Properties;
 
-/**
- * Simple key-value config persisted to ~/.pironi/config.properties.
- */
+/** Simple key-value config persisted to ~/.pironi/config.properties. */
 public final class PironiConfig {
     private final Path path;
     private final Properties props;

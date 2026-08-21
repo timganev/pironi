@@ -8,11 +8,8 @@ import java.util.Set;
 
 /**
  * Turns placeholder headers such as {@code "Bearer PIRONI_API_KEY"} into the real key, and decides
- * which hosts may receive an {@code Authorization} header at all.
- *
- * <p>The model writes only the placeholder. The resolved value goes into the outgoing request and
- * never into the {@code ToolResult}, so it cannot reach the trace or the conversation, and
- * {@code Authorization} is gated by an allowlist of trusted API hosts.
+ * which hosts may receive an {@code Authorization} header at all. The resolved value goes only
+ * into the outgoing request, never into the {@code ToolResult}.
  */
 public final class HeaderResolver {
     /** Soft cap on any header value so a placeholder substitution cannot blow the request. */
@@ -66,8 +63,7 @@ public final class HeaderResolver {
             return Optional.of(substituted);
         }
 
-        // No placeholder token was found. Authorization headers must always come from
-        // placeholders so the model can never hardcode a real credential into the request.
+        // No placeholder token was found.
         if (authorization) {
             return Optional.empty();
         }

@@ -20,9 +20,7 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Stream;
 
-/**
- * Filesystem-based skill store. SKILL.md files with YAML frontmatter.
- */
+/** Filesystem-based skill store. */
 public final class SkillStore {
     private static final int MAX_PROMPT_INDEX_CHARACTERS = 2_400;
     private static final int MAX_PROMPT_INDEX_ENTRIES = 24;
@@ -76,8 +74,7 @@ public final class SkillStore {
     }
 
     /**
-     * Why a skill was or was not applied. Without it, a user whose saved procedure was ignored
-     * cannot tell whether it lost on score, was excluded, or was never considered.
+     * Why a skill was or was not applied.
      *
      * @param chosen the skill that will be applied, if any
      * @param reason chosen, no-match, below-threshold, tie, or empty-query
@@ -127,9 +124,7 @@ public final class SkillStore {
                     tied = false;
                 } else if (score == bestScore && score > 0) {
                     // Equal hits: prefer a skill only when it is decisively narrower, because
-                    // matching 3 of 5 trigger words says more than matching 3 of 40. A small
-                    // difference is not evidence - two skills with near-identical descriptions
-                    // are genuinely ambiguous and must not be picked arbitrarily.
+                    // matching 3 of 5 trigger words says more than matching 3 of 40.
                     if (metadata.size() * 2 <= bestBreadth) {
                         best = entry;
                         bestBreadth = metadata.size();
@@ -381,10 +376,7 @@ public final class SkillStore {
         return result;
     }
 
-    /**
-     * Strips only unambiguous endings; the rest is left to {@link #relatedForms}. A suffix list
-     * alone gets Bulgarian wrong - "отчета" becomes "отче" while "отчет" stays whole.
-     */
+    /** Strips only unambiguous endings; the rest is left to {@link #relatedForms}. */
     static String stem(String token) {
         for (String suffix : SUFFIXES) {
             if (token.length() - suffix.length() >= 4 && token.endsWith(suffix)) {
@@ -401,9 +393,8 @@ public final class SkillStore {
     );
 
     /**
-     * True when two tokens are forms of one word, judged by a shared prefix: exact matching
-     * missed "седмичния статус" for "седмичен статус". Four shared characters is the floor,
-     * within three of the shorter token, so "тест" and "текст" stay apart.
+     * True when two tokens are forms of one word, judged by a shared prefix: exact matching missed
+     * "седмичния статус" for "седмичен статус".
      */
     static boolean relatedForms(String left, String right) {
         int limit = Math.min(left.length(), right.length());

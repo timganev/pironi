@@ -38,8 +38,7 @@ public final class AgentLoop {
     /** Findings carried, in memory and on disk. Two numbers silently dropped the oldest half. */
     public static final int MAX_FINDINGS = 40;
     /** The same conclusion this many turns running means the agent has stopped learning. */
-    // Three, not four. At a minute or more per turn, waiting for a fourth identical finding
-    // spent five turns watching the agent stand still.
+    // Three, not four.
     private static final int REPEATED_FINDING_THRESHOLD = 3;
     /** Below this a tool result is an answer, not a discovery, and does not count as progress. */
     private static final int MIN_INFORMATIVE_CHARACTERS = 40;
@@ -48,30 +47,22 @@ public final class AgentLoop {
     /** Past this many spent attempts the tool stops running rather than advising. */
     private static final int APPROACH_BLOCK_THRESHOLD = 8;
     /**
-     * Programs that can do anything, so failures say nothing about the next call: interpreters,
-     * and search tools too - walling off "find" cost a run the one directory it had not tried.
-     * Blocked only once the signature names what they were aimed at.
+     * Programs that can do anything, so failures say nothing about the next call: interpreters, and
+     * search tools too - walling off "find" cost a run the one directory it had not tried.
      */
     private static final java.util.Set<String> GENERAL_PURPOSE_PROGRAMS = java.util.Set.of(
             "python", "python3", "bash", "sh", "zsh", "perl", "ruby", "node",
             "find", "grep", "egrep", "fgrep", "rg", "mdfind", "strings"
     );
 
-    /**
-     * Words that position a command rather than being one. {@code cd "path" && real_command} was
-     * twelve of fifteen commands in one run; keying on the first word blocked "cd" and with it
-     * almost everything the agent could write.
-     */
+    /** Words that position a command rather than being one. */
     private static final java.util.Set<String> COMMAND_PREFIXES = java.util.Set.of(
-            // Bash and cmd.exe both position with cd/pushd/popd; "set" is the cmd assignment and
-            // a bash builtin, and export/source/. are bash only but harmless to name on Windows.
+            // Bash and cmd.exe both position with cd/pushd/popd; "set" is the cmd assignment and a
+            // bash builtin, and export/source/. are bash only but harmless to name on Windows.
             "cd", "pushd", "popd", "export", "set", "unset", "source", "."
     );
 
-    /**
-     * Separators on both shells: bash {@code && || ; &}, cmd.exe {@code && || &}. A single
-     * {@code &} in a quoted URL splits early, which costs nothing - only the first word is read.
-     */
+    /** Separators on both shells: bash {@code && || ; &}, cmd.exe {@code && || &}. */
     private static final java.util.regex.Pattern SEPARATORS =
             java.util.regex.Pattern.compile("&&|\\|\\||;|&");
 
@@ -99,10 +90,7 @@ public final class AgentLoop {
     private final boolean asyncSubagents;
     private final java.util.Map<String, Approach> approaches = new java.util.LinkedHashMap<>();
 
-    /**
-     * One class of attempt and whether it still yields anything unseen. A run of stale attempts
-     * means the approach is spent, even when the individual calls keep succeeding.
-     */
+    /** One class of attempt and whether it still yields anything unseen. */
     private static final class Approach {
         private int attempts;
         private boolean spent;
@@ -116,8 +104,8 @@ public final class AgentLoop {
             String body = informativeBody(output);
             boolean novel = success && !body.isEmpty() && seenOutputs.add(body);
             if (!success) lastError = summarize(output);
-            // Count the answer itself, not the call: a loop can vary its arguments and still
-            // come back with the same content every time.
+            // Count the answer itself, not the call: a loop can vary its arguments and still come
+            // back with the same content every time.
             String keyed = body.isEmpty() ? summarize(output) : body;
             int repeats = bodyCounts.merge(keyed, 1, Integer::sum);
             recent.addLast(novel);
@@ -126,8 +114,7 @@ public final class AgentLoop {
                     && recent.stream().noneMatch(Boolean::booleanValue);
             if (attempts >= APPROACH_ATTEMPT_THRESHOLD
                     && (windowStale || repeats >= REPEATED_RESULT_THRESHOLD)) {
-                // Once spent, stay spent. A later incidental reply is not a reason to reopen an
-                // approach that produced nothing over a whole window.
+                // Once spent, stay spent.
                 spent = true;
             }
         }
@@ -289,9 +276,7 @@ public final class AgentLoop {
         List<String> successfulMutations = new ArrayList<>();
         List<String> recentToolOutcomes = new ArrayList<>();
         List<String> findings = new ArrayList<>();
-        // Earlier runs against this workspace already paid for these conclusions. They are pinned:
-        // trimming them to make room for this run's own would silently erase what was inherited,
-        // and the store would then persist the loss.
+        // Earlier runs against this workspace already paid for these conclusions.
         List<String> inherited = List.copyOf(memory.priorFindings());
         findings.addAll(inherited);
         int pinnedFindings = findings.size();
@@ -336,8 +321,8 @@ public final class AgentLoop {
                 if (!trailing.isEmpty()) traceWriter.protocolWarning(turn, trailing);
                 protocolErrors = 0;
             } catch (ProtocolException e) {
-                // Unbalanced closers cost a whole turn to ask again for, and this model
-                // produces them often enough to be worth repairing in place.
+                // Unbalanced closers cost a whole turn to ask again for, and this model produces
+                // them often enough to be worth repairing in place.
                 AgentDecision salvaged = null;
                 String balanced = decisionParser.withBalancedClosers(response.content());
                 if (!balanced.isEmpty()) {
@@ -372,9 +357,7 @@ public final class AgentLoop {
 
             boolean findingSupplied = !decision.finding().isBlank();
             recordFinding(findings, decision.finding(), pinnedFindings);
-            // Only what this turn nominated as durable is written down. The finding above stays
-            // in this run: replaying "list_files returned no entries" or "I will try a relative
-            // path next" to a session a week later described a world that had moved on.
+            // Only what this turn nominated as durable is written down.
             if (!decision.remember().isBlank()) {
                 memory.rememberFindings(List.of(decision.remember().strip()));
             }
@@ -704,10 +687,7 @@ public final class AgentLoop {
         return separator < 0 ? word : word.substring(separator + 1);
     }
 
-    /**
-     * The part of a command line that does the work. Positioning words and assignments are
-     * skipped, and {@code f=$(find ...)} yields the find inside it.
-     */
+    /** The part of a command line that does the work. */
     static String firstActingSegment(String line) {
         String[] segments = SEPARATORS.split(line);
         for (String candidate : segments) {
@@ -724,11 +704,7 @@ public final class AgentLoop {
         return segments.length == 0 ? line : segments[0].strip();
     }
 
-    /**
-     * What a general-purpose program is reaching for. {@code find -name '*.olk15*'} and
-     * {@code find -name '*calendar*'} are different approaches; collapsed into one signature they
-     * can neither be walled off nor left alone safely.
-     */
+    /** What a general-purpose program is reaching for. */
     static String commandTarget(String command) {
         var imports = java.util.regex.Pattern
                 .compile("\\bimport\\s+([A-Za-z_][A-Za-z0-9_]*(?:\\s*,\\s*[A-Za-z_][A-Za-z0-9_]*)*)")
@@ -740,8 +716,8 @@ public final class AgentLoop {
                     .sorted().collect(Collectors.joining("+"));
         }
         String[] words = command.split("\\s+");
-        // A search names its subject after a flag; the path it starts from barely changes and
-        // would key every search in a tree to the same approach.
+        // A search names its subject after a flag; the path it starts from barely changes and would
+        // key every search in a tree to the same approach.
         for (int index = 1; index < words.length - 1; index++) {
             if (TARGET_FLAGS.contains(words[index])) return unquote(words[index + 1]);
         }
@@ -758,10 +734,7 @@ public final class AgentLoop {
         return word.replaceAll("^[\"']+", "").replaceAll("[\"']+$", "");
     }
 
-    /**
-     * The part of a result that counts as progress. A bare "0" or a version string is an answer,
-     * not a discovery; counting it as new resets the staleness window and hides a dead end.
-     */
+    /** The part of a result that counts as progress. */
     static String informativeBody(String output) {
         String text = output == null ? "" : output.strip();
         if (text.startsWith("exitCode=")) {
@@ -771,10 +744,7 @@ public final class AgentLoop {
         return text.length() < MIN_INFORMATIVE_CHARACTERS ? "" : text;
     }
 
-    /**
-     * A single-purpose program can be walled off; a bare interpreter cannot. An interpreter aimed
-     * at a named target can - that is a specific approach, not a general capability.
-     */
+    /** A single-purpose program can be walled off; a bare interpreter cannot. */
     static boolean blockable(String signature) {
         int colon = signature.indexOf(':');
         if (colon < 0) return true;
@@ -792,9 +762,7 @@ public final class AgentLoop {
     static void recordFinding(List<String> findings, String finding, int pinned) {
         if (finding == null || finding.isBlank()) return;
         String trimmed = finding.strip();
-        // "nothing conclusive yet" is not a finding. Nagging about a missing finding taught the
-        // model to fill the field with a placeholder on the first turn, and that placeholder then
-        // sat in the ledger for the whole run and was carried to the next one on disk.
+        // "nothing conclusive yet" is not a finding.
         if (uninformativeFinding(trimmed)) return;
         if (findings.contains(trimmed)) return;
         findings.add(trimmed);
@@ -820,10 +788,7 @@ public final class AgentLoop {
         return findingsLedger(findings, 0);
     }
 
-    /**
-     * The first {@code inherited} entries come from earlier runs here. Presenting them as settled
-     * would steer the agent away from re-checking a fact that has since changed.
-     */
+    /** The first {@code inherited} entries come from earlier runs here. */
     static String findingsLedger(List<String> findings, int inherited) {
         if (findings.isEmpty()) return "";
         StringBuilder ledger = new StringBuilder();
@@ -846,10 +811,7 @@ public final class AgentLoop {
         return ledger.toString();
     }
 
-    /**
-     * The harness's own record of what is spent. It needs nothing from the model, and is
-     * re-rendered every turn so a spent approach cannot quietly come back.
-     */
+    /** The harness's own record of what is spent. */
     private String exhaustedApproachLedger() {
         StringBuilder ledger = new StringBuilder();
         for (var entry : approaches.entrySet()) {
@@ -1018,9 +980,7 @@ public final class AgentLoop {
                     .append("at 2+ calls.");
         }
         // Stable sections first, volatile last: a cache keys on a token prefix, so the first
-        // section that changes invalidates everything after it. Regional context changes every
-        // call, and placing it early discarded the whole prompt each turn. vLLM, 13k prompt:
-        // 6.8 tok/s with it in front, 21.1 tok/s with it at the back.
+        // section that changes invalidates everything after it.
         appendContext(prompt, "Runtime capabilities (authoritative)", capabilities.render());
         appendContext(prompt, "Identity from SOUL.md", agentContext.soul());
         appendContext(prompt, "User profile from USER.md", agentContext.userProfile());
@@ -1101,11 +1061,7 @@ public final class AgentLoop {
         }
     }
 
-    /**
-     * Drops the middle of a long conversation, keeping the system prompt and the task. With only
-     * the prompt pinned, the request itself scrolled out past forty messages and the agent re-ran
-     * finished steps from a tail of tool results.
-     */
+    /** Drops the middle of a long conversation, keeping the system prompt and the task. */
     static void truncateHistory(List<ChatMessage> messages) {
         if (messages.size() <= MAX_HISTORY) {
             return;

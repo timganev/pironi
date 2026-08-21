@@ -22,8 +22,7 @@ public final class PersistentAgentMemory implements AgentMemory {
     private final Path workspace;
     /**
      * Findings are filed under the directory they were learned in, which /workspace can move
-     * mid-session. Reading it live keeps one project's conclusions out of another's file; the
-     * session record keeps the directory the session started in.
+     * mid-session.
      */
     private java.util.function.Supplier<Path> currentWorkspace;
     private final int contextLimit;
@@ -63,10 +62,7 @@ public final class PersistentAgentMemory implements AgentMemory {
         this.maxTurns = maxTurns;
     }
 
-    /**
-     * Starts a task on top of the conversation the session already has. Starting empty, "same
-     * report, as a table" reached a model that had never seen the data and re-ran everything.
-     */
+    /** Starts a task on top of the conversation the session already has. */
     @Override public synchronized List<ChatMessage> begin(String task) {
         if (sessions.currentMeta() == null) {
             sessions.startSession(model, workspace, contextLimit, maxTurns);
@@ -83,10 +79,7 @@ public final class PersistentAgentMemory implements AgentMemory {
         carryOver = List.of();
     }
 
-    /**
-     * Ensures a session exists and returns its id. Creates one if none is active (e.g. a
-     * fresh run before the first task is handed to the loop).
-     */
+    /** Ensures a session exists and returns its id. */
     public synchronized String currentSessionId() {
         if (sessions.currentMeta() == null) {
             sessions.startSession(model, workspace, contextLimit, maxTurns);
@@ -166,11 +159,7 @@ public final class PersistentAgentMemory implements AgentMemory {
                 .map(FindingsStore.Finding::forPrompt).toList();
     }
 
-    /**
-     * Only what the run nominated as durable reaches the file. The per-turn finding stays in the
-     * run: it exists to stop the agent repeating a dead end within one task, and a note like "I
-     * will try a relative path next" was never meant to outlive the ten seconds it described.
-     */
+    /** Only what the run nominated as durable reaches the file. */
     @Override public synchronized void rememberFindings(java.util.List<String> durable) {
         if (findingsStore == null || durable.isEmpty()) return;
         findingsStore.save(currentWorkspace.get(), durable,

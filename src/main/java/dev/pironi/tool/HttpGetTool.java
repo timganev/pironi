@@ -121,11 +121,7 @@ public final class HttpGetTool implements Tool {
         }
     }
 
-    /**
-     * Resolves the optional {@code headers} object against the header resolver. Every resolved
-     * value is applied to the outgoing request but never echoed into the {@code ToolResult};
-     * only the count is reported, so a substituted secret cannot leak into the trace or prompt.
-     */
+    /** Resolves the optional {@code headers} object against the header resolver. */
     private Map<String, String> resolveHeaders(URI uri, JsonNode arguments) {
         JsonNode headers = ToolArguments.optionalObject(arguments, "headers");
         if (headers == null || headers.isEmpty()) {

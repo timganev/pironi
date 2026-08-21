@@ -4,14 +4,13 @@ import java.time.Duration;
 import java.util.List;
 
 /**
- * Abstraction over {@link SubagentManager} that keeps {@code AgentLoop} decoupled from the
- * executor details. Exists so a fake (or in-memory) gateway can drive {@code AgentLoop} tests
- * deterministically without spawning real virtual threads.
+ * Abstraction over {@link SubagentManager} that keeps {@code AgentLoop} decoupled from the executor
+ * details.
  */
 public interface SubagentGateway {
     /**
      * Blocks until the active children finish or {@code timeout} elapses, returning whatever is
-     * ready. {@code Duration.ZERO} is a non-blocking drain.
+     * ready.
      *
      * @throws InterruptedException if interrupted while waiting
      */

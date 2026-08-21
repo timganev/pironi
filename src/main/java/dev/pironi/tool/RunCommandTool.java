@@ -39,12 +39,9 @@ public final class RunCommandTool implements Tool {
     /**
      * A shell command's effect cannot be read off its name, so it is confirmed rather than
      * auto-approved - which keeps the shell usable under approval=auto instead of switched off.
-     * Only where a prompt can be answered: a batch run cannot ask.
      */
     @Override public boolean requiresExplicitApproval(JsonNode arguments) {
-        // A call that only reads has nothing to approve. Asking anyway is what trained the
-        // answer out of the question, and it regressed the moment the approval policy began
-        // consulting this method before the read/write split.
+        // A call that only reads has nothing to approve.
         if (!mutating(arguments)) return false;
         return promptable;
     }
@@ -165,8 +162,7 @@ public final class RunCommandTool implements Tool {
 
     /**
      * Some programs answer through the exit code: grep exits 1 for no matches, diff for
-     * differences, both having printed what was asked. Two of three "failed" calls in one run
-     * were this. The status stands - sometimes it is a failure - only the reading is corrected.
+     * differences, both having printed what was asked.
      */
     private static String answerNotFailure(int exitCode, String output) {
         return exitCode > 0 && exitCode < 126 && !output.isBlank()
@@ -182,10 +178,7 @@ public final class RunCommandTool implements Tool {
                 : output;
     }
 
-    /**
-     * What the command printed before it ran out of time. Killing it closes the stream, so the
-     * bytes already read are good - and half of 18,000 files beats the bare fact of a timeout.
-     */
+    /** What the command printed before it ran out of time. */
     private String partialOutput(FutureTask<byte[]> outputFuture) {
         try {
             return truncate(new String(outputFuture.get(5, TimeUnit.SECONDS), StandardCharsets.UTF_8));
@@ -197,15 +190,11 @@ public final class RunCommandTool implements Tool {
         }
     }
 
-    /**
-     * What a bare number does not say. A shell reports a signal as 128+N, and "exitCode=137" alone
-     * reads as an ordinary failure, so the same command gets retried or a readable source is
-     * written off. Codes 1-125 belong to the program and are left alone.
-     */
+    /** What a bare number does not say. */
     static String cause(int exitCode, String shell) {
-        // 128+N is how a POSIX shell reports a signal. cmd.exe has no such convention: an exit
-        // code there is whatever the program chose, so 137 may be an ordinary application status
-        // and naming it "out of memory" would invent a cause. Only 9009 is cmd's own.
+        // 128+N is how a POSIX shell reports a signal. cmd.exe has no such convention: an exit code
+        // there is whatever the program chose, so 137 may be an ordinary application status and
+        // naming it "out of memory" would invent a cause.
         if (shell.toLowerCase(java.util.Locale.ROOT).contains("cmd")) {
             return exitCode == 9009
                     ? " (command not found - check the name, or whether it is installed)"

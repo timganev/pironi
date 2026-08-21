@@ -8,9 +8,7 @@ import dev.pironi.agent.CapabilityReport;
 
 import java.io.IOException;
 
-/**
- * Default implementation of InteractiveShell.ShellCommands backed by stores.
- */
+/** Default implementation of InteractiveShell.ShellCommands backed by stores. */
 final class DefaultShellCommands implements InteractiveShell.ShellCommands {
     private final SessionStore sessions;
     private final ContextCompressor compressor;
@@ -30,17 +28,14 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
         this.registry = toolRegistry;
     }
 
-    /**
-     * Refreshes what the model is told at runtime. Otherwise a granted directory is usable but
-     * invisible: the model reads the old line, concludes it has no access and refuses.
-     */
+    /** Refreshes what the model is told at runtime. */
     void onAccessChanged(Runnable callback) {
         if (callback != null) this.accessChanged = callback;
     }
 
     /**
-     * The callback carries the switch to everything that keeps its own copy of the workspace:
-     * the saved session, the runtime description the model reads, and the read grants.
+     * The callback carries the switch to everything that keeps its own copy of the workspace: the
+     * saved session, the runtime description the model reads, and the read grants.
      */
     void useWorkspace(dev.pironi.safety.Workspace sandbox,
             java.util.function.Consumer<java.nio.file.Path> onChange) {
@@ -48,10 +43,7 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
         if (onChange != null) this.workspaceChanged = onChange;
     }
 
-    /**
-     * The one command that takes a directory, reading and writing together. Split, it left a
-     * directory readable and untouchable - which read as a file no tool could ever change.
-     */
+    /** The one command that takes a directory, reading and writing together. */
     @Override public String workspace(String argument) {
         if (workspace == null) return "Workspace switching not available.";
         String trimmed = argument == null ? "" : argument.trim();
@@ -72,14 +64,12 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
             java.nio.file.Path moved = workspace.switchTo(expandHome(trimmed));
             if (moved.equals(previous)) return "Already the workspace: " + moved;
             if (registry != null) {
-                // Record the directory being left as an explicit read grant. It stays readable
-                // either way - the read tools keep the roots they started with - but only a
-                // recorded grant appears in /workspace and in what the model is told.
+                // Record the directory being left as an explicit read grant.
                 try {
                     registry.grants().grantRoot(previous);
                 } catch (java.io.IOException ignored) {
-                    // It was the workspace a moment ago; if it has just become unreadable,
-                    // saying so here would only distract from the switch that did work.
+                    // It was the workspace a moment ago; if it has just become unreadable, saying
+                    // so here would only distract from the switch that did work.
                 }
             }
             workspaceChanged.accept(moved);
@@ -135,8 +125,8 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
             if (stored.isEmpty()) {
                 return "Not stored: the text is empty, too long, or already remembered.";
             }
-            // Saying this now avoids the puzzle of a preference that is written down but
-            // never acted on, which is what happens when USER.md is not loaded.
+            // Saying this now avoids the puzzle of a preference that is written down but never
+            // acted on, which is what happens when USER.md is not loaded.
             String note = personalContextLoaded ? ""
                     : " Note: USER.md is not being loaded in this session, so this takes effect"
                     + " only with --personal-context allow.";
@@ -151,8 +141,8 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
      * the prompt off a short terminal and silently break the keyboard tests.
      */
     /**
-     * Findings outlive the run that learned them - the point, and the risk when the file is gone
-     * or the layout changed. Seeing and dropping them keeps that trade honest.
+     * Findings outlive the run that learned them - the point, and the risk when the file is gone or
+     * the layout changed.
      */
     @Override public String findings(String argument) {
         if (memory == null) return "Findings not available.";
@@ -167,8 +157,8 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
         if (stored.isEmpty()) return "Nothing established by earlier runs here.";
         StringBuilder out = new StringBuilder("Established by earlier runs here:");
         for (var finding : stored) {
-            // Date and origin are for you, not for the model: /resume on that session id shows
-            // the conversation a claim came from, which is what you need when one turns out wrong.
+            // Date and origin are for you, not for the model: /resume on that session id shows the
+            // conversation a claim came from, which is what you need when one turns out wrong.
             out.append("\n  ").append(finding.date().isEmpty() ? "(undated)" : finding.date())
                     .append("  ").append(finding.session().isEmpty() ? "-" : finding.session())
                     .append("\n    ").append(finding.text());
@@ -187,8 +177,7 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
         return switch (verb) {
             case "allow-tool" -> allowTool(rest);
             case "deny-tool" -> denyTool(rest);
-            // Directories used to be granted here as well, in three variants. Taking a
-            // directory is one intent, and /workspace is the one command for it now.
+            // Directories used to be granted here as well, in three variants.
             case "allow-dir", "deny-dir", "remember-dir", "forget-dir" ->
                     "Directories are not granted here any more. Take one with /workspace PATH.";
             default -> "Usage: /access [allow-tool NAME | deny-tool NAME]";

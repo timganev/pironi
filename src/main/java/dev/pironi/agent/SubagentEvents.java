@@ -3,9 +3,8 @@ package dev.pironi.agent;
 import dev.pironi.tool.SubagentResult;
 
 /**
- * Sink for sub-agent lifecycle events so the user is kept informed ("пускам агент X…") and
- * can keep talking while the child runs. Interactive mode renders these via JLine
- * {@code printAbove}; batch mode writes them to {@code System.err}.
+ * Sink for sub-agent lifecycle events so the user is kept informed ("пускам агент X…") and can keep
+ * talking while the child runs.
  */
 public interface SubagentEvents {
     /** Called immediately before a child is submitted, from the spawner thread. */

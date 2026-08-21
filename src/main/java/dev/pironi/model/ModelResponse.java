@@ -13,10 +13,7 @@ public record ModelResponse(
         String fallbackReason,
         long wallClockNanos
 ) {
-    /**
-     * Providers report generating time only - no queueing, model loading or request. One turn
-     * reported 79 seconds against 766 of real waiting. Zero means nobody measured.
-     */
+    /** Providers report generating time only - no queueing, model loading or request. */
     public ModelResponse(String content, long promptTokens, long outputTokens,
             long durationNanos, long evalDurationNanos, String finishReason,
             String responseFormat, int requestAttempts, String fallbackFrom,

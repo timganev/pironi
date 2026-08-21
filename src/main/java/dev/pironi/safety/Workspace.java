@@ -6,11 +6,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.function.Supplier;
 
-/**
- * The one directory every writing tool may touch. Reading widens at runtime through
- * {@link AccessGrants}; writing does not. "Absolute paths are not allowed" made that asymmetry
- * invisible, so the refusals below name the workspace and say how to move it.
- */
+/** The one directory every writing tool may touch. */
 public final class Workspace {
     private volatile Path root;
     private volatile Supplier<List<Path>> readableRoots = List::of;
@@ -24,8 +20,7 @@ public final class Workspace {
     }
 
     /**
-     * Moves the write sandbox for the session. Every scoped tool asks {@link #root()} as it runs,
-     * so one switch reaches all. Interactive shell only - see {@link AccessGrants}.
+     * Moves the write sandbox for the session.
      *
      * @return the canonical path now in force
      */
@@ -110,8 +105,8 @@ public final class Workspace {
     }
 
     /**
-     * The suggestion names a directory rather than the file itself, because that is what
-     * {@code /workspace} and {@code --workspace} take.
+     * The suggestion names a directory rather than the file itself, because that is what {@code
+     * /workspace} and {@code --workspace} take.
      */
     private IOException outside(String refusal, Path candidate) {
         Path directory = Files.isDirectory(candidate) ? candidate : candidate.getParent();
@@ -138,8 +133,7 @@ public final class Workspace {
 
     /**
      * One directory, two spellings: /var and /private/var on macOS, RUNNER~1 and runneradmin on
-     * Windows. Comparing as typed calls a directory plainly inside "outside". Resolve as far as
-     * the filesystem allows - the path may not exist yet, which is normal before a write.
+     * Windows.
      */
     static Path resolvedAsFarAsPossible(Path path) {
         Path absolute = path.toAbsolutePath().normalize();

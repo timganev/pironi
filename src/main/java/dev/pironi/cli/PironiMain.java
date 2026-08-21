@@ -134,17 +134,15 @@ public final class PironiMain {
         Workspace workspace = new Workspace(options.workspace());
         lastSession.save(options);
         CheckpointManager checkpoints = new CheckpointManager(workspace);
-        // Copies left by runs that never got to discard theirs - a crash, a closed terminal, or
-        // any build before this existed. A week is long past the point where anything could
-        // still roll them back, and short enough that they stop accumulating for ever.
+        // Copies left by runs that never got to discard theirs - a crash, a closed terminal, or any
+        // build before this existed.
         checkpoints.pruneOrphans(Duration.ofDays(7));
         lastSession.save(options);
 
         // Memory stores (L2, L3, L4)
         SessionStore sessions = new SessionStore(options.pironiHome(), objectMapper);
         // Transcripts and traces hold whatever the agent read on the way, so they are kept for a
-        // window rather than for ever. Checkpoints go sooner (see above): unlike these two they
-        // are useless the moment their session ends.
+        // window rather than for ever.
         sessions.pruneOlderThan(RETENTION);
         dev.pironi.trace.JsonlTraceWriter.pruneOlderThan(
                 options.tracePath(), RETENTION, objectMapper);
@@ -213,17 +211,15 @@ public final class PironiMain {
                 options.interactive() ? new dev.pironi.tool.SwitchWorkspaceTool(workspace) : null;
         if (switchWorkspaceTool != null) availableTools.add(switchWorkspaceTool);
 
-        // Cloud-only sub-agent support. Spawning a second local model instance would contend
-        // for CPU/RAM, so spawn_subagent is registered only for cloud providers (never Ollama).
+        // Cloud-only sub-agent support.
         dev.pironi.model.ProviderType providerType = options.provider();
         SubagentManager subagentManager = null;
         // Held so the child's read tools can be given the live grants once the parent registry
-        // exists. Their roots are otherwise frozen at startup, and a child spawned after
-        // /workspace would be reading a directory the session left behind.
+        // exists.
         List<Tool> childReadTools = List.of();
         // Mutable printer cell: in interactive mode it is re-pointed to the JLine shell's
-        // printAbove once that shell exists (later in startup); before that and in batch
-        // mode it writes to stderr so stdout stays machine-clean.
+        // printAbove once that shell exists (later in startup); before that and in batch mode it
+        // writes to stderr so stdout stays machine-clean.
         boolean interactiveNow = options.interactive() && !options.noTui();
         final java.util.function.Consumer<String>[] subPrinter = new java.util.function.Consumer[]{
                 interactiveNow ? System.out::println : System.err::println};
@@ -231,9 +227,9 @@ public final class PironiMain {
                 ? new dev.pironi.agent.InteractiveSubagentEvents(s -> subPrinter[0].accept(s))
                 : dev.pironi.agent.SubagentEvents.NOOP;
         if (providerType != dev.pironi.model.ProviderType.OLLAMA) {
-            // inspect_file belongs here: sizing or hashing a file is exactly the kind of
-            // bounded survey a child is spawned for, and without it a child asked to measure a
-            // tree can only read whole files into a context that cannot hold them.
+            // inspect_file belongs here: sizing or hashing a file is exactly the kind of bounded
+            // survey a child is spawned for, and without it a child asked to measure a tree can
+            // only read whole files into a context that cannot hold them.
             ReadFileTool childRead = new ReadFileTool(workspace, ToolOutput.MAX_CHARACTERS,
                     options.searchRoots(), hiddenAgentPaths);
             ListFilesTool childList = new ListFilesTool(workspace, 500, options.searchRoots(),
@@ -246,7 +242,7 @@ public final class PironiMain {
             );
             // Deliberately NO spawn_subagent here: the child is read-only and cannot spawn a
             // grandchild, so nested delegation (parent waits child waits grandchild) cannot
-            // deadlock. A child only gathers data; the parent owns all further delegation.
+            // deadlock.
             ToolRegistry childRegistry = new ToolRegistry(readOnlyTools);
             dev.pironi.safety.ApprovalPolicy childPolicy = (ignoredTool, ignoredArgs) -> ApprovalDecision.ALLOW;
             subagentManager = new SubagentManager(
@@ -298,9 +294,8 @@ public final class PironiMain {
         if (interactive) {
             TerminalBuilder builder = TerminalBuilder.builder()
                     .system(true);
-            // Windows Terminal handles full xterm, but JLine detects NativeWinSysTerminal,
-            // which lacks change_scroll_region - the pinned row then scrolls onto every line.
-            // Pinning xterm-256color makes JLine Status work there as on Linux/macOS.
+            // Windows Terminal handles full xterm, but JLine detects NativeWinSysTerminal, which
+            // lacks change_scroll_region - the pinned row then scrolls onto every line.
             if (System.getenv("WT_SESSION") != null) {
                 builder.type("xterm-256color");
             }
@@ -387,8 +382,7 @@ public final class PironiMain {
                     options.workspace(), options.pironiHome(), capabilityReport
             );
             runtimeDoctor.useTerminal(terminal);
-            // Print the session id + resume command so a crashed/closed CLI can be picked
-            // up again. Session is created lazily here (idempotent) before the loop runs.
+            // Print the session id + resume command so a crashed/closed CLI can be picked up again.
             String sessionId = memory.currentSessionId();
             currentSessionId = sessionId;
             if (interactive) {
@@ -578,8 +572,8 @@ public final class PironiMain {
                         !agentContext.userProfile().isBlank() || !agentContext.soul().isBlank());
                 defaultShellCommands.onAccessChanged(() -> agentContext.updateRuntimeSession(
                         runtimeSessionDescription(currentOptions.get(), tools.grants())));
-                // One callback for both routes into a move: the /workspace command and the
-                // tool the agent offers. They must leave the session in the same state.
+                // One callback for both routes into a move: the /workspace command and the tool the
+                // agent offers.
                 java.util.function.Consumer<Path> workspaceMoved = moved -> {
                     try {
                         // A directory you may write in is one you may read.
@@ -631,8 +625,8 @@ public final class PironiMain {
                         theme,
                         themeStore
                 );
-                // Re-point the sub-agent notification printer to the live JLine shell so
-                // "пускам агент…" / "агент приключи" render above the prompt.
+                // Re-point the sub-agent notification printer to the live JLine shell so "пускам
+                // агент…" / "агент приключи" render above the prompt.
                 subPrinter[0] = shell::printAbove;
                 // Wire the auto-turn callback so completed child results trigger a model response
                 // immediately, without the user needing to press Enter.
@@ -677,8 +671,8 @@ public final class PironiMain {
     ) {
         AgentContext childContext = new AgentContext("", "", "");
         dev.pironi.trace.CollectingTraceWriter childTrace = new dev.pironi.trace.CollectingTraceWriter();
-        // Cap the child's turns below the parent's default so a runaway child cannot
-        // burn tokens indefinitely; the manager's deadline interrupts it as a hard limit.
+        // Cap the child's turns below the parent's default so a runaway child cannot burn tokens
+        // indefinitely; the manager's deadline interrupts it as a hard limit.
         int childTurns = Math.min(options.maxTurns(), MAX_SUBAGENT_TURNS);
         AgentLoop childLoop = new AgentLoop(
                 modelClient,
@@ -784,12 +778,11 @@ public final class PironiMain {
             return options.denyTools();
         }
         Set<String> denied = new HashSet<>(options.denyTools());
-        // Launching or closing a desktop app is visible to whoever is at the machine, so it
-        // needs a deliberate --allow-tools rather than riding along with auto approval.
+        // Launching or closing a desktop app is visible to whoever is at the machine, so it needs a
+        // deliberate --allow-tools rather than riding along with auto approval.
         denied.add("app_control");
         // An interactive session keeps the shell and confirms each command instead (see
-        // RunCommandTool.requiresExplicitApproval). Switching it off there removed the only
-        // route to anything the scoped tools do not cover and cost more than it protected.
+        // RunCommandTool.requiresExplicitApproval).
         if (options.shellScope() == dev.pironi.tool.ShellScope.WORKSPACE
                 && !options.interactive()) {
             denied.add("run_command");
@@ -798,8 +791,7 @@ public final class PironiMain {
     }
 
     /**
-     * AUTO skips SOUL.md and USER.md on a cloud provider, so personal files stay off a third
-     * party. Right default, but silently ignoring a written persona looks like a bug - say so.
+     * AUTO skips SOUL.md and USER.md on a cloud provider, so personal files stay off a third party.
      */
     static void warnAboutSkippedPersonalContext(
             CliOptions options, AgentContext context, boolean interactive
@@ -819,8 +811,7 @@ public final class PironiMain {
     }
 
     /**
-     * Says the host has a shell the agent may not use. Printed only interactively before, so a
-     * one-shot run asked the user to run the commands himself with nothing explaining why.
+     * Says the host has a shell the agent may not use.
      *
      * @return the note, or empty when the shell is available
      */
@@ -836,8 +827,7 @@ public final class PironiMain {
     }
 
     /**
-     * Windows was excluded when only legacy conhost existed. Windows Terminal keeps a reserved
-     * line fine, and the exclusion also hid tool activity, which the same reporter drives.
+     * Windows was excluded when only legacy conhost existed.
      *
      * @param windowsTerminal true inside Windows Terminal (WT_SESSION is set)
      */
@@ -879,9 +869,8 @@ public final class PironiMain {
                             + ". Known tools: " + known
             );
         }
-        // Every implemented tool stays in the registry; the blocked ones are marked disabled in
-        // the shared grants instead of being dropped. That is what lets the session report
-        // "exists but blocked" accurately, and lets the user re-enable one without restarting.
+        // Every implemented tool stays in the registry; the blocked ones are marked disabled in the
+        // shared grants instead of being dropped.
         AccessGrants grants = new AccessGrants();
         for (Tool tool : availableTools) {
             boolean blocked = allowedTools.isEmpty()
@@ -942,10 +931,7 @@ public final class PironiMain {
     }
 
 
-    /**
-     * Where the read-only file tools may look. Tied to {@code --search-roots}, a file the shell
-     * had just written could not be read back - a tool that reads less than the shell is a trap.
-     */
+    /** Where the read-only file tools may look. */
     static List<Path> readRoots(List<Path> searchRoots, dev.pironi.tool.ShellScope shellScope) {
         List<Path> roots = new ArrayList<>(searchRoots);
         switch (shellScope) {
@@ -961,10 +947,7 @@ public final class PironiMain {
         return List.copyOf(roots);
     }
 
-    /**
-     * Names the session for the crash handler. A run that died mid-turn printed only what broke,
-     * so headless runs were restarted from zero although the work was checkpointed.
-     */
+    /** Names the session for the crash handler. */
     private static volatile String currentSessionId = "";
 
     /** Points a crashed run at its own checkpoint. Empty before the session exists. */
@@ -975,18 +958,15 @@ public final class PironiMain {
     }
 
     /**
-     * One-line banner printed at startup in interactive mode so a crashed/closed CLI can be
-     * resumed with {@code /resume <id>}.
+     * One-line banner printed at startup in interactive mode so a crashed/closed CLI can be resumed
+     * with {@code /resume }.
      */
     static String sessionBanner(String sessionId) {
         return "Pironi " + BuildVersion.current() + "  |  Session: " + sessionId
                 + "  |  continue with: /resume " + sessionId;
     }
 
-    /**
-     * Header resolver for {@code http_get}. The model writes {@code PIRONI_API_KEY}; Pironi
-     * substitutes the real key, only for trusted API hosts, and never echoes it back.
-     */
+    /** Header resolver for {@code http_get}. */
     private static HeaderResolver buildHeaderResolver(CliOptions options) {
         Set<String> authorizationHosts = new HashSet<>(Set.of("api.deepseek.com"));
         java.util.Map<String, String> placeholders = new java.util.LinkedHashMap<>();

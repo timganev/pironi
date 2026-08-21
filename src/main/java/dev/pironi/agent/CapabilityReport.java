@@ -28,10 +28,7 @@ public final class CapabilityReport {
         this.disabledReasons = Map.copyOf(disabledReasons);
     }
 
-    /**
-     * Which files the identity came from, and that they are not yours to write. Asked to save its
-     * persona, an agent wrote it into the workspace - where nothing reads it - and said so.
-     */
+    /** Which files the identity came from, and that they are not yours to write. */
     private String personalContext() {
         String sources = context.personalSources();
         if (sources.isBlank()) {

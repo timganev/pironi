@@ -7,11 +7,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Single-line preferences the user asked to keep, in USER.md. Between a chat correction that dies
- * with the session and a skill needing draft, review and acceptance - most adaptation is one
- * sentence. Facts are appended under their own heading, so anything written by hand is untouched.
- */
+/** Single-line preferences the user asked to keep, in USER.md. */
 public final class UserFacts {
     static final String HEADING = "## Запомнено (/remember)";
     private static final int MAX_FACT_CHARACTERS = 400;

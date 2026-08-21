@@ -2,11 +2,7 @@ package dev.pironi.tool;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
-/**
- * Hands a sub-task to a child so the user does not wait idle through a multi-step operation.
- * Cloud providers only. The call returns a handle at once; the child runs on a virtual thread and
- * its result is drained into the main loop next turn.
- */
+/** Hands a sub-task to a child so the user does not wait idle through a multi-step operation. */
 public final class SpawnSubagentTool implements Tool {
     static final int MAX_TASK_CHARS = 2_000;
     static final int MAX_NAME_CHARS = 64;

@@ -12,15 +12,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
-/**
- * Owns the lifecycle of cloud-only sub-agents. Each child runs on its own virtual thread against
- * the same stateless {@code ModelClient}, under a hard deadline so a stuck one cannot leak forever.
- *
- * <p>Cancellation goes only through {@link #cancelChild}, which sets the token before interrupting
- * and interrupts only a {@code RUNNING} handle. Interrupting a registered but still {@code NEW}
- * thread left a sticky flag that survived {@code start()} and killed the child's first blocking
- * call.
- */
+/** Owns the lifecycle of cloud-only sub-agents. */
 public final class SubagentManager implements AutoCloseable, SubagentGateway {
     /** Records a child finished (or failed) and is ready to be drained. */
     public record Completion(String id, String name, SubagentResult result) {
@@ -149,8 +141,6 @@ public final class SubagentManager implements AutoCloseable, SubagentGateway {
 
     private void runChild(ChildHandle h, String subtask) {
         // Atomic prologue: clear any stale pre-start flag, then consult the token.
-        // The flag is transport; the token is truth, so reading the token after clearing is safe
-        // and cannot "eat" a legitimate cancel (no one interrupts without first setting the token).
         boolean hadFlag = Thread.interrupted();
         if (h.cancelReason != SubagentResult.CancelReason.NONE) {
             finish(h, SubagentResult.cancelled(h.id, h.name, h.cancelReason));
@@ -190,7 +180,7 @@ public final class SubagentManager implements AutoCloseable, SubagentGateway {
         // Publish the result BEFORE the child stops counting as active. awaitCompleted decides
         // whether to wait from activeIds() and the active count, so a child that is already
         // finished but whose result is not yet queued makes it return empty and lose the result
-        // outright. Enqueueing first closes that window; a waiter simply drains it.
+        // outright.
         completed.add(new Completion(h.id, h.name, measured));
         synchronized (h) {
             h.state = result.isCancelled() ? State.CANCELLED
@@ -206,8 +196,7 @@ public final class SubagentManager implements AutoCloseable, SubagentGateway {
             throw new IllegalArgumentException(
                     "awaitCompleted requires a positive timeout; for a non-blocking peek use drainCompleted()");
         }
-        // Snapshot of children active at call time. A child spawned DURING this barrier wait must
-        // NOT be cancelled by it (it gets its own execution window); only the original set is.
+        // Snapshot of children active at call time.
         java.util.Set<String> waitingOn = activeIds();
         long deadlineNanos = System.nanoTime() + timeout.toNanos();
         List<SubagentResult> out = new ArrayList<>();
@@ -225,18 +214,12 @@ public final class SubagentManager implements AutoCloseable, SubagentGateway {
             // Bounded wait expired with original children still running: cancel the snapshot set.
             cancelAll("timeout", waitingOn);
         }
-        // Always drain last. A child that finished between the first drain and the loop condition
-        // leaves the queue non-empty while active has already dropped to zero, so the loop is
-        // skipped and its result would otherwise be returned to nobody.
+        // Always drain last.
         drainInto(out, waitingOn);
         return out;
     }
 
-    /**
-     * Drains the queue and retires every child it carried. Draining without retiring made a
-     * finished child cost a full timeout: finish() queues the result before it clears the active
-     * count, so a caller in that window took the result and then waited on an empty queue.
-     */
+    /** Drains the queue and retires every child it carried. */
     private void drainInto(List<SubagentResult> out, java.util.Set<String> waitingOn) {
         Completion next;
         while ((next = completed.poll()) != null) {
@@ -294,16 +277,11 @@ public final class SubagentManager implements AutoCloseable, SubagentGateway {
 
     @Override
     public void discardPending() {
-        // Only drop undelivered results. Does NOT interrupt children — cancelling kids is a
-        // separate, explicit operation (cancelAll / shutdownGracefully). This is the fix for the
-        // 0ms InterruptedException: a fresh spawn must not be killed by a routine pending-drain.
+        // Only drop undelivered results.
         completed.clear();
     }
 
-    /**
-     * Drops pending results and cancels any children still NEW/RUNNING (prefixed discard).
-     * Used only where the caller really wants pending children gone, e.g. shutdown.
-     */
+    /** Drops pending results and cancels any children still NEW/RUNNING (prefixed discard). */
     public void discardPendingResults() {
         completed.clear();
         cancelAll("discarded");

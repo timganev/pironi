@@ -78,11 +78,7 @@ public final class ReadFileTool implements Tool {
         return false;
     }
 
-    /**
-     * Reading a credential store is refused unless a person says otherwise. The list is named
-     * rather than guessed from hiddenness: ~/.pironi and .git are hidden and ordinary, while a
-     * key file may sit anywhere. See {@link dev.pironi.safety.SecretStores}.
-     */
+    /** Reading a credential store is refused unless a person says otherwise. */
     @Override
     public boolean requiresExplicitApproval(JsonNode arguments) {
         JsonNode supplied = arguments == null ? null : arguments.get("path");
@@ -193,7 +189,7 @@ public final class ReadFileTool implements Tool {
 
     /**
      * A bare "truncated" reads as a dead end, so the agent gives up on the file or re-reads the
-     * same head. Saying how much is left, and how to ask for it, turns it into a page boundary.
+     * same head.
      */
     private static String shortfall(String content, int shown) {
         long totalLines = content.lines().count();

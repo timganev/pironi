@@ -16,8 +16,7 @@ public final class PlatformShell {
             return List.of("cmd.exe", "/d", "/s", "/c", script);
         }
         // Deliberately without pipefail: "producer | head" is how a large output is sampled, and
-        // under pipefail it exits 141. Inside f=$(find . | head -1) && ... that status kills the
-        // whole line, leaving an empty failure the agent cannot explain. Cost one run four turns.
+        // under pipefail it exits 141.
         return List.of("/bin/bash", "-c", script);
     }
 

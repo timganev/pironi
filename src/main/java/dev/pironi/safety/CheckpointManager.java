@@ -53,8 +53,8 @@ public final class CheckpointManager {
         }
 
         // The absolute path is stored with the checkpoint rather than re-resolved against the
-        // workspace: after /workspace the current sandbox is a different directory, and
-        // restoring a file into it would put it somewhere it never was.
+        // workspace: after /workspace the current sandbox is a different directory, and restoring a
+        // file into it would put it somewhere it never was.
         Path target = checkpoint.target();
         if (checkpoint.existed()) {
             Path staged = Files.createTempFile(target.getParent(), ".pironi-rollback-", ".tmp");
@@ -92,7 +92,6 @@ public final class CheckpointManager {
 
     /**
      * Drops this session's copies: the rollback stack lives in memory and ends with the process.
-     * Left behind they are a permanent copy of every file touched, deletions included.
      *
      * @return how many were removed
      */
@@ -111,8 +110,7 @@ public final class CheckpointManager {
     }
 
     /**
-     * Removes checkpoints from runs that never discarded theirs - a crash, a killed terminal. Age
-     * is the only safe test: another Pironi may be running here, with checkpoints minutes old.
+     * Removes checkpoints from runs that never discarded theirs - a crash, a killed terminal.
      *
      * @return how many were removed
      */
@@ -144,11 +142,7 @@ public final class CheckpointManager {
         Files.deleteIfExists(checkpoint.directory());
     }
 
-    /**
-     * Names the file as the user saw it, relative while inside the workspace. Resolved before
-     * comparing: /var against /private/var, or RUNNER~1 against runneradmin, otherwise announces
-     * a file plainly inside by its full absolute path.
-     */
+    /** Names the file as the user saw it, relative while inside the workspace. */
     private String displayName(Path target) {
         Path absolute = Workspace.resolvedAsFarAsPossible(target);
         Path root = Workspace.resolvedAsFarAsPossible(workspace.root());

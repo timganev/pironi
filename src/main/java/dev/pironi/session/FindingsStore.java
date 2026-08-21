@@ -12,10 +12,6 @@ import java.util.List;
 /**
  * Carries what a run established into the next run against the same workspace, so the same dead
  * ends are not rediscovered at the cost of turns each time.
- *
- * <p>Each line records when the fact was last confirmed and by which session. Undated,
- * "established here" reads as a claim about the present - which is how a note about a file
- * deleted the day before came back as current. The id is for {@code /resume}.
  */
 public final class FindingsStore {
     private static final String SEPARATOR = "\t";
@@ -58,16 +54,13 @@ public final class FindingsStore {
         }
     }
 
-    /**
-     * Adds what this run established, one entry per distinct text. A repeat refreshes the date
-     * instead of adding a line - the fact is fresher, not doubled.
-     */
+    /** Adds what this run established, one entry per distinct text. */
     public void save(Path workspace, List<String> texts, String date, String session) {
         if (texts.isEmpty()) return;
         List<Finding> merged = new ArrayList<>(load(workspace));
         for (String text : texts) {
-            // One fact, one line: a newline or a tab in the model's text would otherwise split
-            // the record and the next load would read half a sentence as a whole finding.
+            // One fact, one line: a newline or a tab in the model's text would otherwise split the
+            // record and the next load would read half a sentence as a whole finding.
             String value = text.replaceAll("[\\p{Cntrl}]+", " ").strip();
             if (value.isEmpty()) continue;
             int existing = indexOfText(merged, value);
@@ -76,8 +69,7 @@ public final class FindingsStore {
         }
         List<Finding> kept = merged;
         if (merged.size() > AgentLoop.MAX_FINDINGS) {
-            // Keep both ends. Dropping the head would discard exactly the inherited entries the
-            // loop pins, and persist a loss the pinning exists to prevent.
+            // Keep both ends.
             int half = AgentLoop.MAX_FINDINGS / 2;
             kept = new ArrayList<>(merged.subList(0, half));
             kept.addAll(merged.subList(merged.size() - (AgentLoop.MAX_FINDINGS - half), merged.size()));
@@ -113,8 +105,8 @@ public final class FindingsStore {
         String path = workspace.toAbsolutePath().normalize().toString();
         String name = path.replaceAll("[^A-Za-z0-9]+", "-").replaceAll("^-|-$", "");
         if (name.length() > 120) name = name.substring(name.length() - 120);
-        // Squashing separators and truncating makes different workspaces collide, and one
-        // project's established facts would then be handed to another.
+        // Squashing separators and truncating makes different workspaces collide, and one project's
+        // established facts would then be handed to another.
         return directory.resolve(name + "-" + Integer.toHexString(path.hashCode()) + ".txt");
     }
 }

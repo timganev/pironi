@@ -18,8 +18,7 @@ public final class ToolRegistry {
 
     /**
      * Tools denied at startup stay in the map but are marked disabled in {@code grants}, so the
-     * user can re-enable them mid-session instead of restarting. {@link #allImplemented()} keeps
-     * reporting them, which is what lets the agent say "blocked" rather than "does not exist".
+     * user can re-enable them mid-session instead of restarting.
      */
     public ToolRegistry(Collection<? extends Tool> tools, AccessGrants grants) {
         this.grants = grants == null ? new AccessGrants() : grants;

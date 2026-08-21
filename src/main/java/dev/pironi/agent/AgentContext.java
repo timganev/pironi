@@ -19,10 +19,7 @@ public final class AgentContext {
         this.personalSources = normalize(personalSources);
     }
 
-    /**
-     * The files the identity and user profile were read from, one per line. The content reached
-     * the model and the provenance did not, so an agent asked where its persona lives guessed.
-     */
+    /** The files the identity and user profile were read from, one per line. */
     public String personalSources() {
         return personalSources;
     }

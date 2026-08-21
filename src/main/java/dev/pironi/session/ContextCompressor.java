@@ -9,17 +9,15 @@ import dev.pironi.model.ChatMessage;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Model-driven context compression. Tracks tokens, triggers semantic summarization.
- */
+/** Model-driven context compression. */
 public final class ContextCompressor {
     private static final int MAX_SUMMARY_CHARACTERS = 2_400;
     private final int contextLimit;
     private final ObjectMapper mapper;
     private long runningPromptTokens;
     private long runningOutputTokens;
-    // Half the window, not 70%: the ledgers re-rendered each turn accumulate stale copies in
-    // the history, and at the old default a 131k-token run reached its turn limit without ever
+    // Half the window, not 70%: the ledgers re-rendered each turn accumulate stale copies in the
+    // history, and at the old default a 131k-token run reached its turn limit without ever
     // compressing them away.
     private double threshold = 0.50;
     private boolean enabled = true;
@@ -34,7 +32,6 @@ public final class ContextCompressor {
 
     public void addTokens(long prompt, long output) {
         // Provider prompt usage already includes the conversation sent on this request.
-        // Summing it across requests measures API spend, not current context occupancy.
         runningPromptTokens = Math.max(0, prompt);
         runningOutputTokens = Math.max(0, output);
     }
@@ -64,11 +61,7 @@ public final class ContextCompressor {
 
     // ── semantic compression prompt ────────────────────────────────────
 
-    /**
-     * Builds a compression prompt for the model.
-     * The model receives all messages EXCEPT system + last 4, and is asked to extract:
-     * decisions, constraints, open questions, file paths, errors.
-     */
+    /** Builds a compression prompt for the model. */
     public String buildCompressionPrompt(List<ChatMessage> messages, String task) {
         // Skip system prompt (index 0) and keep last 4 messages verbatim
         int skipHead = 1; // system prompt
@@ -90,9 +83,7 @@ public final class ContextCompressor {
                 .replace("{{conversation}}", toCompress.toString());
     }
 
-    /**
-     * Stores the compressed summary and resets token counters to reflect new state.
-     */
+    /** Stores the compressed summary and resets token counters to reflect new state. */
     public String storeSummary(String summary) {
         this.lastSummary = boundSummary(summary);
         // Reset: system + task (~500) + summary (~300) + last 4 turns (~800) ≈ 1600 base

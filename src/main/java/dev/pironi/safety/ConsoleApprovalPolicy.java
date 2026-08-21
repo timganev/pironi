@@ -58,9 +58,7 @@ public final class ConsoleApprovalPolicy implements ApprovalPolicy {
 
     @Override
     public ApprovalDecision decide(Tool tool, JsonNode arguments) {
-        // A read can need asking too. Reading a credential store changes nothing on disk and is
-        // still not something to do without a word, so the question is asked about the call
-        // rather than about the tool's category.
+        // A read can need asking too.
         if (!tool.mutating(arguments) && !tool.requiresExplicitApproval(arguments)) {
             return ApprovalDecision.ALLOW;
         }

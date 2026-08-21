@@ -5,18 +5,11 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * Whether a shell command only reads. Asking about {@code grep -n x file} teaches the answer
- * without the reading, so the prompts that matter arrive among ones that never did.
- *
- * <p>Deliberately narrow: a substitution, a redirection or an unlisted program counts as writing.
- * Wrong here costs one prompt; wrong the other way costs a silent write.
+ * Whether a shell command only reads. Deliberately narrow: wrong here costs one prompt, wrong the
+ * other way costs a silent write.
  */
 public final class ReadOnlyCommand {
-    /**
-     * cmd.exe has its own readers, and none of the Unix ones. Without these the classifier
-     * answers "this writes" to every native Windows command, so both the wider reach and the
-     * absent prompt were macOS and Linux features only.
-     */
+    /** cmd.exe has its own readers, and none of the Unix ones. */
     private static final Set<String> WINDOWS_READERS = Set.of(
             "dir", "type", "findstr", "more", "fc", "where", "tasklist", "tree", "ver",
             "hostname", "whoami", "systeminfo"
@@ -39,11 +32,7 @@ public final class ReadOnlyCommand {
     /** Anything that turns a reader into a writer, or hides another program inside. */
     private static final Pattern ESCAPE = Pattern.compile("[>`]|\\$\\(|<\\(|\\btee\\b|\\bxargs\\b");
 
-    /**
-     * Discarding output is not writing. {@code 2>/dev/null} is how a reader silences its own
-     * noise, and counting it as a write made ordinary commands - {@code find . -name x
-     * 2>/dev/null} above all - ask for approval they did not need.
-     */
+    /** Discarding output is not writing. */
     private static final Pattern DISCARD =
             Pattern.compile("\\d?>>?\\s*(/dev/null|(?i:nul))(?=\\s|$)");
 

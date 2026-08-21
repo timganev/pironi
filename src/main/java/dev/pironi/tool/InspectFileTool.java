@@ -34,11 +34,7 @@ public final class InspectFileTool implements Tool {
     @Override public String argumentSchema() { return "{\"path\":\"workspace-relative or absolute path\"}"; }
     @Override public boolean mutating() { return false; }
 
-    /**
-     * Reading a credential store is refused unless a person says otherwise. The list is named
-     * rather than guessed from hiddenness: ~/.pironi and .git are hidden and ordinary, while a
-     * key file may sit anywhere. See {@link dev.pironi.safety.SecretStores}.
-     */
+    /** Reading a credential store is refused unless a person says otherwise. */
     @Override
     public boolean requiresExplicitApproval(JsonNode arguments) {
         JsonNode supplied = arguments == null ? null : arguments.get("path");

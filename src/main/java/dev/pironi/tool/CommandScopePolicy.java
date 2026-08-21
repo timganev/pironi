@@ -6,11 +6,7 @@ import java.util.regex.Pattern;
 /** Conservative lexical guardrail for shell commands; not an OS sandbox. */
 final class CommandScopePolicy {
     private static final Pattern PARENT = Pattern.compile("(^|[\\s/\\\\])\\.\\.($|[\\s/\\\\])");
-    /**
-     * A slash starts a path only when a path character follows. Firing after any quote also caught
-     * every sed address, and one run read a 143 KB file whole - 38,000 tokens for a section the
-     * pattern would have cut. {@code /etc/passwd} stays refused, quoted {@code sh -c} included.
-     */
+    /** A slash starts a path only when a path character follows. */
     private static final Pattern UNIX_ABSOLUTE =
             Pattern.compile("(^|[\\s'\"=])/(?=[A-Za-z0-9._~-])");
     private static final Pattern WINDOWS_ABSOLUTE = Pattern.compile(
@@ -39,8 +35,8 @@ final class CommandScopePolicy {
     }
 
     /**
-     * The Unix absolute-path rule reads every cmd.exe switch as a path - {@code dir /b},
-     * {@code tasklist /FO CSV} - so on Windows it is applied only where "/" starts a path.
+     * The Unix absolute-path rule reads every cmd.exe switch as a path - {@code dir /b}, {@code
+     * tasklist /FO CSV} - so on Windows it is applied only where "/" starts a path.
      */
     static String rejection(String command, ShellScope scope, String osName) {
         boolean windows = osName.toLowerCase(Locale.ROOT).contains("win");
@@ -50,9 +46,7 @@ final class CommandScopePolicy {
             return "shell scope " + cliName(scope) + " blocks elevation (sudo, runas)";
         }
         if (scope == ShellScope.USER) return null;
-        // Reading anywhere on this machine is allowed; the boundary is on writing. A provably
-        // read-only command may name any local path; a redirection, a substitution or an unknown
-        // program is not read-only. A UNC path is the exception - that is another machine.
+        // Reading anywhere on this machine is allowed; the boundary is on writing.
         String store = namedSecretStore(command, osName);
         if (store != null) {
             return "shell scope " + cliName(scope) + " does not reach credential stores (" + store
@@ -76,8 +70,7 @@ final class CommandScopePolicy {
 
     /**
      * A credential store named anywhere in the command line, which the shell would otherwise walk
-     * past. Lexical like the guards around it: it stops a command that names a store, not one
-     * that assembles the path at run time.
+     * past.
      */
     private static String namedSecretStore(String command, String osName) {
         for (java.nio.file.Path store : dev.pironi.safety.SecretStores.stores(osName)) {

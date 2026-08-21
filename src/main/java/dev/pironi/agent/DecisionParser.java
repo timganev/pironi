@@ -90,17 +90,14 @@ public final class DecisionParser {
 
     /**
      * Constrained decoding should make unbalanced JSON impossible and does not: a brace goes
-     * missing, or stands where a bracket belongs. Rebuilding the closers costs nothing where
-     * asking again costs a turn. Only punctuation is rebuilt, never content.
+     * missing, or stands where a bracket belongs. Only punctuation is rebuilt, never content.
      *
      * @return the response with its closers corrected, or empty when nothing can be corrected
      */
     public String withBalancedClosers(String rawContent) {
         if (rawContent == null || rawContent.isBlank()) return "";
         // A response cut short ends in the middle of a value, and its finalAnswer may be half
-        // written; one that merely misplaced a closer still ends by trying to close. Supplying
-        // the punctuation for a truncated answer would publish a sentence the model never
-        // finished, so only a response that reached its own end is repaired.
+        // written; one that merely misplaced a closer still ends by trying to close.
         String trimmed = rawContent.stripTrailing();
         if (!trimmed.endsWith("}") && !trimmed.endsWith("]")) return "";
         StringBuilder repaired = new StringBuilder(rawContent.length() + 8);
@@ -127,8 +124,8 @@ public final class DecisionParser {
                     repaired.append(c);
                 }
                 case '}', ']' -> {
-                    // More closers than openers is not a missing brace but a different mistake,
-                    // and guessing at it would risk running a tool call we invented.
+                    // More closers than openers is not a missing brace but a different mistake, and
+                    // guessing at it would risk running a tool call we invented.
                     if (open.isEmpty()) return "";
                     char expected = open.pop() == '{' ? '}' : ']';
                     if (expected != c) changed = true;
@@ -147,8 +144,8 @@ public final class DecisionParser {
     }
 
     /**
-     * Jackson reads the first value and drops the rest, so a stray closing brace runs as if
-     * nothing happened. Worth seeing rather than tolerating in silence.
+     * Jackson reads the first value and drops the rest, so a stray closing brace runs as if nothing
+     * happened.
      *
      * @return a description of the trailing content, or empty when the response is clean
      */

@@ -80,11 +80,7 @@ public final class ApplyPatchTool implements Tool {
         }
     }
 
-    /**
-     * Where the text nearly matched, and how. "oldText was not found" is true and useless: a
-     * Latin d for a Cyrillic д reads as "the line is not there", and the next move is rewriting
-     * the whole file - which destroyed one run's data. Naming it turns that into a retry.
-     */
+    /** Where the text nearly matched, and how. */
     static String nearestLineHint(String original, String oldText) {
         String wanted = oldText.lines().findFirst().orElse("");
         if (wanted.isEmpty()) return "";
@@ -168,9 +164,8 @@ public final class ApplyPatchTool implements Tool {
             if (oldText.isEmpty()) {
                 throw new IllegalArgumentException("oldText must not be empty for an existing file");
             }
-            // A file checked out on Windows has CRLF endings while the model writes LF, so an
-            // exact match fails on text that is plainly there and the error reads "not found".
-            // Match the file's own endings instead, and write the replacement in the same shape.
+            // A file checked out on Windows has CRLF endings while the model writes LF, so an exact
+            // match fails on text that is plainly there and the error reads "not found".
             String targetOld = oldText;
             String targetNew = newText;
             int first = original.indexOf(targetOld);

@@ -7,10 +7,8 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * The places credentials live, named rather than guessed at. Hiddenness is the wrong test both
- * ways: on Unix it covers {@code ~/.config}, {@code .git} and Pironi's own {@code ~/.pironi}; on
- * Windows it covers {@code AppData}, forbidding the Outlook data macOS reads freely - and a
- * password file in Documents stays visible either way. A guard, not a sandbox.
+ * The places credentials live, named rather than guessed at. A guard against wandering into a key
+ * by accident, not a sandbox.
  */
 public final class SecretStores {
     private SecretStores() {

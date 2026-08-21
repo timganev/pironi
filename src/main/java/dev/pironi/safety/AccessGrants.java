@@ -8,10 +8,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Permissions the user widens or narrows while a session runs. Startup flags decide where it
- * begins; this holds what has been granted since, so a blocked path does not cost the
- * conversation. Only the interactive shell mutates it - reachable from a tool, an injected
- * instruction in someone else's document becomes a privilege escalation.
+ * Permissions the user widens or narrows while a session runs. Only the interactive shell mutates
+ * it: reachable from a tool, an injected instruction becomes a privilege escalation.
  */
 public final class AccessGrants {
     private final Set<Path> grantedRoots = ConcurrentHashMap.newKeySet();

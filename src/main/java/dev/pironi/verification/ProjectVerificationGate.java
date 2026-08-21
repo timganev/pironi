@@ -89,10 +89,7 @@ public final class ProjectVerificationGate implements VerificationGate {
         }
     }
 
-    /**
-     * Only what the user configured. Detecting a build from a pom made every mutation pay for the
-     * whole test suite - 36 seconds to confirm deleting a temp file, which no test can judge.
-     */
+    /** Only what the user configured. */
     public String command() {
         return overrideCommand;
     }

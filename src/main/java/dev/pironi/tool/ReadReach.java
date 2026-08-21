@@ -7,11 +7,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
-/**
- * How far the reading tools reach, in the words the model reads. Widening the roots is not
- * enough: a tool still describing "configured search roots" is one the model will not point
- * outside them, and it refuses without trying - the same trap run_command had in reverse.
- */
+/** How far the reading tools reach, in the words the model reads. */
 public final class ReadReach {
     private ReadReach() {
     }

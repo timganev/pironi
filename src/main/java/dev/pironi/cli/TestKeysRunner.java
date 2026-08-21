@@ -20,17 +20,12 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Deterministic keyboard-level smoke tests for the TUI, driving the same JLine terminal and
- * {@link InteractiveShell} as production. Input arrives as timed UTF-8 keystrokes rather than
- * whole lines, so completion, pauses, editing and Unicode decoding are exercised.
- *
- * <p>Usage: {@code java -jar pironi.jar --test-keys [scenario-file]}
+ * Deterministic keyboard-level smoke tests for the TUI, driving the same JLine terminal and {@link
+ * InteractiveShell} as production.
  */
 public final class TestKeysRunner {
     private static final int TERMINAL_COLUMNS = 100;
-    // Tall enough for the whole slash menu plus the prompt. At 30 rows the 29-entry menu no
-    // longer fitted, so JLine replaced it with "do you wish to see all 29 possibilities?" and
-    // every scripted scenario stalled waiting for an answer it was never scripted to give.
+    // Tall enough for the whole slash menu plus the prompt.
     private static final int TERMINAL_ROWS = 44;
 
     private TestKeysRunner() {
@@ -70,13 +65,7 @@ public final class TestKeysRunner {
     }
 
     /**
-     * Scenario file format:
-     *
-     * <pre>
-     * [type slash] /
-     * [pause] WAIT:750
-     * [finish] exit\r EXPECT:Session closed.
-     * </pre>
+     * Scenario file format: [type slash] / [pause] WAIT:750 [finish] exit\r EXPECT:Session closed.
      */
     public static void runScriptFile(String path) throws Exception {
         List<TestStep> steps = parseScript(Files.readString(Path.of(path)));
@@ -320,10 +309,7 @@ public final class TestKeysRunner {
 
     /**
      * Scenarios in the same text form the {@code --test-keys FILE} argument takes, so the ones
-     * shipped here and the ones a user writes cannot drift apart. A {@code @scenario} line starts
-     * one; {@code @require}, {@code @forbid} and {@code @task} state what its output must and must
-     * not contain. Everything else is a step, and a file with no {@code @} lines is still a single
-     * unnamed scenario, which is what the argument used to accept.
+     * shipped here and the ones a user writes cannot drift apart.
      */
     private static List<Scenario> parseScenarios(String content) {
         List<Scenario> scenarios = new ArrayList<>();

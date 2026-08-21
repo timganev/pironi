@@ -6,12 +6,9 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Text the harness ships rather than computes: the agent's instructions, the summarisation
- * prompt, the usage screen. As Java literals these were content edits that recompiled the harness
- * and showed up as Java diffs, which is the worst place to review prose.
- *
- * <p>Read from the classpath only. A path on disk would let a document inside the workspace
- * rewrite the system prompt, which is the one string nothing else should be able to reach.
+ * Text the harness ships rather than computes: the agent's instructions, the summarisation prompt,
+ * the usage screen. Classpath only - a path on disk would let a document inside the workspace
+ * rewrite the system prompt.
  */
 public final class SystemPrompt {
     private static final String SYSTEM = "/prompts/system.md";

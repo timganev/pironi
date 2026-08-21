@@ -8,11 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.function.Consumer;
 
-/**
- * Asks to move the workspace instead of telling the user to type the command. The decision stays
- * human - a document must not talk the model into writing elsewhere - but the agent proposes the
- * directory and one keypress settles it. Registered only where a prompt can be answered.
- */
+/** Asks to move the workspace instead of telling the user to type the command. */
 public final class SwitchWorkspaceTool implements Tool {
     private final Workspace workspace;
     private volatile Consumer<Path> onSwitch = path -> { };
@@ -91,8 +87,8 @@ public final class SwitchWorkspaceTool implements Tool {
 
     private void check(Path target) throws IOException {
         if (!Files.exists(target)) {
-            // Creating it silently would turn a typo into an empty workspace, and the agent
-            // would then report the project as empty rather than as misspelt.
+            // Creating it silently would turn a typo into an empty workspace, and the agent would
+            // then report the project as empty rather than as misspelt.
             throw new IOException("No such directory: " + target);
         }
         if (!Files.isDirectory(target)) throw new IOException("Not a directory: " + target);

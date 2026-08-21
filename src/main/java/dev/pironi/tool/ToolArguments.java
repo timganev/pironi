@@ -29,10 +29,7 @@ final class ToolArguments {
         return result;
     }
 
-    /**
-     * Returns the value of an optional object field, or {@code null} when absent/null.
-     * Throws when the field is present but not a JSON object.
-     */
+    /** Returns the value of an optional object field, or {@code null} when absent/null. */
     static JsonNode optionalObject(JsonNode arguments, String field) {
         JsonNode value = arguments.get(field);
         if (value == null || value.isNull()) {

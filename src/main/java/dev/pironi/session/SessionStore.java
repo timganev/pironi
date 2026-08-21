@@ -21,9 +21,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
 
-/**
- * Filesystem-based session store. One JSONL file per session + meta + checkpoint.
- */
+/** Filesystem-based session store. */
 public final class SessionStore {
     private static final DateTimeFormatter FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HHmm").withZone(ZoneId.systemDefault());
@@ -215,9 +213,7 @@ public final class SessionStore {
     }
 
     /**
-     * Deletes sessions untouched within the retention window. A transcript holds the whole
-     * conversation, including whatever was read on the way; /resume and /search need the recent
-     * ones, not an archive nobody asked for.
+     * Deletes sessions untouched within the retention window.
      *
      * @return how many sessions were removed
      */

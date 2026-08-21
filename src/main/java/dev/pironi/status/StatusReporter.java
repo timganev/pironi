@@ -21,11 +21,7 @@ public interface StatusReporter extends AutoCloseable {
     default void toolFinished(String toolName, boolean success, long durationMillis) {
     }
 
-    /**
-     * A failure the user can act on. "Failed run_command in 1 ms" says nothing, and the reason
-     * the harness already holds - a refused scope, a missing file - never reached the screen; a
-     * user watching a refused sed had no way to tell it from a broken command.
-     */
+    /** A failure the user can act on. */
     default void toolFinished(String toolName, boolean success, long durationMillis, String why) {
         toolFinished(toolName, success, durationMillis);
     }
@@ -41,11 +37,7 @@ public interface StatusReporter extends AutoCloseable {
     default void outputFinished() {
     }
 
-    /**
-     * The workspace moved. The status row names the directory being worked in, and it was read
-     * once at startup: after /workspace or switch_workspace the row kept naming the directory
-     * that had been left behind, which is the one thing the row exists to answer.
-     */
+    /** The workspace moved. */
     default void workspaceChanged(java.nio.file.Path workspace) {
     }
 

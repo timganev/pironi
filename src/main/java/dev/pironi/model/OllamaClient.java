@@ -117,9 +117,7 @@ public final class OllamaClient implements ModelClient {
                 .build();
 
         // A dropped socket or an unloaded model used to end the run; retrying is safe because
-        // nothing has been streamed yet. A runner dying mid-generation does not always break the
-        // socket - Ollama answers 500 with the error in the body, a completed exchange that an
-        // IOException catch never saw. 5xx and 429 retry too; a 4xx is the request's own fault.
+        // nothing has been streamed yet.
         HttpResponse<Stream<String>> response = null;
         int requestAttempts = 0;
         long backoffMillis = RETRY_BACKOFF_MILLIS;

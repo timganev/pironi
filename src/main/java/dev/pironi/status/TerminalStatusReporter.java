@@ -193,9 +193,7 @@ public final class TerminalStatusReporter implements StatusReporter {
             return;
         }
         // The status sits on the current row with no trailing newline so it can be redrawn in
-        // place. Unerased, the answer starts right after it - "… | sub 0/2Здравей" - and the half
-        // row stays in the scrollback. A dumb terminal draws no status, so there is nothing to
-        // erase.
+        // place.
         eraseRawStatusRow();
     }
 
@@ -303,11 +301,7 @@ public final class TerminalStatusReporter implements StatusReporter {
         }
     }
 
-    /**
-     * Keeps the status within one row. Redrawing uses a carriage return and erase-line, so text
-     * wider than the window wraps first and the return erases only the remainder - every refresh
-     * leaves half a line behind. A long name plus a tok/s reading is enough on a narrow window.
-     */
+    /** Keeps the status within one row. */
     String clampToWidth(String line) {
         int columns = terminal == null ? 0 : terminal.getSize().getColumns();
         // One column spare: writing into the last cell makes some terminals wrap anyway.
@@ -340,7 +334,7 @@ public final class TerminalStatusReporter implements StatusReporter {
 
     /**
      * A dumb terminal cannot rewrite a row, so a status per tick buries the conversation under
-     * near-identical lines. Activity lines are distinct events and stay.
+     * near-identical lines.
      */
     private void renderViaDumbTerminal(String line) {
         // Intentionally nothing.
@@ -415,8 +409,7 @@ public final class TerminalStatusReporter implements StatusReporter {
 
     /**
      * A console reporting no size is not necessarily incapable - Windows ones return 0x0 - so an
-     * implausible size counts as unknown, not as refusal. Only a dumb terminal or missing cursor
-     * control rules out a pinned row, and then the status scrolls away with the output.
+     * implausible size counts as unknown, not as refusal.
      */
     public static StatusSupport describeStatusSupport(Terminal terminal) {
         if (terminal == null) return new StatusSupport(false, "no terminal (not interactive)");
