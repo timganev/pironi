@@ -173,10 +173,9 @@ public final class OfficeOpenXmlTool implements Tool {
                 + "<w:t xml:space=\"preserve\">" + esc(value) + "</w:t></w:r></w:p>";
     }
     /**
-     * A cell is stored as a number only when Excel would round-trip it unchanged.
-     * Leading zeros ("007"), thousands separators, currency symbols and values
-     * beyond double precision stay text, because silently rewriting an employee
-     * id or an IBAN is worse than losing arithmetic on it.
+     * A cell is numeric only when Excel round-trips it unchanged. Leading zeros, separators,
+     * currency symbols and values beyond double precision stay text: silently rewriting an IBAN
+     * is worse than losing arithmetic on it.
      */
     private static boolean isSpreadsheetNumber(String raw) {
         String value = raw.trim();

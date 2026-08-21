@@ -91,9 +91,8 @@ public final class CheckpointManager {
     }
 
     /**
-     * Drops the copies this session took, because none of them can be rolled back any more: the
-     * stack lives in memory and ends with the process. Left behind, they are a full copy of every
-     * file the agent touched, kept for ever - including files it was asked to delete.
+     * Drops this session's copies: the rollback stack lives in memory and ends with the process.
+     * Left behind they are a permanent copy of every file touched, deletions included.
      *
      * @return how many were removed
      */
@@ -112,9 +111,8 @@ public final class CheckpointManager {
     }
 
     /**
-     * Removes checkpoints left by runs that ended without discarding theirs - a crash, a killed
-     * terminal, or any version before this cleanup existed. Age is the only safe test: another
-     * Pironi may be running in the same workspace right now, and its checkpoints are minutes old.
+     * Removes checkpoints from runs that never discarded theirs - a crash, a killed terminal. Age
+     * is the only safe test: another Pironi may be running here, with checkpoints minutes old.
      *
      * @return how many were removed
      */
@@ -147,11 +145,9 @@ public final class CheckpointManager {
     }
 
     /**
-     * Names the file the way the user saw it: relative while it is inside the workspace.
-     *
-     * <p>Resolved before comparing, because a caller may hand over a path spelled differently
-     * from the workspace root - /var against /private/var, RUNNER~1 against runneradmin - and
-     * then a file sitting in the workspace is announced by its full absolute path.
+     * Names the file as the user saw it, relative while inside the workspace. Resolved before
+     * comparing: /var against /private/var, or RUNNER~1 against runneradmin, otherwise announces
+     * a file plainly inside by its full absolute path.
      */
     private String displayName(Path target) {
         Path absolute = Workspace.resolvedAsFarAsPossible(target);

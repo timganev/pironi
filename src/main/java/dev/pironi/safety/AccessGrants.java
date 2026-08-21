@@ -8,15 +8,10 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Permissions the user can widen or narrow while a session is running.
- *
- * <p>Startup flags ({@code --search-roots}, {@code --deny-tools}) decide where a session begins;
- * this holds what the user has granted since. Without it a blocked path or tool means restarting
- * the whole session, which loses the conversation.
- *
- * <p>Only the interactive shell mutates this. It is deliberately not reachable from any tool:
- * a model that could widen its own access would turn an injected instruction in someone else's
- * document into a privilege escalation.
+ * Permissions the user widens or narrows while a session runs. Startup flags decide where it
+ * begins; this holds what has been granted since, so a blocked path does not cost the
+ * conversation. Only the interactive shell mutates it - reachable from a tool, an injected
+ * instruction in someone else's document becomes a privilege escalation.
  */
 public final class AccessGrants {
     private final Set<Path> grantedRoots = ConcurrentHashMap.newKeySet();
@@ -31,7 +26,7 @@ public final class AccessGrants {
      * Grants read access to a directory for the rest of the session.
      *
      * @return the canonical path that was granted
-     * @throws IOException if the path does not exist or is not a directory
+     * @throws IOException if the path is missing or not a directory
      */
     public Path grantRoot(Path candidate) throws IOException {
         Path real = candidate.toAbsolutePath().normalize();

@@ -1,0 +1,54 @@
+Pironi - small Java 25 coding agent harness
+
+Info:
+  --version, -v                                 print the release and exit
+
+Required:
+  --model MODEL                                 default: last used; initially qwen3.6:35b-a3b
+
+Provider:
+  --provider ollama|deepseek|openrouter|openai-compatible
+  --base-url URL                                provider-specific default
+  --api-key-env NAME                            provider-specific default
+
+Agent:
+  --workspace PATH                              default: current directory
+  --approval ask|auto|read-only                 default: read-only
+  --activity auto                              allow scoped tool activity without prompts;
+                                               overrides --approval; default workspace shell is disabled
+  --interactive                                default
+  --no-interactive                             one-shot; requires --task or --task-file
+  --task TEXT                                  optional initial interactive task
+  --task-file PATH                             read the task as UTF-8; conflicts with --task
+  --max-turns N                                 default: 8
+  --context N                                   Ollama 8192, OpenRouter 200000, DeepSeek 1000000
+  --max-output-tokens N                         default: 4096
+  --timeout-seconds N                           model request timeout, default: 600
+  --trace PATH                                  default: WORKSPACE/.pironi/trace.jsonl
+  --pironi-home PATH                            default: ~/.pironi
+  --personal-context auto|allow|deny            auto: Ollama only
+  --status auto|always|never                    default: auto
+  --verify-command COMMAND                     auto-detect Maven/Gradle
+  --deny-tools NAME,NAME                        remove named tools; unknown names fail startup
+  --allow-tools NAME,NAME                       enable only named tools; conflicts with --deny-tools
+  --shell-scope workspace|user|unrestricted    default: workspace lexical guardrail
+  --read-scope workspace|user|unrestricted     default: unrestricted; writing stays in the workspace
+  --search-roots PATH,PATH                      allowed roots for find_files; default: workspace
+
+Examples:
+  java -jar pironi.jar
+
+  java -jar pironi.jar --model qwen3.6:35b-a3b
+
+  export DEEPSEEK_API_KEY=...
+  java -jar pironi.jar --provider deepseek
+
+  export OPENROUTER_API_KEY=...
+  java -jar pironi.jar --provider openrouter
+
+  java -jar pironi.jar --model qwen3.6:35b-a3b --no-interactive \\
+    --task "Inspect this project"
+
+  export DEEPSEEK_API_KEY=...
+  java -jar pironi.jar --provider deepseek --model deepseek-v4-flash \\
+    --task "Inspect this project" --workspace ./project

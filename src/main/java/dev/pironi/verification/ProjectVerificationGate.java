@@ -90,10 +90,8 @@ public final class ProjectVerificationGate implements VerificationGate {
     }
 
     /**
-     * Only what the user configured. Detecting a build from a pom or a gradlew used to make
-     * every mutation pay for the project's whole test suite - 36 seconds to confirm the deletion
-     * of a temp file, which tests cannot say anything about anyway. Verification is worth running
-     * when the user says which command is worth running.
+     * Only what the user configured. Detecting a build from a pom made every mutation pay for the
+     * whole test suite - 36 seconds to confirm deleting a temp file, which no test can judge.
      */
     public String command() {
         return overrideCommand;

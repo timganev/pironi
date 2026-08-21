@@ -13,18 +13,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
 /**
- * Owns the lifecycle of cloud-only sub-agents.
+ * Owns the lifecycle of cloud-only sub-agents. Each child runs on its own virtual thread against
+ * the same stateless {@code ModelClient}, under a hard deadline so a stuck one cannot leak forever.
  *
- * <p>Design (from the Pironi Triad plan): each child runs in a dedicated virtual thread against
- * the same (stateless HTTP) {@code ModelClient}. A hard deadline interrupts a stuck child so it
- * cannot leak tokens/RAM forever.
- *
- * <p>Interrupt discipline (fix for the 0ms {@code InterruptedException} bug): a child is cancelled
- * ONLY through {@link #cancelChild}, which sets a cancellation token BEFORE calling
- * {@link Thread#interrupt()} and only interrupts a handle in {@code RUNNING} state. This closes the
- * window where a virtual thread created via {@code Thread.ofVirtual().unstarted(...)} is still
- * {@code NEW} yet already registered: interrupting it there would leave a sticky flag that survives
- * {@code start()} and kills the first blocking I/O call in the child.
+ * <p>Cancellation goes only through {@link #cancelChild}, which sets the token before interrupting
+ * and interrupts only a {@code RUNNING} handle. Interrupting a registered but still {@code NEW}
+ * thread left a sticky flag that survived {@code start()} and killed the child's first blocking
+ * call.
  */
 public final class SubagentManager implements AutoCloseable, SubagentGateway {
     /** Records a child finished (or failed) and is ready to be drained. */
@@ -108,9 +103,8 @@ public final class SubagentManager implements AutoCloseable, SubagentGateway {
     }
 
     /**
-     * The only cancellation path. Sets the token BEFORE interrupting, and interrupts only a
-     * {@code RUNNING} handle — so an unstarted ({@code NEW}) child exits via the runChild prologue
-     * instead of inheriting a sticky interrupt flag.
+     * The only cancellation path: token first, and only a {@code RUNNING} handle, so an unstarted
+     * child exits through the prologue instead of inheriting a sticky interrupt flag.
      */
     private void cancelChild(ChildHandle h, SubagentResult.CancelReason reason) {
         synchronized (h) {
@@ -239,14 +233,9 @@ public final class SubagentManager implements AutoCloseable, SubagentGateway {
     }
 
     /**
-     * Drains the queue and retires every child it carried from the wait set.
-     *
-     * <p>Draining without retiring is what made a finished child cost a full timeout. finish()
-     * queues the completion before it decrements the active count, so a caller arriving in that
-     * window snapshots the child as still active, drains its result immediately - and then waits
-     * on an empty queue for a child that had already finished. Nothing was lost, the final drain
-     * still returned it, but the wait ran to the deadline: five seconds in the tests, and up to
-     * the whole configured sub-agent timeout in a real session.
+     * Drains the queue and retires every child it carried. Draining without retiring made a
+     * finished child cost a full timeout: finish() queues the result before it clears the active
+     * count, so a caller in that window took the result and then waited on an empty queue.
      */
     private void drainInto(List<SubagentResult> out, java.util.Set<String> waitingOn) {
         Completion next;

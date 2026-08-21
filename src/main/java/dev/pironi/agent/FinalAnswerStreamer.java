@@ -68,10 +68,8 @@ public final class FinalAnswerStreamer implements Consumer<String> {
     }
 
     /**
-     * A terminal in raw mode treats a bare LF as "down one row" without returning to column one,
-     * so each line of a multi-line answer starts where the previous one ended and the text walks
-     * diagonally down the screen. Only the terminal path needs this; a plain PrintStream handles
-     * newlines itself.
+     * In raw mode a bare LF moves down without returning to column one, so a multi-line answer
+     * walks diagonally down the screen. Only the terminal path needs this.
      */
     static String crlf(String chunk) {
         return chunk.indexOf('\n') < 0 ? chunk : chunk.replace("\r\n", "\n").replace("\n", "\r\n");

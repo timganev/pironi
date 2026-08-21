@@ -13,10 +13,8 @@ import java.nio.file.StandardCopyOption;
 
 public final class WriteFileTool implements Tool {
     /**
-     * Rewriting a whole file to change a few lines is the expensive way to edit. One run spent
-     * 4,001 of its 9,952 output tokens retyping the same script three times, and each rewrite was
-     * among its slowest turns. Saying so where the model reads the result is cheaper than letting
-     * it keep paying.
+     * Rewriting a whole file to change a few lines is the expensive way to edit: one run spent
+     * 4,001 of its 9,952 output tokens retyping the same script three times.
      */
     private static final String OVERWRITE_HINT =
             ". The file already existed; apply_patch edits in place and costs far less than "

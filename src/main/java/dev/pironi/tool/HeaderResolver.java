@@ -7,15 +7,12 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Resolves placeholder header values (e.g. {@code "Bearer PIRONI_API_KEY"}) into the real
- * secrets that Pironi already holds (the configured provider API key), and enforces which
- * hosts may receive an {@code Authorization} header.
+ * Turns placeholder headers such as {@code "Bearer PIRONI_API_KEY"} into the real key, and decides
+ * which hosts may receive an {@code Authorization} header at all.
  *
- * <p>The model never sees nor types the real key: it writes a placeholder token, and this
- * resolver substitutes the value from {@link #placeholders}. The resolved value is added only
- * to the outgoing HTTP request — never to the {@code ToolResult} — so secrets cannot leak into
- * the trace or the conversation. {@code Authorization} is additionally gated by an explicit
- * allowlist of trusted API hosts to stop the model from shipping a token to an arbitrary site.
+ * <p>The model writes only the placeholder. The resolved value goes into the outgoing request and
+ * never into the {@code ToolResult}, so it cannot reach the trace or the conversation, and
+ * {@code Authorization} is gated by an allowlist of trusted API hosts.
  */
 public final class HeaderResolver {
     /** Soft cap on any header value so a placeholder substitution cannot blow the request. */
@@ -33,11 +30,10 @@ public final class HeaderResolver {
     }
 
     /**
-     * Resolves {@code rawValue} (which may contain a placeholder token such as
-     * {@code PIRONI_API_KEY}) into the actual header value, or returns empty when the header
-     * is not permitted for {@code host}.
+     * Resolves a value that may hold a placeholder, or returns empty when the header is not
+     * permitted for {@code host}.
      *
-     * @param host        the lowercase request host (e.g. {@code api.deepseek.com})
+     * @param host        the lowercase request host, e.g. {@code api.deepseek.com}
      * @param headerName  header name, matched case-insensitively
      * @param rawValue    the value the model supplied
      */

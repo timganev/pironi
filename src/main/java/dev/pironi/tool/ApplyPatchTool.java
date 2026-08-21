@@ -81,13 +81,9 @@ public final class ApplyPatchTool implements Tool {
     }
 
     /**
-     * Where the text nearly matched, and how it differed.
-     *
-     * <p>"oldText was not found" is true and useless. A model that typed a Latin d for a
-     * Cyrillic д, or dropped a trailing space it could not see, reads that as "the line is not
-     * there" and rewrites the whole file instead - which is how one run destroyed the contents
-     * it was asked to extend. The difference is known at the moment of the refusal; naming it
-     * turns a rewrite into a retry.
+     * Where the text nearly matched, and how. "oldText was not found" is true and useless: a
+     * Latin d for a Cyrillic д reads as "the line is not there", and the next move is rewriting
+     * the whole file - which destroyed one run's data. Naming it turns that into a retry.
      */
     static String nearestLineHint(String original, String oldText) {
         String wanted = oldText.lines().findFirst().orElse("");

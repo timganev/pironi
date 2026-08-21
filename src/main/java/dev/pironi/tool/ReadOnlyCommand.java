@@ -5,17 +5,11 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * Whether a shell command only reads.
+ * Whether a shell command only reads. Asking about {@code grep -n x file} teaches the answer
+ * without the reading, so the prompts that matter arrive among ones that never did.
  *
- * <p>Every command asked for approval, including the ones that only look. A user answering "y"
- * to {@code grep -n 'ANF-4467' ACTIVE.md} learns nothing and is trained to answer "y" without
- * reading, which is worse than not asking: the prompts that matter arrive in the same stream as
- * the ones that never did.
- *
- * <p>The test is deliberately narrow. Anything that could reach a program not on the list -
- * a substitution, a redirection, xargs - is treated as writing, because a shell can hide a
- * write almost anywhere. Being wrong here means one extra prompt; being wrong the other way
- * means a silent write.
+ * <p>Deliberately narrow: a substitution, a redirection or an unlisted program counts as writing.
+ * Wrong here costs one prompt; wrong the other way costs a silent write.
  */
 public final class ReadOnlyCommand {
     /**

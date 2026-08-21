@@ -29,12 +29,8 @@ public final class CapabilityReport {
     }
 
     /**
-     * Which files the identity came from, and that they are not yours to write.
-     *
-     * <p>The content of SOUL.md reaches the model while its location did not, so an agent asked
-     * to save its own persona invented an answer: it wrote the file into the workspace, where
-     * nothing reads it, and said it was saved. Naming the paths costs one line and makes the
-     * honest answer available.
+     * Which files the identity came from, and that they are not yours to write. Asked to save its
+     * persona, an agent wrote it into the workspace - where nothing reads it - and said so.
      */
     private String personalContext() {
         String sources = context.personalSources();

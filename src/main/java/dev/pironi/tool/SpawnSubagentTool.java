@@ -3,10 +3,9 @@ package dev.pironi.tool;
 import com.fasterxml.jackson.databind.JsonNode;
 
 /**
- * Lets the main agent hand a sub-task to a sub-agent so the user does not wait idle
- * on a multi-step operation. Registered only for cloud providers (never Ollama).
- * The call returns immediately with a handle; the child runs in a virtual thread and
- * its result is drained into the main loop at the start of the next turn.
+ * Hands a sub-task to a child so the user does not wait idle through a multi-step operation.
+ * Cloud providers only. The call returns a handle at once; the child runs on a virtual thread and
+ * its result is drained into the main loop next turn.
  */
 public final class SpawnSubagentTool implements Tool {
     static final int MAX_TASK_CHARS = 2_000;

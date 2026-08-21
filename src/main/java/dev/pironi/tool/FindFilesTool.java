@@ -142,9 +142,8 @@ public final class FindFilesTool implements Tool {
             });
             // "No matches" and "I stopped looking" are different answers. Reporting the first
             // when the second is true is how an agent concludes a file does not exist.
-            // Paths under one root share a long prefix. Repeating it on every line cost 23 000
-            // characters for a hundred results in a deep tree - more than twenty times what the
-            // same listing costs relative to the root, which is stated once.
+            // Paths under one root share a long prefix; repeating it cost 23 000 characters for a
+            // hundred results, against a root stated once.
             String header = "Under " + realRoot + System.lineSeparator();
             if (gaveUp[0]) {
                 String limit = "[search stopped after visiting " + maxVisited + " entries and did "

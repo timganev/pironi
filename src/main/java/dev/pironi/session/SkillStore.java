@@ -76,13 +76,11 @@ public final class SkillStore {
     }
 
     /**
-     * Why a skill was or was not applied.
-     *
-     * <p>Without this the selection is invisible: a user whose saved procedure was ignored has
-     * no way to find out whether it lost on score, was excluded, or was never considered.
+     * Why a skill was or was not applied. Without it, a user whose saved procedure was ignored
+     * cannot tell whether it lost on score, was excluded, or was never considered.
      *
      * @param chosen the skill that will be applied, if any
-     * @param reason short machine-readable outcome: chosen, no-match, below-threshold, tie, empty-query
+     * @param reason chosen, no-match, below-threshold, tie, or empty-query
      * @param scores one "name=score/breadth" entry per skill considered, highest first
      */
     public record SkillDecision(Optional<SkillEntry> chosen, String reason, List<String> scores) {}
@@ -384,10 +382,8 @@ public final class SkillStore {
     }
 
     /**
-     * Strips only unambiguous inflectional endings. Anything subtler is left to
-     * {@link #relatedForms}, because a suffix list alone gets Bulgarian wrong: cutting
-     * "та" off "отчета" yields "отче" while "отчет" stays whole, so the two forms of the
-     * same word stop matching each other.
+     * Strips only unambiguous endings; the rest is left to {@link #relatedForms}. A suffix list
+     * alone gets Bulgarian wrong - "отчета" becomes "отче" while "отчет" stays whole.
      */
     static String stem(String token) {
         for (String suffix : SUFFIXES) {
@@ -405,15 +401,9 @@ public final class SkillStore {
     );
 
     /**
-     * True when two tokens are forms of the same word, judged by a shared prefix.
-     *
-     * <p>Exact matching made a skill fire only when the user repeated its trigger almost
-     * verbatim, which is not how anyone asks the second time: "седмичен статус" would not
-     * match "седмичния статус". A prefix rule handles inflection, plurals and the definite
-     * article at once, and it survives the consonant changes ("седмица"/"седмичен") that
-     * defeat a plain suffix stripper. Four shared characters is the floor, and the shared
-     * part must cover the shorter token to within three characters, so "тест" and "текст"
-     * stay apart.
+     * True when two tokens are forms of one word, judged by a shared prefix: exact matching
+     * missed "седмичния статус" for "седмичен статус". Four shared characters is the floor,
+     * within three of the shorter token, so "тест" and "текст" stay apart.
      */
     static boolean relatedForms(String left, String right) {
         int limit = Math.min(left.length(), right.length());

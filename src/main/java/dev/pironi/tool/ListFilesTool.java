@@ -141,9 +141,8 @@ public final class ListFilesTool implements Tool {
     }
 
     /**
-     * What a truncated listing loses is exactly what matters in a big unfamiliar tree: how many
-     * files there are, of what kind, and where they cluster. The first N paths of an alphabetical
-     * list answer none of that, so past the cap this reports shape instead of a prefix.
+     * A truncated listing loses what matters in a big tree - how many files, of what kind, where
+     * they cluster - so past the cap this reports shape instead of the first N paths.
      */
     private static String profile(Path directory, List<Path> files) {
         List<Entry> entries = new ArrayList<>(files.size());

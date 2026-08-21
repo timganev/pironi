@@ -14,10 +14,8 @@ public record ModelResponse(
         long wallClockNanos
 ) {
     /**
-     * Providers report only the time they spent generating, which leaves out queueing, loading a
-     * model back into memory, and the request itself. One turn measured this way reported 79
-     * seconds against 766 seconds of real waiting, so a run timed on the reported number is not
-     * timed at all. Zero means nobody measured.
+     * Providers report generating time only - no queueing, model loading or request. One turn
+     * reported 79 seconds against 766 of real waiting. Zero means nobody measured.
      */
     public ModelResponse(String content, long promptTokens, long outputTokens,
             long durationNanos, long evalDurationNanos, String finishReason,

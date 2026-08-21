@@ -8,15 +8,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Single-line preferences the user asked to be remembered, kept in USER.md.
- *
- * <p>Sits between two extremes that existed before: a correction typed in chat disappeared with
- * the session, while capturing a whole procedure meant a skill draft, review and acceptance.
- * Most of what makes an agent feel adapted is neither - it is one sentence, such as where the
- * daily log belongs.
- *
- * <p>Facts live under their own heading so that anything the user wrote by hand above it is never
- * touched, and are appended rather than rewritten.
+ * Single-line preferences the user asked to keep, in USER.md. Between a chat correction that dies
+ * with the session and a skill needing draft, review and acceptance - most adaptation is one
+ * sentence. Facts are appended under their own heading, so anything written by hand is untouched.
  */
 public final class UserFacts {
     static final String HEADING = "## Запомнено (/remember)";

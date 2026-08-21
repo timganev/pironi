@@ -8,12 +8,9 @@ import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
 /**
- * How far the reading tools reach, in the words the model reads.
- *
- * <p>Widening the roots is not enough on its own: a tool whose description still names
- * "configured search roots" is one the model will not point outside them, and it refuses the
- * task without trying. That is the same trap run_command had in the other direction, where a
- * shell that could reach further described only its working directory.
+ * How far the reading tools reach, in the words the model reads. Widening the roots is not
+ * enough: a tool still describing "configured search roots" is one the model will not point
+ * outside them, and it refuses without trying - the same trap run_command had in reverse.
  */
 public final class ReadReach {
     private ReadReach() {

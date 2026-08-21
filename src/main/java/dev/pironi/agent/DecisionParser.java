@@ -89,11 +89,9 @@ public final class DecisionParser {
     }
 
     /**
-     * Constrained decoding is supposed to make unbalanced JSON impossible, and yet this model
-     * still emits it: a missing closing brace, or a brace standing where a bracket belongs.
-     * Rebuilding the closers costs nothing, while asking for the response again costs a whole
-     * turn. Only the punctuation is rebuilt, never content, and anything that cannot be
-     * explained by a wrong or missing closer is left alone.
+     * Constrained decoding should make unbalanced JSON impossible and does not: a brace goes
+     * missing, or stands where a bracket belongs. Rebuilding the closers costs nothing where
+     * asking again costs a turn. Only punctuation is rebuilt, never content.
      *
      * @return the response with its closers corrected, or empty when nothing can be corrected
      */
@@ -149,9 +147,8 @@ public final class DecisionParser {
     }
 
     /**
-     * Jackson reads the first value and drops whatever follows it, so a response with a stray
-     * closing brace parses and runs as if nothing happened. Constrained decoding should make that
-     * impossible, and when it does happen it is worth seeing rather than tolerating in silence.
+     * Jackson reads the first value and drops the rest, so a stray closing brace runs as if
+     * nothing happened. Worth seeing rather than tolerating in silence.
      *
      * @return a description of the trailing content, or empty when the response is clean
      */

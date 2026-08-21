@@ -64,13 +64,8 @@ public final class PersistentAgentMemory implements AgentMemory {
     }
 
     /**
-     * Starts a task on top of the conversation the session already has.
-     *
-     * <p>Every task used to start from an empty message list, so tool results never outlived the
-     * task that produced them. A follow-up like "same report, as a table" reached a model that had
-     * never seen the data - only whatever prose the previous answer happened to contain - and its
-     * only way to comply was to run the whole pipeline again. The messages are already checkpointed
-     * for {@code /resume}; a follow-up in the same session gets them without asking.</p>
+     * Starts a task on top of the conversation the session already has. Starting empty, "same
+     * report, as a table" reached a model that had never seen the data and re-ran everything.
      */
     @Override public synchronized List<ChatMessage> begin(String task) {
         if (sessions.currentMeta() == null) {

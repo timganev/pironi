@@ -7,18 +7,10 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * The places credentials live, named rather than guessed at.
- *
- * <p>Hiddenness is the wrong test. On Unix "hidden" means a leading dot, which covers
- * {@code ~/.ssh} but also {@code ~/.config}, {@code .git} and Pironi's own {@code ~/.pironi} -
- * blocking those blocks ordinary work, including the agent reading the identity file it was
- * just taught to find. On Windows "hidden" is a file attribute, and {@code AppData} carries it,
- * so the same rule would forbid the Outlook data that the same task reads freely on macOS. And
- * it is wrong in both directions anyway: {@code ~/.config} is hidden and dull, a password file
- * in Documents is visible and not.
- *
- * <p>So this is a list of specific stores per platform. It is not a sandbox - a determined
- * command can still assemble a path - it is a guard against wandering into a key by accident.
+ * The places credentials live, named rather than guessed at. Hiddenness is the wrong test both
+ * ways: on Unix it covers {@code ~/.config}, {@code .git} and Pironi's own {@code ~/.pironi}; on
+ * Windows it covers {@code AppData}, forbidding the Outlook data macOS reads freely - and a
+ * password file in Documents stays visible either way. A guard, not a sandbox.
  */
 public final class SecretStores {
     private SecretStores() {

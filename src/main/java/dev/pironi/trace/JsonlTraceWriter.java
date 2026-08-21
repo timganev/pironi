@@ -21,11 +21,9 @@ public final class JsonlTraceWriter implements TraceWriter {
     private final BufferedWriter writer;
 
     /**
-     * Drops events older than the retention window from a trace file before it is opened.
-     *
-     * <p>A trace is one file that only ever grows, and it holds what the agent read: arguments,
-     * tool output, excerpts of files. An age limit on the file itself would never fire, because
-     * every session touches it again - so the age has to be read off the events inside.
+     * Drops events older than the retention window before the trace is opened. The file only
+     * grows and holds what the agent read, and its own age never ages - every session touches it
+     * again - so the age is read off the events inside.
      *
      * @return how many events were dropped
      */

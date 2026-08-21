@@ -7,14 +7,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 /**
- * Which build is running.
- *
- * <p>Until this existed there was no way to tell: no {@code --version}, nothing in the banner and
- * nothing in the jar manifest. A user reporting a problem could not say which release they were
- * on, and a fix could not be distinguished from a stale copy still sitting in a download folder.
- *
- * <p>Portable archives carry a {@code version.txt} next to the jar, written at packaging time.
- * A source build has no such file and reports {@code dev}.
+ * Which build is running. There was no way to tell before - no {@code --version}, nothing in the
+ * banner or the manifest - so a fix could not be told apart from a stale copy in a download
+ * folder. Portable archives carry {@code version.txt} beside the jar; a source build reports
+ * {@code dev}.
  */
 public final class BuildVersion {
     private BuildVersion() {

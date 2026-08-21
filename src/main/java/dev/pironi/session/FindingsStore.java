@@ -10,16 +10,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Carries what a run established into the next run against the same workspace.
+ * Carries what a run established into the next run against the same workspace, so the same dead
+ * ends are not rediscovered at the cost of turns each time.
  *
- * <p>Without this every run rediscovers the same dead ends: the same unreadable store, the same
- * empty table, the same interface that answers but returns nothing. Those conclusions cost turns
- * to reach and nothing to keep.</p>
- *
- * <p>Each line records when the fact was last confirmed and which session confirmed it. The date
- * goes to the model, because "established here" with no date reads as a claim about the present -
- * which is how a note about a file deleted the day before came back as current. The session id is
- * for the user: {@code /resume} on it shows the conversation the claim came from.</p>
+ * <p>Each line records when the fact was last confirmed and by which session. Undated,
+ * "established here" reads as a claim about the present - which is how a note about a file
+ * deleted the day before came back as current. The id is for {@code /resume}.
  */
 public final class FindingsStore {
     private static final String SEPARATOR = "\t";
@@ -63,10 +59,8 @@ public final class FindingsStore {
     }
 
     /**
-     * Adds what this run established, keeping one entry per distinct text.
-     *
-     * <p>A repeat refreshes the date rather than adding a second line: a fact confirmed again
-     * today is fresher, and the ledger should say so instead of growing.
+     * Adds what this run established, one entry per distinct text. A repeat refreshes the date
+     * instead of adding a line - the fact is fresher, not doubled.
      */
     public void save(Path workspace, List<String> texts, String date, String session) {
         if (texts.isEmpty()) return;

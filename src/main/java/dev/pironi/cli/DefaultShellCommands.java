@@ -31,9 +31,8 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
     }
 
     /**
-     * Refreshes the runtime description the model sees. Without this a granted directory is
-     * usable but invisible: the model reads the old search-roots line, concludes it has no
-     * access and refuses without ever calling the tool.
+     * Refreshes what the model is told at runtime. Otherwise a granted directory is usable but
+     * invisible: the model reads the old line, concludes it has no access and refuses.
      */
     void onAccessChanged(Runnable callback) {
         if (callback != null) this.accessChanged = callback;
@@ -50,9 +49,8 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
     }
 
     /**
-     * The one command that takes a directory: reading and writing together. Splitting them
-     * meant two commands for one intent - and a granted directory that was readable and still
-     * untouchable, which read to the agent as a file no tool could ever change.
+     * The one command that takes a directory, reading and writing together. Split, it left a
+     * directory readable and untouchable - which read as a file no tool could ever change.
      */
     @Override public String workspace(String argument) {
         if (workspace == null) return "Workspace switching not available.";
@@ -149,14 +147,12 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
     }
 
     /**
-     * One command with sub-verbs rather than four separate slash commands: the slash menu is
-     * rendered inline and a handful of extra entries pushes the prompt off a short terminal,
-     * which silently breaks the keyboard tests.
+     * Sub-verbs rather than four slash commands: the menu renders inline, and extra entries push
+     * the prompt off a short terminal and silently break the keyboard tests.
      */
     /**
-     * Findings outlive the run that learned them, which is the point and also the risk: a file
-     * that has since been deleted, a layout that has since changed. Being able to see them and
-     * drop them is what keeps that trade honest.
+     * Findings outlive the run that learned them - the point, and the risk when the file is gone
+     * or the layout changed. Seeing and dropping them keeps that trade honest.
      */
     @Override public String findings(String argument) {
         if (memory == null) return "Findings not available.";

@@ -45,16 +45,9 @@ public final class OpenAiCompatibleClient implements ModelClient {
     }
 
     /**
-     * Pins HTTP/1.1 instead of the JDK default of HTTP/2.
-     *
-     * <p>Over cleartext HTTP the JDK client cannot negotiate HTTP/2 via ALPN, so it attempts an
-     * h2c upgrade by adding {@code Upgrade: h2c} and {@code HTTP2-Settings} headers to the request.
-     * Uvicorn, which serves vLLM's OpenAI-compatible API, declines the upgrade but drops the
-     * request body while doing so, and vLLM then rejects the call with
-     * {@code HTTP 400 ... 'loc': ('body',), 'msg': 'Field required'}. The response arrives as
-     * HTTP/1.1 either way, so pinning the version costs nothing and only removes the upgrade
-     * attempt. HTTPS providers such as DeepSeek and OpenRouter negotiate through ALPN and are
-     * unaffected.
+     * Pins HTTP/1.1. Over cleartext there is no ALPN, so the client attempts an h2c upgrade;
+     * Uvicorn declines it and drops the request body, and vLLM answers {@code HTTP 400 'msg':
+     * 'Field required'}. HTTPS providers negotiate through ALPN and are unaffected.
      */
     private static HttpClient defaultHttpClient() {
         return HttpClient.newBuilder()

@@ -3,6 +3,7 @@ package dev.pironi.session;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import dev.pironi.agent.SystemPrompt;
 import dev.pironi.model.ChatMessage;
 
 import java.util.ArrayList;
@@ -84,17 +85,9 @@ public final class ContextCompressor {
                     .append("\n\n");
         }
 
-        return """
-                Compress the conversation below into a concise summary (≤300 tokens).
-                Extract: key decisions, technical constraints, open questions,
-                file paths modified, errors encountered, and the user's original goal.
-                
-                Original task: %s
-                
-                %s
-                
-                Respond with ONLY the compressed summary, no preamble.
-                """.formatted(task, toCompress.toString());
+        return SystemPrompt.compression()
+                .replace("{{task}}", task)
+                .replace("{{conversation}}", toCompress.toString());
     }
 
     /**

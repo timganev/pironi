@@ -20,11 +20,8 @@ public final class AgentContext {
     }
 
     /**
-     * The files the identity and user profile were read from, one per line.
-     *
-     * <p>The content reaches the model and the provenance did not, so an agent asked where its
-     * persona lives had nothing to answer with and guessed - it wrote the file into the
-     * workspace, where nothing loads it, and reported success.
+     * The files the identity and user profile were read from, one per line. The content reached
+     * the model and the provenance did not, so an agent asked where its persona lives guessed.
      */
     public String personalSources() {
         return personalSources;

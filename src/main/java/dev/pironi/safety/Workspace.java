@@ -7,13 +7,9 @@ import java.util.List;
 import java.util.function.Supplier;
 
 /**
- * The one directory every writing tool is allowed to touch.
- *
- * <p>Read access can be widened at runtime through {@link AccessGrants}, writing cannot: a
- * granted directory is readable but not writable. That asymmetry is deliberate, and it used to
- * be invisible - a refusal said only "Absolute paths are not allowed", so a file the agent had
- * just read looked, to the same agent, like a file no tool could ever touch. The refusals below
- * name the workspace, say when the path is merely readable, and say how to move the sandbox.
+ * The one directory every writing tool may touch. Reading widens at runtime through
+ * {@link AccessGrants}; writing does not. "Absolute paths are not allowed" made that asymmetry
+ * invisible, so the refusals below name the workspace and say how to move it.
  */
 public final class Workspace {
     private volatile Path root;
@@ -28,12 +24,8 @@ public final class Workspace {
     }
 
     /**
-     * Moves the write sandbox for the rest of the session.
-     *
-     * <p>Every scoped tool holds this same object and asks for {@link #root()} when it runs, so
-     * one switch reaches all of them without rebuilding the tool registry. Like {@link
-     * AccessGrants}, only the interactive shell calls this: reachable from a tool, a document
-     * the model was asked to read could talk it into writing somewhere else entirely.
+     * Moves the write sandbox for the session. Every scoped tool asks {@link #root()} as it runs,
+     * so one switch reaches all. Interactive shell only - see {@link AccessGrants}.
      *
      * @return the canonical path now in force
      */
@@ -145,11 +137,9 @@ public final class Workspace {
     }
 
     /**
-     * The same directory has two spellings on two of the three platforms: /var and /private/var
-     * on macOS, RUNNER~1 and runneradmin on Windows. Comparing what was typed against what was
-     * granted then says "outside" about a directory that is plainly inside, and the refusal drops
-     * the one sentence that would have explained it. Resolve as far as the filesystem allows -
-     * the path itself may not exist yet, which is normal for something about to be written.
+     * One directory, two spellings: /var and /private/var on macOS, RUNNER~1 and runneradmin on
+     * Windows. Comparing as typed calls a directory plainly inside "outside". Resolve as far as
+     * the filesystem allows - the path may not exist yet, which is normal before a write.
      */
     static Path resolvedAsFarAsPossible(Path path) {
         Path absolute = path.toAbsolutePath().normalize();

@@ -116,13 +116,10 @@ public final class OllamaClient implements ModelClient {
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                 .build();
 
-        // A dropped socket or an unloaded model used to end the whole run. Retrying is safe
-        // here because nothing has been streamed to the caller yet.
-        //
-        // A runner that dies mid-generation does not always break the socket: Ollama answers 500
-        // with the runner's own error in the body, which is a completed exchange and so reached
-        // none of the retrying below when this only caught IOException. Server errors and
-        // throttling are retried on the same terms; a 4xx is the request's own fault and stands.
+        // A dropped socket or an unloaded model used to end the run; retrying is safe because
+        // nothing has been streamed yet. A runner dying mid-generation does not always break the
+        // socket - Ollama answers 500 with the error in the body, a completed exchange that an
+        // IOException catch never saw. 5xx and 429 retry too; a 4xx is the request's own fault.
         HttpResponse<Stream<String>> response = null;
         int requestAttempts = 0;
         long backoffMillis = RETRY_BACKOFF_MILLIS;

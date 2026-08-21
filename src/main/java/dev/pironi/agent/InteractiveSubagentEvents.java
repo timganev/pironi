@@ -5,11 +5,9 @@ import dev.pironi.tool.SubagentResult;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * {@link SubagentEvents} that renders to the interactive terminal via JLine
- * {@code printAbove}. When a child finishes, the optional auto‑turn callback fires so the
- * model can process the collected result without waiting for the user to press Enter.
- * The callback is installed later (once the JLine shell is ready) via
- * {@link #setAutoTurn(Runnable)}.
+ * {@link SubagentEvents} rendered to the terminal through JLine {@code printAbove}. A finished
+ * child fires the auto-turn callback, so its result is processed without the user pressing Enter.
+ * The callback arrives later, once the shell is ready, via {@link #setAutoTurn(Runnable)}.
  */
 public final class InteractiveSubagentEvents implements SubagentEvents {
     private final Object printLock = new Object();

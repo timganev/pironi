@@ -192,11 +192,10 @@ public final class TerminalStatusReporter implements StatusReporter {
             }
             return;
         }
-        // The raw path leaves the status on the current row with no trailing newline, because
-        // that is what lets it be redrawn in place. Without erasing it first, the answer starts
-        // immediately after it - "… | sub 0/2Здравей" - and the half status stays in the
-        // scrollback for good. A dumb terminal draws no status at all, so there is nothing to
-        // erase and no escape sequence it could honour.
+        // The status sits on the current row with no trailing newline so it can be redrawn in
+        // place. Unerased, the answer starts right after it - "… | sub 0/2Здравей" - and the half
+        // row stays in the scrollback. A dumb terminal draws no status, so there is nothing to
+        // erase.
         eraseRawStatusRow();
     }
 
@@ -305,13 +304,9 @@ public final class TerminalStatusReporter implements StatusReporter {
     }
 
     /**
-     * Keeps the status within one terminal row.
-     *
-     * <p>The row is redrawn with a carriage return and an erase-line. If the text is wider than
-     * the window it wraps first, so the carriage return lands on the wrapped remainder and erases
-     * only that: every refresh leaves another half-line behind and the conversation scrolls away.
-     * Long values make this easy to hit - a long user name plus a tok/s reading is enough on a
-     * narrow window, which is why a wide terminal never shows it.
+     * Keeps the status within one row. Redrawing uses a carriage return and erase-line, so text
+     * wider than the window wraps first and the return erases only the remainder - every refresh
+     * leaves half a line behind. A long name plus a tok/s reading is enough on a narrow window.
      */
     String clampToWidth(String line) {
         int columns = terminal == null ? 0 : terminal.getSize().getColumns();
@@ -344,9 +339,8 @@ public final class TerminalStatusReporter implements StatusReporter {
     }
 
     /**
-     * A dumb terminal cannot rewrite a row, so printing the status on every tick produces a new
-     * line per refresh and buries the conversation under near-identical rows. Activity lines are
-     * unaffected: those are a stream of distinct events rather than one row redrawn.
+     * A dumb terminal cannot rewrite a row, so a status per tick buries the conversation under
+     * near-identical lines. Activity lines are distinct events and stay.
      */
     private void renderViaDumbTerminal(String line) {
         // Intentionally nothing.
@@ -420,11 +414,9 @@ public final class TerminalStatusReporter implements StatusReporter {
     public record StatusSupport(boolean supported, String reason) {}
 
     /**
-     * A console that reports no size is not necessarily incapable - Windows consoles have been
-     * seen returning 0x0 - so an implausible size is treated as unknown rather than as a refusal.
-     * Only a dumb terminal or missing cursor control genuinely rules out a pinned row, and when
-     * one is ruled out the status falls back to a line in the output stream, which is what makes
-     * it scroll away instead of staying at the bottom.
+     * A console reporting no size is not necessarily incapable - Windows ones return 0x0 - so an
+     * implausible size counts as unknown, not as refusal. Only a dumb terminal or missing cursor
+     * control rules out a pinned row, and then the status scrolls away with the output.
      */
     public static StatusSupport describeStatusSupport(Terminal terminal) {
         if (terminal == null) return new StatusSupport(false, "no terminal (not interactive)");

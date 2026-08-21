@@ -8,6 +8,7 @@ import dev.pironi.agent.ContextFileLoader;
 import dev.pironi.agent.PersonalContextMode;
 import dev.pironi.agent.DecisionParser;
 import dev.pironi.agent.CapabilityReport;
+import dev.pironi.agent.SystemPrompt;
 import dev.pironi.agent.FinalAnswerStreamer;
 import dev.pironi.model.ProviderConfig;
 import dev.pironi.model.ProviderType;
@@ -297,11 +298,9 @@ public final class PironiMain {
         if (interactive) {
             TerminalBuilder builder = TerminalBuilder.builder()
                     .system(true);
-            // Windows Terminal (WT_SESSION) supports the full ANSI/xterm capability set, but
-            // JLine auto-detection reports "windows" (NativeWinSysTerminal), which lacks
-            // change_scroll_region/save_cursor/restore_cursor — so the pinned status row falls
-            // back to a scrolling line and the status appears on every output row. Pinning the
-            // xterm-256color profile makes JLine Status work there like on Linux/macOS.
+            // Windows Terminal handles full xterm, but JLine detects NativeWinSysTerminal,
+            // which lacks change_scroll_region - the pinned row then scrolls onto every line.
+            // Pinning xterm-256color makes JLine Status work there as on Linux/macOS.
             if (System.getenv("WT_SESSION") != null) {
                 builder.type("xterm-256color");
             }
@@ -664,9 +663,8 @@ public final class PironiMain {
     }
 
     /**
-     * Runs a sub-task in a dedicated read-only AgentLoop inside a virtual thread. The child
-     * can only use http_get/read_file/list_files/find_files, never mutate state, so no
-     * approval prompt is required and the user is never interrupted.
+     * A sub-task in its own read-only AgentLoop on a virtual thread. The child cannot mutate
+     * anything, so it needs no approval and never interrupts the user.
      */
     private static SubagentResult runChildSubagent(
             dev.pironi.model.ModelClient modelClient,
@@ -800,10 +798,8 @@ public final class PironiMain {
     }
 
     /**
-     * With a cloud provider, AUTO personal context skips SOUL.md and USER.md so that personal
-     * files are not sent to a third party. That is the right default, but silently ignoring a
-     * persona the user wrote looks like a bug: the agent simply does not behave as configured,
-     * with nothing explaining why. Say it once at startup.
+     * AUTO skips SOUL.md and USER.md on a cloud provider, so personal files stay off a third
+     * party. Right default, but silently ignoring a written persona looks like a bug - say so.
      */
     static void warnAboutSkippedPersonalContext(
             CliOptions options, AgentContext context, boolean interactive
@@ -823,14 +819,10 @@ public final class PironiMain {
     }
 
     /**
-     * Says that the host has a shell but the agent may not use it.
+     * Says the host has a shell the agent may not use. Printed only interactively before, so a
+     * one-shot run asked the user to run the commands himself with nothing explaining why.
      *
-     * <p>This was printed only in interactive mode. A one-shot run stayed silent, so a task built
-     * around scripts failed in a way that looks like the model refusing to work: it asked the user
-     * to run the commands and paste the output back, with nothing on screen explaining that
-     * {@code run_command} had been withheld from it.</p>
-     *
-     * @return the note, or an empty string when the shell is available
+     * @return the note, or empty when the shell is available
      */
     static String runCommandDisabledNotice(java.util.Map<String, String> disabledReasons) {
         String reason = disabledReasons.get("run_command");
@@ -844,12 +836,10 @@ public final class PironiMain {
     }
 
     /**
-     * Windows was excluded wholesale when status rendering was hardened, back when the legacy
-     * conhost could not be relied on to keep a reserved line. Windows Terminal handles it fine,
-     * and excluding it cost more than it saved: the same reporter drives the activity lines, so
-     * a Windows user on AUTO saw neither a status row nor any tool activity.
+     * Windows was excluded when only legacy conhost existed. Windows Terminal keeps a reserved
+     * line fine, and the exclusion also hid tool activity, which the same reporter drives.
      *
-     * @param windowsTerminal true when running inside Windows Terminal (WT_SESSION is set)
+     * @param windowsTerminal true inside Windows Terminal (WT_SESSION is set)
      */
     static boolean statusEnabled(
             StatusMode mode, boolean consolePresent, String osName, boolean windowsTerminal
@@ -953,11 +943,8 @@ public final class PironiMain {
 
 
     /**
-     * Where the read-only file tools may look. They used to see only {@code --search-roots} while
-     * the shell saw everything its scope allowed, and the gap cost real work: the agent wrote a
-     * decompressed file to /tmp and then could not read it back, and it treated the search roots
-     * as the edge of the world, never looking outside them for data the shell could reach. A tool
-     * that reads less than the shell can is a trap, not a guardrail - the guardrail is the scope.
+     * Where the read-only file tools may look. Tied to {@code --search-roots}, a file the shell
+     * had just written could not be read back - a tool that reads less than the shell is a trap.
      */
     static List<Path> readRoots(List<Path> searchRoots, dev.pironi.tool.ShellScope shellScope) {
         List<Path> roots = new ArrayList<>(searchRoots);
@@ -975,9 +962,8 @@ public final class PironiMain {
     }
 
     /**
-     * Names the session for the crash handler. The loop checkpoints after every turn, but a run
-     * that died mid-turn printed only what broke - nothing said the work was still on disk, so
-     * headless runs were restarted from zero.
+     * Names the session for the crash handler. A run that died mid-turn printed only what broke,
+     * so headless runs were restarted from zero although the work was checkpointed.
      */
     private static volatile String currentSessionId = "";
 
@@ -998,10 +984,8 @@ public final class PironiMain {
     }
 
     /**
-     * Builds the HTTP header resolver for {@code http_get}. Exposes the configured provider API
-     * key under the {@code PIRONI_API_KEY} placeholder and restricts {@code Authorization}
-     * headers to a small set of trusted API hosts (DeepSeek today). The model substitutes the
-     * placeholder; Pironi substitutes the real value and never echoes it back into tool output.
+     * Header resolver for {@code http_get}. The model writes {@code PIRONI_API_KEY}; Pironi
+     * substitutes the real key, only for trusted API hosts, and never echoes it back.
      */
     private static HeaderResolver buildHeaderResolver(CliOptions options) {
         Set<String> authorizationHosts = new HashSet<>(Set.of("api.deepseek.com"));
@@ -1014,60 +998,6 @@ public final class PironiMain {
     }
 
     private static void printUsage() {
-        System.out.println("""
-                Pironi - small Java 25 coding agent harness
-
-                Info:
-                  --version, -v                                 print the release and exit
-
-                Required:
-                  --model MODEL                                 default: last used; initially qwen3.6:35b-a3b
-
-                Provider:
-                  --provider ollama|deepseek|openrouter|openai-compatible
-                  --base-url URL                                provider-specific default
-                  --api-key-env NAME                            provider-specific default
-
-                Agent:
-                  --workspace PATH                              default: current directory
-                  --approval ask|auto|read-only                 default: read-only
-                  --activity auto                              allow scoped tool activity without prompts;
-                                                               overrides --approval; default workspace shell is disabled
-                  --interactive                                default
-                  --no-interactive                             one-shot; requires --task or --task-file
-                  --task TEXT                                  optional initial interactive task
-                  --task-file PATH                             read the task as UTF-8; conflicts with --task
-                  --max-turns N                                 default: 8
-                  --context N                                   Ollama 8192, OpenRouter 200000, DeepSeek 1000000
-                  --max-output-tokens N                         default: 4096
-                  --timeout-seconds N                           model request timeout, default: 600
-                  --trace PATH                                  default: WORKSPACE/.pironi/trace.jsonl
-                  --pironi-home PATH                            default: ~/.pironi
-                  --personal-context auto|allow|deny            auto: Ollama only
-                  --status auto|always|never                    default: auto
-                  --verify-command COMMAND                     auto-detect Maven/Gradle
-                  --deny-tools NAME,NAME                        remove named tools; unknown names fail startup
-                  --allow-tools NAME,NAME                       enable only named tools; conflicts with --deny-tools
-                  --shell-scope workspace|user|unrestricted    default: workspace lexical guardrail
-                  --search-roots PATH,PATH                      allowed roots for find_files; default: workspace
-
-                Examples:
-                  java -jar pironi.jar
-
-                  java -jar pironi.jar --model qwen3.6:35b-a3b
-
-                  export DEEPSEEK_API_KEY=...
-                  java -jar pironi.jar --provider deepseek
-
-                  export OPENROUTER_API_KEY=...
-                  java -jar pironi.jar --provider openrouter
-
-                  java -jar pironi.jar --model qwen3.6:35b-a3b --no-interactive \\
-                    --task "Inspect this project"
-
-                  export DEEPSEEK_API_KEY=...
-                  java -jar pironi.jar --provider deepseek --model deepseek-v4-flash \\
-                    --task "Inspect this project" --workspace ./project
-                """);
+        System.out.println(SystemPrompt.usage());
     }
 }

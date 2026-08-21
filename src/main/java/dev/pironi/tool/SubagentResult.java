@@ -3,10 +3,10 @@ package dev.pironi.tool;
 import java.util.List;
 
 /**
- * Final outcome of a spawned sub-agent, ready to be drained into the main loop.
+ * Final outcome of a spawned sub-agent, ready to drain into the main loop.
  *
- * @param activity child tool activity lines (e.g. {@code t1 http_get ok 412ms ...}),
- *                 used for observability and model attribution via the envelope
+ * @param activity child tool activity lines, e.g. {@code t1 http_get ok 412ms}, used for
+ *                 observability and attribution
  */
 public record SubagentResult(String id, String name, String status, String output,
                              List<String> activity, java.time.Duration elapsed) {

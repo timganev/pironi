@@ -129,10 +129,8 @@ public final class InteractiveShell {
         AgentResult run(String task) throws IOException, InterruptedException;
 
         /**
-         * True when the agent keeps the conversation between tasks itself.
-         *
-         * <p>The shell then hands over the request alone. Prefixing the transcript it kept would
-         * only repeat, in a lossy form, what the agent already has.</p>
+         * True when the agent keeps the conversation itself, so the shell hands over the request
+         * alone rather than repeating its own transcript in a lossy form.
          */
         default boolean carriesConversation() { return false; }
     }
@@ -262,9 +260,8 @@ public final class InteractiveShell {
     }
 
     /**
-     * When a sub-agent finishes, this callback triggers a model turn automatically so the
-     * user does not need to press Enter to see the collected result. The turn runs in a
-     * virtual thread and its output is printed above the prompt (via printAbove).
+     * Triggers a model turn when a sub-agent finishes, so the result appears without the user
+     * pressing Enter. Runs on a virtual thread and prints above the prompt.
      */
     public Runnable autoTurnCallback() {
         return () -> {
@@ -472,12 +469,9 @@ public final class InteractiveShell {
     }
 
     /**
-     * Prints one line at a time.
-     *
-     * <p>Handing a whole multi-line block to printAbove leaves the embedded newlines untouched,
-     * and with the terminal in raw mode - which it is whenever the pinned status row is active -
-     * a bare LF moves down without returning to column one. The result is text that steps further
-     * right with every line, as /doctor and any multi-line answer showed on Windows.
+     * Prints one line at a time. In raw mode - which the pinned status row requires - a bare LF
+     * moves down without returning to column one, so a multi-line block steps further right with
+     * every line, as /doctor showed on Windows.
      */
     private void printAboveByLine(String text, ThemeSettings.Element element) {
         if (lineReader == null) {
@@ -559,9 +553,8 @@ public final class InteractiveShell {
     }
 
     /**
-     * Access lives under /access sub-verbs so that the inline slash menu stays short, which makes
-     * /allow-tool the mistake people (and the model, quoting a policy message) actually type. Left
-     * as a bare "Unknown command" it is a dead end: nothing on screen points at the real spelling.
+     * Access lives under /access sub-verbs to keep the slash menu short, which makes /allow-tool
+     * the mistake people actually type - and "Unknown command" points nowhere.
      */
     static String suggestionFor(String command) {
         String typed = command.startsWith("/") ? command.substring(1) : command;

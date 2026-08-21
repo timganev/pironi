@@ -1,0 +1,127 @@
+# Keyboard scenarios for --test-keys, run without an argument.
+#
+# @scenario starts one; [anything] lines are steps, where the bracket is a note for the reader.
+# Keys use the escapes parseKeySequence understands: \r \n \t \b \e \u (arrow up) \d (arrow down)
+# and \xNN. Write ESC as \e - \u means arrow up here, not a Unicode escape.
+
+@scenario slash menu survives a human pause
+[open menu]   /
+[human pause] WAIT:750
+[exit]        exit\r
+@require Session closed.
+@forbid Unknown command:
+
+@scenario slash command can be filtered and completed
+[open menu]   /
+[filter]      mo
+[complete]    \t
+[submit]      \r
+[arrow down]  \e[B
+[arrow up]    \e[A
+[cancel]      \e
+[settle]      WAIT:200
+[exit]        /exit\r
+@require Model Picker
+@require Session closed.
+@forbid Unknown command:
+
+@scenario completed exit command tolerates JLine trailing space
+[open menu] /
+[filter]    ex
+[complete]  \t
+[submit]    \r
+@require Session closed.
+@forbid Unknown command:
+
+@scenario UTF-8 Bulgarian input reaches the agent unchanged
+[type] Здравей, Пирони!\r
+[exit] /exit\r
+@require Session closed.
+@forbid Unknown command:
+@forbid OK/exit
+@task Здравей, Пирони!
+
+@scenario backspace edits the submitted task
+[type with backspace] abc\bd\r
+[exit]                /exit\r
+@require Session closed.
+@forbid Unknown command:
+@forbid OK/exit
+@task abd
+
+@scenario completion cancellation preserves conversation history
+[first task]  first\r
+[open menu]   /
+[settle]      WAIT:300
+[cancel]      \e
+[clear line]  \x15
+[second task] second\r
+[exit]        /exit\r
+@require Conversation memory: 1/4 exchanges
+@require Session closed.
+@forbid Unknown command:
+@forbid OK/exit
+@forbid OK/sessions
+@task first
+@task User: first\nPironi: OK\nCurrent request:\nsecond
+
+@scenario resume clears unrelated shell conversation history
+[first task] old request\r
+[resume]     /resume saved\r
+[next task]  continued request\r
+[exit]       /exit\r
+@require Session scheduled for resume:
+@require Session closed.
+@forbid Unknown command:
+@task old request
+@task continued request
+
+@scenario new command starts with clean conversation history
+[first task] old request\r
+[new]        /new\r
+[next task]  clean request\r
+[exit]       /exit\r
+@require New session started:
+@require Session closed.
+@forbid Unknown command:
+@task old request
+@task clean request
+
+@scenario capabilities command is available from slash menu
+[capabilities] /capabilities\r
+[exit]         /exit\r
+@require [capabilities]
+@require Session closed.
+@forbid Unknown command:
+
+@scenario doctor command is available from slash menu
+[doctor] /doctor\r
+[exit]   /exit\r
+@require [doctor]
+@require Session closed.
+@forbid Unknown command:
+
+@scenario theme picker selects element previews color and saves
+[open picker]  /theme\r
+[settle]       WAIT:150
+[pick element] \e[B\r
+[settle]       WAIT:150
+[pick colour]  \e[B\e[B\e[B\e[B\r
+[settle]       WAIT:150
+[exit]         /exit\r
+@require Theme
+@require Preview text
+@require Theme saved.
+@require Session closed.
+@forbid Theme selection failed
+@forbid Unknown command:
+
+@scenario multiline Cyrillic answer uses JLine-safe rendering
+[task] wrap\r
+[exit] /exit\r
+@require Първи дълъг ред на кирилица
+@require Втори ред остава след първия
+@require Трети ред не се размества
+@require Session closed.
+@forbid Unknown command:
+@task wrap

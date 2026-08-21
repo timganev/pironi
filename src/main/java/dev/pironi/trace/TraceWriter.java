@@ -19,10 +19,9 @@ public interface TraceWriter extends AutoCloseable {
     default void protocolWarning(int turn, String warning) {}
 
     /**
-     * What the harness itself told the model: ledgers, repair instructions, budget warnings, the
-     * note that a finding has stopped moving. Traces recorded the model's words and the tools'
-     * output but never our own, so there was no way to tell whether a mechanism had fired.
-     * Default no-op so existing writers and test doubles are unaffected.
+     * What the harness told the model: ledgers, repair instructions, budget warnings. Traces held
+     * the model's words and the tools' output but never our own, so nothing said whether a
+     * mechanism had fired. No-op by default, so existing writers are unaffected.
      */
     default void harnessNote(int turn, String kind, String note) {}
 

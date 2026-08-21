@@ -10,11 +10,10 @@ import java.util.List;
  */
 public interface SubagentGateway {
     /**
-     * Blocks until all currently active children finish or {@code timeout} elapses, returning
-     * whichever results are ready. {@code Duration.ZERO} behaves like a non-blocking drain of
-     * already-completed children.
+     * Blocks until the active children finish or {@code timeout} elapses, returning whatever is
+     * ready. {@code Duration.ZERO} is a non-blocking drain.
      *
-     * @throws InterruptedException if the current thread is interrupted while waiting
+     * @throws InterruptedException if interrupted while waiting
      */
     List<SubagentResult> awaitCompleted(Duration timeout) throws InterruptedException;
 

@@ -9,16 +9,9 @@ import java.nio.file.Path;
 import java.util.function.Consumer;
 
 /**
- * Asks to move the workspace instead of telling the user to type the command themselves.
- *
- * <p>Moving the sandbox stays a decision the human makes - a document the model was asked to
- * read must not be able to talk it into writing somewhere else. What changed is who does the
- * typing: the agent proposes the exact directory, the approval prompt shows it, and one keypress
- * settles it. Printing "/workspace PATH" as advice made the person the transport for a decision
- * they were going to make anyway.
- *
- * <p>Registered only where a prompt can be answered. In a batch run there is nobody to confirm,
- * and a workspace that could move unattended is exactly what the confirmation is protecting.
+ * Asks to move the workspace instead of telling the user to type the command. The decision stays
+ * human - a document must not talk the model into writing elsewhere - but the agent proposes the
+ * directory and one keypress settles it. Registered only where a prompt can be answered.
  */
 public final class SwitchWorkspaceTool implements Tool {
     private final Workspace workspace;

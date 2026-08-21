@@ -60,13 +60,9 @@ public final class ContextFileLoader {
     }
 
     /**
-     * A file that is nearly the name we load, and on some machines exactly it.
-     *
-     * <p>An agent asked to save its persona wrote {@code soul.md} beside the {@code SOUL.md} the
-     * cascade reads. On macOS and Windows the filesystem ignores the case and the file loads; on
-     * Linux it does not, and nothing says why. The check lists the directory and compares names
-     * itself, because asking {@code Files.exists} for the other spelling answers "yes" on a
-     * case-insensitive filesystem and would invent a near miss for the file we just read.
+     * A file nearly the name we load, and on some machines exactly it: {@code soul.md} loads on
+     * macOS and Windows and is a different file on Linux. Names are compared from a listing,
+     * because {@code Files.exists} answers "yes" to either spelling on macOS and Windows.
      */
     private static String differentlyCasedSibling(Path home, String fileName) {
         if (!Files.isDirectory(home)) return "";

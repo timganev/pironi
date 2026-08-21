@@ -8,10 +8,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Bounded, in-memory {@link TraceWriter} used by sub-agent runs so the parent can see what
- * the child actually did (e.g. which tools it called and whether they succeeded). Only
- * {@code toolResult}, {@code protocolError} and {@code completed} are recorded — model
- * responses are large and not needed for attribution.
+ * Bounded in-memory {@link TraceWriter} for sub-agent runs, so the parent can see which tools the
+ * child called and whether they worked. Only {@code toolResult}, {@code protocolError} and
+ * {@code completed} are kept - model responses are large and add nothing to attribution.
  */
 public final class CollectingTraceWriter implements TraceWriter {
     private static final int MAX_LINES = 50;

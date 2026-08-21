@@ -20,14 +20,11 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Deterministic keyboard-level smoke tests for the interactive TUI.
+ * Deterministic keyboard-level smoke tests for the TUI, driving the same JLine terminal and
+ * {@link InteractiveShell} as production. Input arrives as timed UTF-8 keystrokes rather than
+ * whole lines, so completion, pauses, editing and Unicode decoding are exercised.
  *
- * <p>The harness drives the same JLine terminal and {@link InteractiveShell}
- * used in production. Input is sent as timed UTF-8 keystrokes, not as complete
- * command lines, so completion, pauses, editing and Unicode decoding are
- * exercised.</p>
- *
- * <p>Usage: {@code java -jar pironi.jar --test-keys [scenario-file]}</p>
+ * <p>Usage: {@code java -jar pironi.jar --test-keys [scenario-file]}
  */
 public final class TestKeysRunner {
     private static final int TERMINAL_COLUMNS = 100;
@@ -48,151 +45,7 @@ public final class TestKeysRunner {
     }
 
     public static void runBuiltInTests() throws Exception {
-        List<Scenario> scenarios = List.of(
-                new Scenario(
-                        "slash menu survives a human pause",
-                        List.of(
-                                keys("/"),
-                                waitFor(750),
-                                keys("exit\\r")
-                        ),
-                        List.of("Session closed."),
-                        List.of("Unknown command:"),
-                        List.of()
-                ),
-                new Scenario(
-                        "slash command can be filtered and completed",
-                        List.of(
-                                keys("/"),
-                                keys("mo"),
-                                keys("\\t"),
-                                keys("\\r"),
-                                keys("\u001B[B"),
-                                keys("\u001B[A"),
-                                keys("\u001B"),
-                                waitFor(200),
-                                keys("/exit\\r")
-                        ),
-                        List.of("Model Picker", "Session closed."),
-                        List.of("Unknown command:"),
-                        List.of()
-                ),
-                new Scenario(
-                        "completed exit command tolerates JLine trailing space",
-                        List.of(
-                                keys("/"),
-                                keys("ex"),
-                                keys("\\t"),
-                                keys("\\r")
-                        ),
-                        List.of("Session closed."),
-                        List.of("Unknown command:"),
-                        List.of()
-                ),
-                new Scenario(
-                        "UTF-8 Bulgarian input reaches the agent unchanged",
-                        List.of(
-                                keys("Здравей, Пирони!\\r"),
-                                keys("/exit\\r")
-                        ),
-                        List.of("Session closed."),
-                        List.of("Unknown command:", "OK/exit"),
-                        List.of("Здравей, Пирони!")
-                ),
-                new Scenario(
-                        "backspace edits the submitted task",
-                        List.of(
-                                keys("abc\\bd\\r"),
-                                keys("/exit\\r")
-                        ),
-                        List.of("Session closed."),
-                        List.of("Unknown command:", "OK/exit"),
-                        List.of("abd")
-                ),
-                new Scenario(
-                        "completion cancellation preserves conversation history",
-                        List.of(
-                                keys("first\\r"),
-                                keys("/"),
-                                waitFor(300),
-                                keys("\\e"),
-                                keys("\\x15"),
-                                keys("second\\r"),
-                                keys("/exit\\r")
-                        ),
-                        List.of("Conversation memory: 1/4 exchanges", "Session closed."),
-                        List.of("Unknown command:", "OK/exit", "OK/sessions"),
-                        List.of(
-                                "first",
-                                "User: first\nPironi: OK\nCurrent request:\nsecond"
-                        )
-                ),
-                new Scenario(
-                        "resume clears unrelated shell conversation history",
-                        List.of(
-                                keys("old request\\r"),
-                                keys("/resume saved\\r"),
-                                keys("continued request\\r"),
-                                keys("/exit\\r")
-                        ),
-                        List.of("Session scheduled for resume:", "Session closed."),
-                        List.of("Unknown command:"),
-                        List.of("old request", "continued request")
-                ),
-                new Scenario(
-                        "new command starts with clean conversation history",
-                        List.of(
-                                keys("old request\\r"),
-                                keys("/new\\r"),
-                                keys("clean request\\r"),
-                                keys("/exit\\r")
-                        ),
-                        List.of("New session started:", "Session closed."),
-                        List.of("Unknown command:"),
-                        List.of("old request", "clean request")
-                ),
-                new Scenario(
-                        "capabilities command is available from slash menu",
-                        List.of(keys("/capabilities\\r"), keys("/exit\\r")),
-                        List.of("[capabilities]", "Session closed."),
-                        List.of("Unknown command:"),
-                        List.of()
-                ),
-                new Scenario(
-                        "doctor command is available from slash menu",
-                        List.of(keys("/doctor\\r"), keys("/exit\\r")),
-                        List.of("[doctor]", "Session closed."),
-                        List.of("Unknown command:"),
-                        List.of()
-                ),
-                new Scenario(
-                        "theme picker selects element previews color and saves",
-                        List.of(
-                                keys("/theme\r"),
-                                waitFor(150),
-                                keys("\u001B[B\r"),
-                                waitFor(150),
-                                keys("\u001B[B\u001B[B\u001B[B\u001B[B\r"),
-                                waitFor(150),
-                                keys("/exit\r")
-                        ),
-                        List.of("Theme", "Preview text", "Theme saved.", "Session closed."),
-                        List.of("Theme selection failed", "Unknown command:"),
-                        List.of()
-                ),
-                new Scenario(
-                        "multiline Cyrillic answer uses JLine-safe rendering",
-                        List.of(keys("wrap\\r"), keys("/exit\\r")),
-                        List.of(
-                                "Първи дълъг ред на кирилица",
-                                "Втори ред остава след първия",
-                                "Трети ред не се размества",
-                                "Session closed."
-                        ),
-                        List.of("Unknown command:"),
-                        List.of("wrap")
-                )
-        );
+        List<Scenario> scenarios = parseScenarios(readResource(BUILT_IN_SCENARIOS));
 
         PrintStream logger = new PrintStream(System.out, true, StandardCharsets.UTF_8);
         int passed = 0;
@@ -452,6 +305,82 @@ public final class TestKeysRunner {
 
     private static TestStep waitFor(long millis) {
         return new TestStep("", millis, null);
+    }
+
+    private static final String BUILT_IN_SCENARIOS = "/keys/built-in.txt";
+
+    private static String readResource(String resource) throws IOException {
+        try (var stream = TestKeysRunner.class.getResourceAsStream(resource)) {
+            if (stream == null) {
+                throw new IllegalStateException("Scenario resource missing: " + resource);
+            }
+            return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
+    /**
+     * Scenarios in the same text form the {@code --test-keys FILE} argument takes, so the ones
+     * shipped here and the ones a user writes cannot drift apart. A {@code @scenario} line starts
+     * one; {@code @require}, {@code @forbid} and {@code @task} state what its output must and must
+     * not contain. Everything else is a step, and a file with no {@code @} lines is still a single
+     * unnamed scenario, which is what the argument used to accept.
+     */
+    private static List<Scenario> parseScenarios(String content) {
+        List<Scenario> scenarios = new ArrayList<>();
+        String name = "";
+        List<TestStep> steps = new ArrayList<>();
+        List<String> required = new ArrayList<>();
+        List<String> forbidden = new ArrayList<>();
+        List<String> tasks = new ArrayList<>();
+        for (String rawLine : content.split("\n")) {
+            String line = rawLine.strip();
+            if (line.isEmpty() || line.startsWith("#")) continue;
+            if (line.startsWith("@scenario")) {
+                if (!steps.isEmpty()) {
+                    scenarios.add(new Scenario(name, List.copyOf(steps), List.copyOf(required),
+                            List.copyOf(forbidden), List.copyOf(tasks)));
+                }
+                name = line.substring("@scenario".length()).strip();
+                steps = new ArrayList<>();
+                required = new ArrayList<>();
+                forbidden = new ArrayList<>();
+                tasks = new ArrayList<>();
+            } else if (line.startsWith("@require")) {
+                required.add(text(line, "@require"));
+            } else if (line.startsWith("@forbid")) {
+                forbidden.add(text(line, "@forbid"));
+            } else if (line.startsWith("@task")) {
+                tasks.add(text(line, "@task"));
+            } else {
+                steps.add(parseStep(rawLine));
+            }
+        }
+        if (!steps.isEmpty()) {
+            scenarios.add(new Scenario(name, List.copyOf(steps), List.copyOf(required),
+                    List.copyOf(forbidden), List.copyOf(tasks)));
+        }
+        return List.copyOf(scenarios);
+    }
+
+    /** Expected text is compared against output that may span lines, so \n is written escaped. */
+    private static String text(String line, String directive) {
+        return line.substring(directive.length()).strip().replace("\\n", "\n");
+    }
+
+    private static TestStep parseStep(String rawLine) {
+        String line = rawLine.strip();
+        int bracketEnd = line.indexOf(']');
+        if (!line.startsWith("[") || bracketEnd < 0) {
+            throw new IllegalArgumentException("Invalid scenario line: " + rawLine);
+        }
+        String rest = line.substring(bracketEnd + 1).strip();
+        String[] expectedParts = rest.split("EXPECT:", 2);
+        String action = expectedParts[0].strip();
+        String expected = expectedParts.length > 1 ? expectedParts[1].strip() : null;
+        if (action.startsWith("WAIT:")) {
+            return new TestStep("", Long.parseLong(action.substring("WAIT:".length())), expected);
+        }
+        return new TestStep(action, 0, expected);
     }
 
     private static List<TestStep> parseScript(String content) {

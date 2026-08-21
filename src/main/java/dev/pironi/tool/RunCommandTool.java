@@ -37,13 +37,9 @@ public final class RunCommandTool implements Tool {
     }
 
     /**
-     * A shell command is the one tool whose effect cannot be read off its name, so it is shown
-     * and confirmed rather than auto-approved. That is what lets the shell stay available under
-     * approval=auto instead of being switched off wholesale, which is what used to happen and
-     * left ordinary work - deleting a file, say - with no route at all.
-     *
-     * <p>Only where a prompt can actually be answered. A batch run cannot ask, and a policy that
-     * always denies there would break every scripted shell step.
+     * A shell command's effect cannot be read off its name, so it is confirmed rather than
+     * auto-approved - which keeps the shell usable under approval=auto instead of switched off.
+     * Only where a prompt can be answered: a batch run cannot ask.
      */
     @Override public boolean requiresExplicitApproval(JsonNode arguments) {
         // A call that only reads has nothing to approve. Asking anyway is what trained the
@@ -74,10 +70,8 @@ public final class RunCommandTool implements Tool {
     }
 
     /**
-     * The file tools name the roots they accept, and this one used to name only its working
-     * directory. An agent that reads both concludes the roots bound everything there is, and
-     * stops looking outside them even when the shell could reach further. Saying how far this
-     * shell reaches is what makes the wider scope usable.
+     * The file tools name their roots and this named only its working directory, so an agent
+     * reading both concluded the roots bound everything and stopped looking further.
      */
     private String reach() {
         return switch (shellScope) {
@@ -170,11 +164,9 @@ public final class RunCommandTool implements Tool {
     }
 
     /**
-     * Some programs report an answer through the exit code. grep exits 1 when it matches
-     * nothing, diff exits 1 when files differ; both printed exactly what the caller asked for.
-     * Marked as failures, they read as broken commands, and a run retried a working approach or
-     * abandoned a good one - two of three "failed" calls in one run were this. The status is
-     * left alone, because sometimes it really is a failure; only the reading is corrected.
+     * Some programs answer through the exit code: grep exits 1 for no matches, diff for
+     * differences, both having printed what was asked. Two of three "failed" calls in one run
+     * were this. The status stands - sometimes it is a failure - only the reading is corrected.
      */
     private static String answerNotFailure(int exitCode, String output) {
         return exitCode > 0 && exitCode < 126 && !output.isBlank()
@@ -191,10 +183,8 @@ public final class RunCommandTool implements Tool {
     }
 
     /**
-     * What the command managed to print before it ran out of time. Killing the process closes the
-     * stream, so the reader finishes on its own and the bytes it already holds are still good.
-     * A command stopped halfway through 18,000 files is worth far more to the caller as the half
-     * it finished than as the bare fact that it timed out.
+     * What the command printed before it ran out of time. Killing it closes the stream, so the
+     * bytes already read are good - and half of 18,000 files beats the bare fact of a timeout.
      */
     private String partialOutput(FutureTask<byte[]> outputFuture) {
         try {
@@ -208,12 +198,9 @@ public final class RunCommandTool implements Tool {
     }
 
     /**
-     * What a bare number does not say. A shell reports a signal death as 128+N, and "exitCode=137"
-     * alone reads as an ordinary failure - so the same command gets tried again, or a readable
-     * source gets written off as unreadable. Naming the cause is what lets the model adapt; it
-     * corrected itself unprompted every time an error said something specific. Codes 1-125 are the
-     * program's own and are left alone: inventing meanings for them would mislead in the other
-     * direction.
+     * What a bare number does not say. A shell reports a signal as 128+N, and "exitCode=137" alone
+     * reads as an ordinary failure, so the same command gets retried or a readable source is
+     * written off. Codes 1-125 belong to the program and are left alone.
      */
     static String cause(int exitCode, String shell) {
         // 128+N is how a POSIX shell reports a signal. cmd.exe has no such convention: an exit
