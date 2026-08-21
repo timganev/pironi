@@ -30,6 +30,7 @@ public final class TerminalStatusReporter implements StatusReporter {
     private final Terminal terminal;
     private final Status terminalStatus;
     private final ThemeSettings theme;
+    private final StatusGlyphs glyphs;
     private final Object outputLock = new Object();
     private volatile int lastContextPercent;
     private volatile double lastEvalTokensPerSecond;
@@ -82,6 +83,17 @@ public final class TerminalStatusReporter implements StatusReporter {
         this.terminal = terminal;
         this.theme = theme;
         this.terminalStatus = createStatus(terminal);
+        this.glyphs = new StatusGlyphs(consoleEncoding(terminal, output));
+    }
+
+    /** What the row is actually written through, which is JLine's when there is a terminal. */
+    private static java.nio.charset.Charset consoleEncoding(Terminal terminal, PrintStream output) {
+        try {
+            if (terminal != null) return terminal.encoding();
+        } catch (RuntimeException ignored) {
+            // An unusual terminal may not report one; the stream below still does.
+        }
+        return output == null ? java.nio.charset.Charset.defaultCharset() : output.charset();
     }
 
     @Override
@@ -291,7 +303,8 @@ public final class TerminalStatusReporter implements StatusReporter {
         return line;
     }
 
-    private void render(String line) {
+    private void render(String rawLine) {
+        String line = glyphs.downgrade(rawLine);
         if (useJLine()) {
             renderViaJLine(clampToWidth(line));
         } else if (terminal != null && "dumb".equals(terminal.getType())) {
@@ -340,7 +353,8 @@ public final class TerminalStatusReporter implements StatusReporter {
         // Intentionally nothing.
     }
 
-    private void activityLine(String line) {
+    private void activityLine(String rawLine) {
+        String line = glyphs.downgrade(rawLine);
         if (useJLine()) {
             synchronized (terminal) {
                 if (closed) return;
