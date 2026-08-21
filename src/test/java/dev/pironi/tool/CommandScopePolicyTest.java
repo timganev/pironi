@@ -44,7 +44,9 @@ class CommandScopePolicyTest {
                 "type \\\\fileserver\\share\\secret.txt", ShellScope.WORKSPACE, "Windows 11"));
         assertNotNull(CommandScopePolicy.rejection(
                 "copy \"\\\\fileserver\\share\\x\" .", ShellScope.WORKSPACE, "Windows 11"));
-        assertNull(CommandScopePolicy.rejection(
+        // User scope widens the boundary to this machine, which is the one thing a UNC path is
+        // not. This used to be allowed, because the check sat after the user-scope exit.
+        assertNotNull(CommandScopePolicy.rejection(
                 "type \\\\fileserver\\share\\x", ShellScope.USER, "Windows 11"));
     }
 
@@ -118,6 +120,23 @@ class CommandScopePolicyTest {
                 "sed -n '/x/p' /etc/shadow", ShellScope.WORKSPACE, "Linux"));
         assertNull(CommandScopePolicy.rejection(
                 "sed -n '/x/p' /etc/hosts", ShellScope.WORKSPACE, "Mac OS X"));
+    }
+
+    @Test
+    void uncPathsAreRefusedAtUserScopeAsWellAsWorkspace() {
+        // User scope widens the boundary to this machine, and a UNC path names a different one.
+        // The check used to sit after the user-scope exit, which left it free at the Windows
+        // portable default of --shell-scope user.
+        String unc = "type \\\\localhost\\c$\\Windows\\win.ini";
+        assertNotNull(CommandScopePolicy.rejection(unc, ShellScope.WORKSPACE, "Windows 11"));
+        assertNotNull(CommandScopePolicy.rejection(unc, ShellScope.USER, "Windows 11"));
+        assertNotNull(CommandScopePolicy.rejection(
+                "dir \\\\server\\share", ShellScope.USER, "Windows 11"));
+        // Unrestricted is the deliberate opt-in and still reaches it.
+        assertNull(CommandScopePolicy.rejection(unc, ShellScope.UNRESTRICTED, "Windows 11"));
+        // A lone backslash is not a UNC prefix and must not be caught by it.
+        assertNull(CommandScopePolicy.rejection(
+                "dir sub\\folder", ShellScope.USER, "Windows 11"));
     }
 
     @Test

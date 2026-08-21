@@ -45,6 +45,12 @@ final class CommandScopePolicy {
         if (ELEVATION.matcher(command).find()) {
             return "shell scope " + cliName(scope) + " blocks elevation (sudo, runas)";
         }
+        // Before the user-scope exit: a UNC path is another machine, which no scope below
+        // unrestricted reaches. Leaving it until after made it free at the Windows default.
+        if (UNC.matcher(command).find()) {
+            return "shell scope " + cliName(scope) + " does not reach UNC paths; they name "
+                    + "another machine, not this one. Opt in with --shell-scope unrestricted.";
+        }
         if (scope == ShellScope.USER) return null;
         // Reading anywhere on this machine is allowed; the boundary is on writing.
         String store = namedSecretStore(command, osName);
