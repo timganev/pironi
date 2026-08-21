@@ -89,8 +89,26 @@ public final class PironiMain {
      *  child cannot burn tokens indefinitely. Enforced together with the manager's deadline. */
     private static final int MAX_SUBAGENT_TURNS = 6;
 
+    /**
+     * The console streams speak UTF-8 whatever the JVM inferred.
+     *
+     * <p>On Windows {@code stdout.encoding} follows the ANSI code page - Cp1252 on this machine
+     * even with the console at 65001 - and every Cyrillic character in a headless answer is
+     * replaced by a question mark on the way out. The loss is in the printing alone: the trace
+     * written beside it holds the same answer intact.
+     */
+    static void useUtf8Console() {
+        System.setOut(new java.io.PrintStream(
+                new java.io.FileOutputStream(java.io.FileDescriptor.out), true,
+                java.nio.charset.StandardCharsets.UTF_8));
+        System.setErr(new java.io.PrintStream(
+                new java.io.FileOutputStream(java.io.FileDescriptor.err), true,
+                java.nio.charset.StandardCharsets.UTF_8));
+    }
+
     public static void main(String[] args) {
         int exitCode;
+        useUtf8Console();
         try {
             if (List.of(args).contains("--version") || List.of(args).contains("-V")
                     || List.of(args).contains("-v")) {
@@ -665,7 +683,8 @@ public final class PironiMain {
 
             AgentResult result = loop.run(options.task());
             checkpoints.discardAll();
-            System.out.println(result.output());
+            // No terminal here, so nothing is wrapped; a table is still worth aligning.
+            System.out.println(dev.pironi.agent.MarkdownAnswer.render(result.output(), 0));
             System.out.println("Turns: " + result.turns());
             System.out.println("Trace: " + options.tracePath().toAbsolutePath().normalize());
             return result.success() ? 0 : 1;

@@ -44,13 +44,20 @@ public final class FinalAnswerStreamer implements Consumer<String> {
             write(value);
             return;
         }
-        String[] chunks = value.split("(?<=\\s)|(?=\\s)");
+        String[] chunks = MarkdownAnswer.render(value, wrapWidth()).split("(?<=\\s)|(?=\\s)");
         long delay = Math.max(MIN_CHUNK_DELAY_MILLIS,
                 Math.min(35, MAX_TOTAL_DELAY_MILLIS / Math.max(1, chunks.length)));
         for (int index = 0; index < chunks.length; index++) {
             write(chunks[index]);
             if (index + 1 < chunks.length) pauseMillis.accept(delay);
         }
+    }
+
+    /** One column spare: a word ending in the last cell makes some terminals wrap twice. */
+    private int wrapWidth() {
+        if (terminal == null) return 0;
+        int columns = terminal.getWidth();
+        return columns > 20 ? columns - 1 : 0;
     }
 
     private void write(String chunk) {
