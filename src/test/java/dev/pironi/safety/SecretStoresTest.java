@@ -76,4 +76,69 @@ class SecretStoresTest {
         return SecretStores.stores(os, home.toString(), Map.of()).stream()
                 .map(Path::toString).toList();
     }
+
+    @Test
+    void anAliasThatLandsInAStoreIsStillTheStore() throws Exception {
+        java.nio.file.Path store = java.nio.file.Files.createDirectories(home.resolve(".ssh"));
+        java.nio.file.Files.writeString(store.resolve("id_rsa"), "key");
+        java.nio.file.Path alias = home.resolve("by-another-name");
+        try {
+            java.nio.file.Files.createSymbolicLink(alias, store);
+        } catch (java.io.IOException | UnsupportedOperationException e) {
+            org.junit.jupiter.api.Assumptions.abort("this account may not create links: " + e);
+        }
+
+        // Windows hands out a second name for everything: .ssh is also SSH~1, and %APPDATA% is
+        // also the junction "Application Data". Normalising the text sees neither, so what the
+        // file system says the path is has to decide.
+        assertNotNull(protectedBy(alias.resolve("id_rsa"), System.getProperty("os.name", "")));
+    }
+
+    @Test
+    void aKeyNotWrittenYetIsGuardedThroughAnAliasToo() throws Exception {
+        java.nio.file.Path store = java.nio.file.Files.createDirectories(home.resolve(".ssh"));
+        java.nio.file.Path alias = home.resolve("by-another-name");
+        try {
+            java.nio.file.Files.createSymbolicLink(alias, store);
+        } catch (java.io.IOException | UnsupportedOperationException e) {
+            org.junit.jupiter.api.Assumptions.abort("this account may not create links: " + e);
+        }
+
+        // The file the agent is about to write does not exist yet, so only the directories above
+        // it can be resolved. That is enough to know where it would land.
+        assertNotNull(protectedBy(alias.resolve("id_ed25519"), System.getProperty("os.name", "")));
+    }
+
+    @Test
+    void anAliasThatLandsSomewhereOrdinaryStaysFree() throws Exception {
+        java.nio.file.Path ordinary = java.nio.file.Files.createDirectories(home.resolve("notes"));
+        java.nio.file.Path alias = home.resolve("by-another-name");
+        try {
+            java.nio.file.Files.createSymbolicLink(alias, ordinary);
+        } catch (java.io.IOException | UnsupportedOperationException e) {
+            org.junit.jupiter.api.Assumptions.abort("this account may not create links: " + e);
+        }
+
+        assertNull(protectedBy(alias.resolve("todo.md"), System.getProperty("os.name", "")));
+    }
+
+    @Test
+    @org.junit.jupiter.api.condition.EnabledOnOs(org.junit.jupiter.api.condition.OS.WINDOWS)
+    void aWindowsJunctionIntoAStoreIsStillTheStore() throws Exception {
+        // The symlink tests above are skipped on an account without the privilege, which is the
+        // ordinary case on Windows - and Windows is where the second names come from. A junction
+        // needs no privilege, and "Application Data" and "Local Settings" are exactly this.
+        java.nio.file.Path store = java.nio.file.Files.createDirectories(home.resolve(".ssh"));
+        java.nio.file.Files.writeString(store.resolve("id_rsa"), "key");
+        java.nio.file.Path alias = home.resolve("Application Data");
+        Process mklink = new ProcessBuilder("cmd", "/c", "mklink", "/J",
+                alias.toString(), store.toString()).redirectErrorStream(true).start();
+        if (!mklink.waitFor(20, java.util.concurrent.TimeUnit.SECONDS) || mklink.exitValue() != 0) {
+            org.junit.jupiter.api.Assumptions.abort("mklink unavailable: "
+                    + new String(mklink.getInputStream().readAllBytes()));
+        }
+
+        assertNotNull(protectedBy(alias.resolve("id_rsa"), "Windows 11"));
+        assertNotNull(protectedBy(alias.resolve("not-written-yet"), "Windows 11"));
+    }
 }

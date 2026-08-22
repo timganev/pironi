@@ -26,11 +26,38 @@ public final class SecretStores {
 
     static Path protectedBy(Path path, String osName, String userHome, Map<String, String> env) {
         if (path == null) return null;
-        Path candidate = path.toAbsolutePath().normalize();
+        Path lexical = path.toAbsolutePath().normalize();
+        // Normalising the text is not enough to know where a path lands. Windows ships a short
+        // 8.3 alias for every long name and a set of junctions kept for XP's sake, so .ssh is also
+        // SSH~1, and %APPDATA% is also "Application Data" - all of them real, all of them
+        // arriving here as something that starts with no store at all. What the file system says
+        // the path is decides, with the text as the fallback for names not on disk yet.
+        Path resolved = canonical(lexical);
         for (Path store : stores(osName, userHome, env)) {
-            if (candidate.equals(store) || candidate.startsWith(store)) return store;
+            if (within(lexical, store)) return store;
+            if (resolved != null && within(resolved, store)) return store;
         }
         return null;
+    }
+
+    private static boolean within(Path candidate, Path store) {
+        return candidate.equals(store) || candidate.startsWith(store);
+    }
+
+    /**
+     * The path the file system agrees on, or null when nothing along it exists. Walks up to the
+     * nearest real ancestor, so a key that has not been written yet still resolves through the
+     * aliases above it.
+     */
+    private static Path canonical(Path path) {
+        if (path == null) return null;
+        try {
+            return path.toRealPath();
+        } catch (java.io.IOException | RuntimeException e) {
+            Path parent = canonical(path.getParent());
+            Path name = path.getFileName();
+            return parent == null || name == null ? null : parent.resolve(name);
+        }
     }
 
     /** The stores for a platform, resolved from this machine's home directory and environment. */
