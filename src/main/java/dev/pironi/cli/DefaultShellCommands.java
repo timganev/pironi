@@ -154,6 +154,12 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
                     .append("  ").append(finding.session().isEmpty() ? "-" : finding.session())
                     .append("\n    ").append(finding.text());
         }
+        int characters = stored.stream().mapToInt(f -> f.text().length() + 3).sum();
+        // What this costs is the reason to look: every one rides on every tool result, and the
+        // first sign of that going wrong was a 37 KB file nobody had opened.
+        out.append("\n").append(stored.size()).append(" findings, ").append(characters)
+                .append(" characters — roughly ").append(characters / 4)
+                .append(" tokens on every tool result.");
         return out.append("\nDrop them with /findings clear; /resume ID reopens a session.")
                 .toString();
     }

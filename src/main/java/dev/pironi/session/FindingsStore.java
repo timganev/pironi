@@ -61,7 +61,10 @@ public final class FindingsStore {
         for (String text : texts) {
             // One fact, one line: a newline or a tab in the model's text would otherwise split the
             // record and the next load would read half a sentence as a whole finding.
-            String value = text.replaceAll("[\\p{Cntrl}]+", " ").strip();
+            // Clipped here too, so an over-long finding never reaches the file: the ledger's
+            // ceiling would otherwise only apply to what this run happened to record.
+            String value = FindingsLedger.clip(
+                    text.replaceAll("[\\p{Cntrl}]+", " ").strip());
             if (value.isEmpty()) continue;
             int existing = indexOfRestatement(merged, value);
             if (existing >= 0) {

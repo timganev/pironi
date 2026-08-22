@@ -124,4 +124,59 @@ class FindingsLedgerTest {
         assertTrue(FindingsLedger.restates(held + ", checked twice", held), "the test is symmetric");
         assertFalse(FindingsLedger.restates(held, "CalendarEvents is empty as well, same database"));
     }
+
+    @Test
+    void oneFindingCannotBeADocument() {
+        // Only the count was ever bounded. A model that answered "remember" with a pasted file
+        // stored the file, and every tool result for the life of that workspace carried it.
+        String document = "x".repeat(20_000);
+
+        String clipped = FindingsLedger.clip(document);
+
+        assertTrue(clipped.length() < 600, "was " + clipped.length());
+        assertTrue(clipped.endsWith("…(cut)"), "a cut sentence must say it was cut");
+        assertEquals("short enough to keep whole", FindingsLedger.clip("short enough to keep whole"));
+        assertEquals(null, FindingsLedger.clip(null));
+    }
+
+    @Test
+    void anOverLongFindingIsCutBeforeItIsRecorded() {
+        List<String> findings = new ArrayList<>();
+
+        FindingsLedger.recordFinding(findings, "The Outlook profile is broken. " + "y".repeat(9_000));
+
+        assertEquals(1, findings.size());
+        assertTrue(findings.getFirst().length() < 600, "was " + findings.getFirst().length());
+        assertTrue(findings.getFirst().startsWith("The Outlook profile is broken."),
+                "the opening is the part worth keeping");
+    }
+
+    @Test
+    void theWholeLedgerHasABudgetAndSaysWhenItIsSpent() {
+        List<String> findings = new ArrayList<>();
+        for (int i = 0; i < FindingsLedger.MAX_FINDINGS; i++) {
+            FindingsLedger.recordFinding(findings,
+                    "finding number " + i + " " + "z".repeat(480));
+        }
+
+        String ledger = FindingsLedger.findingsLedger(findings);
+
+        assertTrue(ledger.length() < FindingsLedger.MAX_LEDGER_CHARACTERS + 400,
+                "forty entries of 500 characters is 20k on every tool result: " + ledger.length());
+        // Stopping in silence would read as "that was all of them", which is the one thing it is not.
+        assertTrue(ledger.contains("further findings not shown"), ledger);
+        assertTrue(ledger.contains("/findings"), "and where to see the rest");
+    }
+
+    @Test
+    void aLedgerInsideItsBudgetSaysNothingAboutBudgets() {
+        List<String> findings = new ArrayList<>();
+        FindingsLedger.recordFinding(findings, "Outlook.sqlite Mail table holds exactly zero rows");
+        FindingsLedger.recordFinding(findings, "The build is Maven, and surefire runs on Java 25");
+
+        String ledger = FindingsLedger.findingsLedger(findings);
+
+        assertTrue(!ledger.contains("not shown"), ledger);
+        assertTrue(ledger.contains("zero rows") && ledger.contains("surefire"), ledger);
+    }
 }

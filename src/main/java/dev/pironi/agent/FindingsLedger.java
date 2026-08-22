@@ -20,13 +20,27 @@ public final class FindingsLedger {
     /** Below this a tool result is an answer, not a discovery, and does not count as progress. */
     static final int MIN_INFORMATIVE_CHARACTERS = 40;
 
+    /**
+     * A ceiling on one finding.
+     *
+     * <p>Only the number of entries was ever bounded, never the size of one. A model that answered
+     * "remember" with a pasted document stored the document, and every tool result for the life of
+     * that workspace carried it. A fact that will not fit in a few sentences is not what this is
+     * for; the session transcript is where the long version belongs.
+     */
+    static final int MAX_FINDING_CHARACTERS = 500;
+
+    /** And a ceiling on all of them together, because forty short ones still add up. */
+    static final int MAX_LEDGER_CHARACTERS = 6_000;
+
     public static void recordFinding(List<String> findings, String finding) {
         recordFinding(findings, finding, 0);
     }
+
     /** Drops the oldest earned finding when full; the first {@code pinned} entries never go. */
     public static void recordFinding(List<String> findings, String finding, int pinned) {
         if (finding == null || finding.isBlank()) return;
-        String trimmed = finding.strip();
+        String trimmed = clip(finding.strip());
         // "nothing conclusive yet" is not a finding.
         if (uninformativeFinding(trimmed)) return;
         if (findings.contains(trimmed)) return;
@@ -42,6 +56,13 @@ public final class FindingsLedger {
         int evictAt = pinned >= MAX_FINDINGS ? 0 : pinned;
         if (findings.size() > MAX_FINDINGS) findings.remove(evictAt);
     }
+
+    /** Cuts an over-long finding down, and says so rather than leaving a sentence hanging. */
+    public static String clip(String finding) {
+        if (finding == null || finding.length() <= MAX_FINDING_CHARACTERS) return finding;
+        return finding.substring(0, MAX_FINDING_CHARACTERS) + " …(cut)";
+    }
+
     /**
      * True when one text is the other's opening — one fact written out further, not two facts.
      * A model that pastes a growing prefix of the same document turn after turn otherwise fills
@@ -67,29 +88,50 @@ public final class FindingsLedger {
                     || lower.startsWith("unknown") || lower.startsWith("not yet")
                     || lower.startsWith("tbd"));
     }
+
     public static String findingsLedger(List<String> findings) {
         return findingsLedger(findings, 0);
     }
+
     /** The first {@code inherited} entries come from earlier runs here. */
     public static String findingsLedger(List<String> findings, int inherited) {
         if (findings.isEmpty()) return "";
         StringBuilder ledger = new StringBuilder();
         int carried = Math.min(inherited, findings.size());
+        int room = MAX_LEDGER_CHARACTERS;
+        int dropped = 0;
         if (carried > 0) {
             ledger.append(System.lineSeparator())
                     .append("Established here in earlier sessions, with the date each was last "
                             + "confirmed. Verify anything you are about to act on:");
-            for (String finding : findings.subList(0, carried)) {
-                ledger.append(System.lineSeparator()).append("- ").append(finding);
-            }
+            dropped += append(ledger, findings.subList(0, carried), room);
+            room = MAX_LEDGER_CHARACTERS - ledger.length();
         }
         if (carried < findings.size()) {
             ledger.append(System.lineSeparator())
                     .append("Established so far (do not re-derive):");
-            for (String finding : findings.subList(carried, findings.size())) {
-                ledger.append(System.lineSeparator()).append("- ").append(finding);
-            }
+            dropped += append(ledger, findings.subList(carried, findings.size()), room);
+        }
+        // Silence here would read as "that is all there was", which is the one thing it is not.
+        if (dropped > 0) {
+            ledger.append(System.lineSeparator())
+                    .append("- (").append(dropped)
+                    .append(" further findings not shown: the ledger is over its budget. ")
+                    .append("/findings lists them all.)");
         }
         return ledger.toString();
+    }
+
+    /** @return how many were left out for want of room */
+    private static int append(StringBuilder ledger, List<String> findings, int room) {
+        int written = 0;
+        for (String finding : findings) {
+            int cost = finding.length() + 3;
+            if (cost > room && written > 0) return findings.size() - written;
+            room -= cost;
+            written++;
+            ledger.append(System.lineSeparator()).append("- ").append(finding);
+        }
+        return 0;
     }
 }
