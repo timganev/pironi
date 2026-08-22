@@ -24,7 +24,10 @@ final class LastSessionStore {
             "max-output-tokens",
             "timeout-seconds",
             "trace",
-            "pironi-home",
+            // pironi-home is deliberately absent. This file lives inside the home, so replaying it
+            // is a memory telling the next run where memory is kept - and once a --portable or a
+            // one-off --pironi-home was written here, every later start with no arguments went
+            // silently to that other directory, including one that had since been deleted.
             "personal-context",
             "status",
             "verify-command",
@@ -51,12 +54,33 @@ final class LastSessionStore {
         List<String> arguments = new ArrayList<>();
         for (String key : ORDERED_KEYS) {
             String value = properties.getProperty(key);
-            if (value != null && !value.isBlank()) {
-                arguments.add("--" + key);
-                arguments.add(value);
-            }
+            if (value == null || value.isBlank()) continue;
+            if (!stillThere(key, value)) continue;
+            arguments.add("--" + key);
+            arguments.add(value);
         }
         return arguments.toArray(String[]::new);
+    }
+
+    /**
+     * Whether a remembered directory is still on this machine.
+     *
+     * <p>A workspace is created when it is missing, so replaying one that has since been deleted
+     * does not fail - it quietly builds the directory again and works there, which is worse. The
+     * remembered value is a convenience; a convenience that resurrects a folder someone removed
+     * has stopped being one.
+     */
+    private static boolean stillThere(String key, String value) {
+        return switch (key) {
+            case "workspace" -> Files.isDirectory(Path.of(value));
+            case "search-roots" -> java.util.Arrays.stream(value.split(","))
+                    .map(String::trim).filter(v -> !v.isEmpty())
+                    .anyMatch(v -> Files.isDirectory(Path.of(v)));
+            // The trace file itself is created on demand; the directory holding it is not.
+            case "trace" -> Path.of(value).getParent() == null
+                    || Files.isDirectory(Path.of(value).getParent());
+            default -> true;
+        };
     }
 
     void save(CliOptions options) throws IOException {
@@ -72,7 +96,6 @@ final class LastSessionStore {
         properties.setProperty("max-output-tokens", Integer.toString(options.maxOutputTokens()));
         properties.setProperty("timeout-seconds", Long.toString(options.modelTimeout().toSeconds()));
         properties.setProperty("trace", options.tracePath().toString());
-        properties.setProperty("pironi-home", options.pironiHome().toString());
         properties.setProperty("personal-context", cliName(options.personalContextMode()));
         properties.setProperty("status", cliName(options.statusMode()));
         if (options.verifyCommand() != null && !options.verifyCommand().isBlank()) {

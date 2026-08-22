@@ -418,7 +418,7 @@ public final class PironiMain {
             String sessionId = memory.currentSessionId();
             currentSessionId = sessionId;
             if (interactive) {
-                System.out.println(sessionBanner(sessionId));
+                System.out.println(sessionBanner(sessionId, options.pironiHome()));
             }
             // (headless --no-interactive keeps stdout clean for machine consumption)
             ConsoleApprovalPolicy approvalPolicy = new ConsoleApprovalPolicy(
@@ -1057,7 +1057,21 @@ public final class PironiMain {
      * with {@code /resume }.
      */
     static String sessionBanner(String sessionId) {
-        return "Pironi " + BuildVersion.current() + "  |  Session: " + sessionId
+        return sessionBanner(sessionId, Path.of(System.getProperty("user.home"), ".pironi"));
+    }
+
+    /**
+     * @param home where this run keeps skills, sessions and memory. Named in the banner when it is
+     *             not the usual one, because otherwise a run pinned elsewhere - by --portable, or
+     *             by a --pironi-home remembered from a previous start - looks exactly like an
+     *             ordinary one while writing somewhere else entirely.
+     */
+    static String sessionBanner(String sessionId, Path home) {
+        Path ordinary = Path.of(System.getProperty("user.home"), ".pironi")
+                .toAbsolutePath().normalize();
+        String where = home == null || home.toAbsolutePath().normalize().equals(ordinary)
+                ? "" : "  |  home: " + home.toAbsolutePath().normalize();
+        return "Pironi " + BuildVersion.current() + where + "  |  Session: " + sessionId
                 + "  |  continue with: /resume " + sessionId;
     }
 
