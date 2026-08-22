@@ -13,15 +13,29 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class SubagentManagerTest {
 
     @Test
-    void spawnReturnsHandleImmediatelyAndChildCompletes() {
-        var manager = new SubagentManager(2, (ignoredName, subtask) ->
-                SubagentResult.completed("x", "weather", "data for " + subtask));
+    void spawnReturnsHandleImmediatelyAndChildCompletes() throws Exception {
+        // The child has to still be running for "counted while it runs" to mean anything. With a
+        // task runner that returns at once it could be done before the assertion, and on a loaded
+        // machine it was - the two commits that waited for the count everywhere else missed here.
+        var childStarted = new java.util.concurrent.CountDownLatch(1);
+        var releaseChild = new java.util.concurrent.CountDownLatch(1);
+        var manager = new SubagentManager(2, (ignoredName, subtask) -> {
+            childStarted.countDown();
+            try {
+                releaseChild.await(5, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return SubagentResult.completed("x", "weather", "data for " + subtask);
+        });
 
         SubagentResult handle = manager.spawn("weather", "Sofia 5-day");
 
         assertEquals("completed", handle.status());
         assertTrue(handle.output().contains("started"), "handle should be returned immediately");
+        assertTrue(childStarted.await(5, java.util.concurrent.TimeUnit.SECONDS));
         assertEquals(1, manager.activeCount());
+        releaseChild.countDown();
 
         // Poll until the virtual thread finishes (bounded wait).
         SubagentManager.Completion completion = waitForCompletion(manager);
