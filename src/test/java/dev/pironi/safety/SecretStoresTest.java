@@ -141,4 +141,26 @@ class SecretStoresTest {
         assertNotNull(protectedBy(alias.resolve("id_rsa"), "Windows 11"));
         assertNotNull(protectedBy(alias.resolve("not-written-yet"), "Windows 11"));
     }
+
+    @Test
+    @org.junit.jupiter.api.condition.EnabledOnOs(org.junit.jupiter.api.condition.OS.WINDOWS)
+    void aStoreReachedByALinkedHomeIsStillTheStore() throws Exception {
+        // The other direction, and the one CI caught: the store itself can be named through a
+        // link. On macOS every temp directory is, because /var is a link to /private/var, so a
+        // resolved candidate compared against an unresolved store matched nothing at all.
+        java.nio.file.Path realHome = java.nio.file.Files.createDirectories(home.resolve("real"));
+        java.nio.file.Path store = java.nio.file.Files.createDirectories(realHome.resolve(".ssh"));
+        java.nio.file.Files.writeString(store.resolve("id_rsa"), "key");
+        java.nio.file.Path linkedHome = home.resolve("linked");
+        Process mklink = new ProcessBuilder("cmd", "/c", "mklink", "/J",
+                linkedHome.toString(), realHome.toString()).redirectErrorStream(true).start();
+        if (!mklink.waitFor(20, java.util.concurrent.TimeUnit.SECONDS) || mklink.exitValue() != 0) {
+            org.junit.jupiter.api.Assumptions.abort("mklink unavailable: "
+                    + new String(mklink.getInputStream().readAllBytes()));
+        }
+
+        // Home is known by its linked name, the file is asked for by its real one.
+        assertNotNull(SecretStores.protectedBy(store.resolve("id_rsa"), "Windows 11",
+                linkedHome.toString(), Map.of()));
+    }
 }

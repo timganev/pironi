@@ -88,11 +88,7 @@ final class CommandScopePolicy {
         String haystack = windows ? command.toLowerCase(Locale.ROOT) : command;
         for (java.nio.file.Path store : dev.pironi.safety.SecretStores.stores(osName)) {
             String full = store.toString();
-            for (String spelling : spellings(full, windows)) {
-                if (haystack.contains(windows ? spelling.toLowerCase(Locale.ROOT) : spelling)) {
-                    return full;
-                }
-            }
+            if (haystack.contains(windows ? full.toLowerCase(Locale.ROOT) : full)) return full;
             java.nio.file.Path fileName = store.getFileName();
             if (fileName == null) continue;
             String name = fileName.toString();
@@ -126,26 +122,6 @@ final class CommandScopePolicy {
         return null;
     }
 
-    /**
-     * The ways one store can be written on a command line. Windows keeps junctions from XP, so
-     * %APPDATA% is reachable as "Application Data" and %LOCALAPPDATA% as "Local Settings"; both
-     * exist on a stock install and both land in the same directory.
-     */
-    private static java.util.List<String> spellings(String store, boolean windows) {
-        if (!windows) return java.util.List.of(store);
-        java.util.List<String> spellings = new java.util.ArrayList<>();
-        spellings.add(store);
-        for (String[] junction : new String[][]{
-                {"\\AppData\\Roaming", "\\Application Data"},
-                {"\\AppData\\Local", "\\Local Settings"}}) {
-            int at = store.toLowerCase(Locale.ROOT).indexOf(junction[0].toLowerCase(Locale.ROOT));
-            if (at >= 0) {
-                spellings.add(store.substring(0, at) + junction[1]
-                        + store.substring(at + junction[0].length()));
-            }
-        }
-        return spellings;
-    }
 
     private static String cliName(ShellScope scope) {
         return scope.name().toLowerCase(Locale.ROOT);

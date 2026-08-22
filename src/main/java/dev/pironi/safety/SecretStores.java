@@ -35,7 +35,11 @@ public final class SecretStores {
         Path resolved = canonical(lexical);
         for (Path store : stores(osName, userHome, env)) {
             if (within(lexical, store)) return store;
-            if (resolved != null && within(resolved, store)) return store;
+            // Both sides have to be resolved or neither: on macOS /var is itself a link to
+            // /private/var, so a resolved path compared against an unresolved store matches
+            // nothing. The store is reported under the name it is known by, not its real one.
+            Path realStore = canonical(store);
+            if (resolved != null && realStore != null && within(resolved, realStore)) return store;
         }
         return null;
     }

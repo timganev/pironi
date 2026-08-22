@@ -160,31 +160,39 @@ class CommandScopePolicyTest {
     void aCredentialStoreIsOutOfReachAtUserScopeAsWellAsWorkspace() {
         // The check sat below the user-scope exit, so at the scope people actually run the shell
         // walked into a key without a question. Same shape as the UNC rule two commits earlier.
+        // ~/.ssh is on the list for every platform, so this holds wherever the tests run.
         assertNotNull(CommandScopePolicy.rejection(
                 "type C:\\Users\\me\\.ssh\\id_rsa", ShellScope.USER, "Windows 11"));
         assertNotNull(CommandScopePolicy.rejection(
                 "cat ~/.ssh/id_rsa", ShellScope.USER, "Linux"));
-        assertNotNull(CommandScopePolicy.rejection(
-                "type %APPDATA%\\Microsoft\\Protect\\key", ShellScope.USER, "Windows 11"));
         // Unrestricted is the deliberate opt-out and still is.
         assertNull(CommandScopePolicy.rejection(
                 "type C:\\Users\\me\\.ssh\\id_rsa", ShellScope.UNRESTRICTED, "Windows 11"));
     }
 
     @Test
+    @org.junit.jupiter.api.condition.EnabledOnOs(org.junit.jupiter.api.condition.OS.WINDOWS)
     void aWindowsStoreIsNamedWhicheverWayItIsSpelled() {
+        // The Windows stores are resolved from %APPDATA% and %LOCALAPPDATA%, which exist only on
+        // Windows: asking for them elsewhere measures the runner's environment, not this rule.
         // Windows path spelling is case-insensitive; matching the command case-sensitively was
         // matching a spelling nobody is obliged to type.
         assertNotNull(CommandScopePolicy.rejection(
+                "type %APPDATA%\\Microsoft\\Protect\\key", ShellScope.USER, "Windows 11"));
+        assertNotNull(CommandScopePolicy.rejection(
                 "type %appdata%\\microsoft\\protect\\key", ShellScope.USER, "Windows 11"));
-        // "Application Data" and "Local Settings" are junctions kept from XP; both exist on a
-        // stock install and both land in AppData.
+        // "Application Data" and "Local Settings" are junctions kept from XP, and SSH~1 is the
+        // 8.3 alias; all three are real routes on a stock install, spelled against this machine's
+        // own home so the file-system check has something to resolve.
+        String home = System.getProperty("user.home");
         assertNotNull(CommandScopePolicy.rejection(
-                "type C:\\Users\\me\\Application Data\\Microsoft\\Protect\\key",
+                "type " + home + "\\Application Data\\Microsoft\\Protect\\key",
                 ShellScope.USER, "Windows 11"));
         assertNotNull(CommandScopePolicy.rejection(
-                "dir C:\\Users\\me\\Local Settings\\Microsoft\\Credentials",
+                "dir " + home + "\\Local Settings\\Microsoft\\Credentials",
                 ShellScope.USER, "Windows 11"));
+        assertNotNull(CommandScopePolicy.rejection(
+                "type " + home + "\\SSH~1\\id_rsa", ShellScope.USER, "Windows 11"));
     }
 
     @Test
