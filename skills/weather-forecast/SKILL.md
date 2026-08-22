@@ -1,7 +1,7 @@
 # weather-forecast
 
 description: Weather forecasts without an API key, and how to work out which place was meant.
-triggers: weather, forecast, temperature, rain, wind, celsius, meteo, snow, sunny, cloudy, прогноза, времето, температура, дъжд, вятър, градуси, метео, синоптична, вали, валежи, сняг, облачно, слънчево, застудяване, затопляне
+triggers: weather, forecast, temperature, rain, wind, celsius, meteo, snow, sunny, cloudy, прогноза, температура, дъжд, вятър, градуси, метео, синоптична, вали, валежи, сняг, облачно, слънчево, застудяване, затопляне
 
 Two free services, no key, no account. Everything below was run on 2026-08-23 and the responses
 are what they actually returned.
@@ -100,3 +100,11 @@ A code with no entry here is not "clear" — say the number rather than guessing
 
 Not decided here. Ask what they want if it is not obvious from the question, and answer in the
 shape they asked for.
+
+## A word that is deliberately not a trigger
+
+`времето` means both the weather and the time, and the matcher treats it as a form of `време`, so
+it pulled this skill into "колко време отнема този билд". It is out of the trigger list for that
+reason. "Какво е времето навън" therefore reaches nothing on its own — but the skill list is in
+front of the model either way, so a miss costs a decision, while a false match costs a page of
+irrelevant instructions on every question containing the word.
