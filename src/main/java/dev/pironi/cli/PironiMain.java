@@ -109,6 +109,7 @@ public final class PironiMain {
     public static void main(String[] args) {
         int exitCode;
         useUtf8Console();
+        dev.pironi.status.AlternateCharset.disableWhereUnsupported();
         try {
             if (List.of(args).contains("--version") || List.of(args).contains("-V")
                     || List.of(args).contains("-v")) {
