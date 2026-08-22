@@ -172,6 +172,20 @@ public final class SkillStore {
         return validName(name) && isLoadable(skillsDir.resolve(name).resolve("SKILL.md"));
     }
 
+    /** The directory this store keeps skills in, for the few callers that need the path itself. */
+    public Path directory() {
+        return skillsDir;
+    }
+
+    /**
+     * Where a skill came from: shipped with a release, shipped and then edited here, or written
+     * here. Worth showing, because the three are trusted differently and only the first may be
+     * replaced by a later release.
+     */
+    public BundledSkills.Origin origin(String name) {
+        return BundledSkills.originOf(skillsDir, name);
+    }
+
     public Optional<String> contentHash(String name) {
         if (!validName(name)) return Optional.empty();
         Path skill = skillsDir.resolve(name).resolve("SKILL.md");

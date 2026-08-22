@@ -305,9 +305,18 @@ final class DefaultShellCommands implements InteractiveShell.ShellCommands {
             if (list.isEmpty()) return "No skills installed.";
             StringBuilder result = new StringBuilder("Skills:");
             for (var skill : list) {
+                // A skill that came with the release is trusted differently from one written here,
+                // and one that came with the release and was then edited differently again - not
+                // least because only the untouched ones a later release may replace.
+                String origin = switch (skills.origin(skill.name())) {
+                    case SHIPPED -> " [shipped]";
+                    case SHIPPED_EDITED -> " [shipped, edited here]";
+                    case LOCAL -> "";
+                };
                 result.append(System.lineSeparator())
                         .append("  ")
                         .append(skill.name())
+                        .append(origin)
                         .append(" — ")
                         .append(skill.description());
             }

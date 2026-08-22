@@ -172,6 +172,7 @@ public final class PironiMain {
                 options.tracePath(), RETENTION, objectMapper);
         ContextCompressor compressor = new ContextCompressor(options.contextSize(), objectMapper);
         SkillStore skills = new SkillStore(options.pironiHome());
+        plantBundledSkills(options.pironiHome());
         // A skill nobody applies is noise in every later prompt, so it is archived rather than
         // kept - and archiving alone never frees anything, so the archive is emptied in turn.
         skills.pruneStale(SKILL_UNUSED_DAYS);
@@ -1014,6 +1015,31 @@ public final class PironiMain {
             }
         }
         return List.copyOf(roots);
+    }
+
+    /**
+     * Plants the skills a release carries beside its launcher into the store this run reads.
+     *
+     * <p>Only a launcher knows where its own bundle is, so it says; run any other way there is
+     * nothing to plant and nothing happens. Failing here must not stop a session - a skill that
+     * did not arrive is worth a line, not an aborted start.
+     */
+    static void plantBundledSkills(Path pironiHome) {
+        String bundle = System.getenv("PIRONI_BUNDLE_DIR");
+        if (bundle == null || bundle.isBlank()) return;
+        try {
+            java.util.List<String> planted = dev.pironi.session.BundledSkills.install(
+                    Path.of(bundle).resolve("skills"),
+                    pironiHome.resolve("skills"),
+                    BuildVersion.current()
+            );
+            if (!planted.isEmpty()) {
+                System.out.println("Skills installed with this release: "
+                        + String.join(", ", planted));
+            }
+        } catch (java.io.IOException | RuntimeException e) {
+            System.out.println("Bundled skills were not installed: " + e.getMessage());
+        }
     }
 
     /** Names the session for the crash handler. */
