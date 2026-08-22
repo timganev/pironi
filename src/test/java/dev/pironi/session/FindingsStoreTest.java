@@ -103,4 +103,69 @@ class FindingsStoreTest {
         assertEquals(1, loaded.size());
         assertEquals("the build is Maven and the tests are JUnit tabbed", loaded.getFirst().text());
     }
+
+    @Test
+    void oneDocumentPastedInGrowingPiecesStaysOneRow() {
+        FindingsStore store = new FindingsStore(home);
+        String document = "=== SOUL.md (who I am) === Grammar and gender: I write in the feminine, "
+                + "the user is addressed as male. Identity: Alpha, a personal assistant. "
+                + "Operating principles: be genuinely useful, not performatively useful.";
+
+        // One turn each, a little further into the same document every time. Matching on equality
+        // alone gave every piece its own row, and the file grew to 37 KB that then rode on every
+        // prompt of every later run against this workspace.
+        for (int end = 80; end < document.length(); end += 20) {
+            store.save(workspace, List.of(document.substring(0, end)), "2026-08-20", "session-1");
+        }
+        store.save(workspace, List.of(document), "2026-08-20", "session-1");
+
+        List<FindingsStore.Finding> loaded = store.load(workspace);
+        assertEquals(1, loaded.size(), "one document is one fact, however far it was written out");
+        assertEquals(document, loaded.getFirst().text(), "the fullest wording is the one kept");
+    }
+
+    @Test
+    void aShorterRestatementDoesNotThrowAwayWhatWasAlreadyKnown() {
+        FindingsStore store = new FindingsStore(home);
+        String full = "Outlook.sqlite has a Mail table and it holds exactly zero rows, "
+                + "and CalendarEvents is empty too";
+        store.save(workspace, List.of(full), "2026-08-20", "session-1");
+
+        store.save(workspace, List.of("Outlook.sqlite has a Mail table and it holds exactly zero rows"),
+                "2026-08-21", "session-2");
+
+        List<FindingsStore.Finding> loaded = store.load(workspace);
+        assertEquals(1, loaded.size());
+        assertEquals(full, loaded.getFirst().text());
+        assertEquals("2026-08-21", loaded.getFirst().date(), "it was confirmed again today");
+    }
+
+    @Test
+    void aFilePoisonedBeforeTheRuleHealsOnTheNextWrite() throws Exception {
+        FindingsStore store = new FindingsStore(home);
+        String document = "=== SOUL.md (who I am) === Grammar and gender: I write in the feminine, "
+                + "the user is addressed as male. Identity: Alpha, a personal assistant.";
+        store.save(workspace, List.of("a seed fact, long enough to be worth carrying over"),
+                "2026-08-20", "old-session");
+        Path file;
+        try (var entries = java.nio.file.Files.list(home.resolve("findings"))) {
+            file = entries.findFirst().orElseThrow();
+        }
+
+        // Rewrite it as it stood before the rule: one document at many lengths, a row each.
+        List<String> rows = new ArrayList<>();
+        for (int end = 60; end < document.length(); end += 20) {
+            rows.add("2026-08-20\told-session\t" + document.substring(0, end));
+        }
+        rows.add("2026-08-20\told-session\t" + document);
+        java.nio.file.Files.write(file, rows, java.nio.charset.StandardCharsets.UTF_8);
+        assertEquals(rows.size(), store.load(workspace).size(), "the poisoned file is the premise");
+
+        store.save(workspace, List.of("the build is Maven"), "2026-08-22", "new-session");
+
+        assertEquals(
+                List.of(document, "the build is Maven"),
+                store.load(workspace).stream().map(FindingsStore.Finding::text).toList()
+        );
+    }
 }

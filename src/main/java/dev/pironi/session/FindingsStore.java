@@ -57,15 +57,19 @@ public final class FindingsStore {
     /** Adds what this run established, one entry per distinct text. */
     public void save(Path workspace, List<String> texts, String date, String session) {
         if (texts.isEmpty()) return;
-        List<Finding> merged = new ArrayList<>(load(workspace));
+        List<Finding> merged = compacted(load(workspace));
         for (String text : texts) {
             // One fact, one line: a newline or a tab in the model's text would otherwise split the
             // record and the next load would read half a sentence as a whole finding.
             String value = text.replaceAll("[\\p{Cntrl}]+", " ").strip();
             if (value.isEmpty()) continue;
-            int existing = indexOfText(merged, value);
-            if (existing >= 0) merged.set(existing, new Finding(date, session, value));
-            else merged.add(new Finding(date, session, value));
+            int existing = indexOfRestatement(merged, value);
+            if (existing >= 0) {
+                // The same fact restated: keep whichever wording says more, in the place it holds.
+                String held = merged.get(existing).text();
+                String fuller = value.length() >= held.length() ? value : held;
+                merged.set(existing, new Finding(date, session, fuller));
+            } else merged.add(new Finding(date, session, value));
         }
         List<Finding> kept = merged;
         if (merged.size() > FindingsLedger.MAX_FINDINGS) {
@@ -94,9 +98,31 @@ public final class FindingsStore {
         }
     }
 
-    private static int indexOfText(List<Finding> findings, String text) {
+    /**
+     * Folds rows that only restate one another. A file written before this rule held 34 rows that
+     * were one document at 34 lengths; without this it would keep them until the end of time.
+     */
+    private static List<Finding> compacted(List<Finding> stored) {
+        List<Finding> kept = new ArrayList<>();
+        for (Finding finding : stored) {
+            int existing = indexOfRestatement(kept, finding.text());
+            if (existing < 0) {
+                kept.add(finding);
+            } else if (finding.text().length() > kept.get(existing).text().length()) {
+                kept.set(existing, finding);
+            }
+        }
+        return kept;
+    }
+
+    /**
+     * Where a fact already stands, matched on wording as well as on restatement. Matching on
+     * equality alone let one document arrive as a longer prefix each turn and take a row each time.
+     */
+    private static int indexOfRestatement(List<Finding> findings, String text) {
         for (int i = 0; i < findings.size(); i++) {
-            if (findings.get(i).text().equals(text)) return i;
+            String held = findings.get(i).text();
+            if (held.equals(text) || FindingsLedger.restates(held, text)) return i;
         }
         return -1;
     }

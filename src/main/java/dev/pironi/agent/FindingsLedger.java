@@ -30,12 +30,34 @@ public final class FindingsLedger {
         // "nothing conclusive yet" is not a finding.
         if (uninformativeFinding(trimmed)) return;
         if (findings.contains(trimmed)) return;
+        for (int i = 0; i < findings.size(); i++) {
+            if (!restates(findings.get(i), trimmed)) continue;
+            // The same fact, written out further: keep the fuller wording where the fact already is.
+            if (trimmed.length() > findings.get(i).length()) findings.set(i, trimmed);
+            return;
+        }
         findings.add(trimmed);
         // Evict the oldest entry that may go - the first unpinned one, or when the pinned prefix
         // fills the budget the oldest pinned one, or the ledger freezes at what early runs learned.
         int evictAt = pinned >= MAX_FINDINGS ? 0 : pinned;
         if (findings.size() > MAX_FINDINGS) findings.remove(evictAt);
     }
+    /**
+     * True when one text is the other's opening — one fact written out further, not two facts.
+     * A model that pastes a growing prefix of the same document turn after turn otherwise fills
+     * the ledger with copies of it, and every copy then rides on every prompt that follows.
+     */
+    public static boolean restates(String held, String candidate) {
+        if (held == null || candidate == null) return false;
+        String one = held.strip();
+        String other = candidate.strip();
+        if (one.isEmpty() || other.isEmpty()) return false;
+        String shorter = one.length() <= other.length() ? one : other;
+        String longer = one.length() <= other.length() ? other : one;
+        // Two brief findings can open alike by chance; a long one that opens alike is the same one.
+        return shorter.length() >= MIN_INFORMATIVE_CHARACTERS && longer.startsWith(shorter);
+    }
+
     /** A hedge states that nothing was established, which an absent entry already says for free. */
     public static boolean uninformativeFinding(String finding) {
         String lower = finding.toLowerCase(java.util.Locale.ROOT);

@@ -84,4 +84,44 @@ class FindingsLedgerTest {
         assertEquals("fact 59", findings.getLast());
         assertEquals("", FindingsLedger.findingsLedger(new ArrayList<>()));
     }
+
+    @Test
+    void aFactWrittenOutFurtherReplacesItInsteadOfTakingAnotherRow() {
+        List<String> findings = new ArrayList<>();
+        // What actually happened: the model pasted a growing prefix of the same document every
+        // turn, and 34 copies of it then rode on every prompt for the rest of the run.
+        String document = "=== SOUL.md (who I am) === Grammar and gender: I write in the feminine, "
+                + "the user is addressed as male. Identity: Alpha, a personal assistant. "
+                + "Operating principles: be genuinely useful, not performatively useful.";
+        for (int end = 80; end < document.length(); end += 20) {
+            FindingsLedger.recordFinding(findings, document.substring(0, end));
+        }
+        FindingsLedger.recordFinding(findings, document);
+
+        assertEquals(1, findings.size(), "one document is one fact, however far it was written out");
+        assertEquals(document, findings.getFirst(), "the fullest wording is the one kept");
+    }
+
+    @Test
+    void twoShortFindingsThatOpenAlikeStayApart() {
+        List<String> findings = new ArrayList<>();
+
+        FindingsLedger.recordFinding(findings, "the build is Maven");
+        FindingsLedger.recordFinding(findings, "the build is Maven, not Gradle");
+
+        // Under the length where a shared opening means anything, they are simply two findings.
+        assertEquals(2, findings.size());
+    }
+
+    @Test
+    void restatementNeedsARealSharedOpeningNotACoincidentalOne() {
+        assertFalse(FindingsLedger.restates("short", "shorter"));
+        assertFalse(FindingsLedger.restates(null, "anything"));
+        assertFalse(FindingsLedger.restates("", ""));
+
+        String held = "Outlook.sqlite has a Mail table and it holds exactly zero rows today";
+        assertTrue(FindingsLedger.restates(held, held + ", checked twice"));
+        assertTrue(FindingsLedger.restates(held + ", checked twice", held), "the test is symmetric");
+        assertFalse(FindingsLedger.restates(held, "CalendarEvents is empty as well, same database"));
+    }
 }
