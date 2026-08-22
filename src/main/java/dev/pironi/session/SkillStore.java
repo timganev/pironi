@@ -25,6 +25,8 @@ public final class SkillStore {
     private static final int MAX_PROMPT_INDEX_CHARACTERS = 2_400;
     private static final int MAX_PROMPT_INDEX_ENTRIES = 24;
     private static final int MAX_SKILL_CHARACTERS = 24_000;
+    /** What a word in the name or triggers is worth, against one that is only in the prose. */
+    private static final int NAMED_WORD = 2;
 
     private final Path skillsDir;
 
@@ -117,14 +119,20 @@ public final class SkillStore {
                     scores.add(entry.name() + "=excluded");
                     continue;
                 }
-                Set<String> metadata = tokens(
-                        entry.name() + " " + entry.description() + " "
-                                + extractField(Path.of(entry.path()), "triggers:")
-                );
+                // A trigger is a promise about what this skill is for; a description is prose
+                // written for a human, and any of its words can turn up in an unrelated
+                // sentence. Counting them alike let "git status" reach a skill whose
+                // description happens to say "status reports". Named words carry the weight.
+                Set<String> named = tokens(entry.name() + " "
+                        + extractField(Path.of(entry.path()), "triggers:"));
+                Set<String> described = tokens(entry.description());
                 int score = 0;
                 for (String token : query) {
-                    if (metadata.stream().anyMatch(m -> relatedForms(token, m))) score++;
+                    if (named.stream().anyMatch(m -> relatedForms(token, m))) score += NAMED_WORD;
+                    else if (described.stream().anyMatch(m -> relatedForms(token, m))) score++;
                 }
+                Set<String> metadata = new HashSet<>(named);
+                metadata.addAll(described);
                 scores.add(entry.name() + "=" + score + "/" + metadata.size());
                 if (score > bestScore) {
                     best = entry;
@@ -144,8 +152,11 @@ public final class SkillStore {
                 }
             }
             scores.sort(java.util.Comparator.comparingInt(SkillStore::scoreOf).reversed());
+            // A named word is worth the threshold on its own: "give me an outlook report"
+            // names its subject outright and used to apply nothing, because one word of prose
+            // and one word of promise counted the same.
             String reason = bestScore == 0 ? "no-match"
-                    : bestScore < 2 ? "below-threshold"
+                    : bestScore < NAMED_WORD ? "below-threshold"
                     : tied ? "tie"
                     : "chosen";
             return new SkillDecision(

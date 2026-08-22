@@ -122,7 +122,9 @@ class SkillStoreTest {
         ).orElseThrow().name());
         assertTrue(store.findRelevant("Weather tomorrow in Sofia").isEmpty());
 
-        assertTrue(store.save("status-copy", """
+        // The name carries weight now, so a copy has to be named as close to the request as
+        // the original is - otherwise the better-named one wins outright, which is the point.
+        assertTrue(store.save("weekly-status-copy", """
                 ---
                 description: Prepare weekly team status report with owners and blockers
                 ---
