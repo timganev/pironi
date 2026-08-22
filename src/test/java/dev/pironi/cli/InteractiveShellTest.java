@@ -11,10 +11,14 @@ import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Collections;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class InteractiveShellTest {
@@ -338,4 +342,69 @@ class InteractiveShellTest {
         assertTrue(output.contains("Session closed."));
     }
 
+
+    @Test
+    void anAutoTurnStandsDownWhileATurnIsAlreadyRunning() throws Exception {
+        List<String> tasks = Collections.synchronizedList(new ArrayList<>());
+        CountDownLatch userTurnEntered = new CountDownLatch(1);
+        CountDownLatch releaseUserTurn = new CountDownLatch(1);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        InteractiveShell shell = new InteractiveShell(
+                new BufferedReader(new StringReader("forecast, please\n/exit\n")),
+                new PrintStream(bytes, true, StandardCharsets.UTF_8),
+                task -> {
+                    tasks.add(task);
+                    if (tasks.size() == 1) {
+                        userTurnEntered.countDown();
+                        try {
+                            releaseUserTurn.await(5, TimeUnit.SECONDS);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                    return new AgentResult(true, "answer", 1, true);
+                }
+        );
+
+        Thread repl = new Thread(() -> {
+            try {
+                shell.run(null);
+            } catch (Exception ignored) {
+                // the assertions below speak for the run
+            }
+        }, "repl");
+        repl.start();
+        assertTrue(userTurnEntered.await(5, TimeUnit.SECONDS), "the user turn never started");
+
+        // The sub-agent finished while that turn is still in flight. A second loop beside it took
+        // the finished results away from the first, which then stalled and redid the child's work.
+        shell.autoTurnCallback().run();
+        assertFalse(
+                awaitCount(tasks, 2),
+                "a second agent loop ran beside the one already in flight: " + tasks
+        );
+
+        releaseUserTurn.countDown();
+        repl.join(10_000);
+        assertEquals(1, tasks.size(), "the turn in flight drains finished sub-agents by itself");
+    }
+
+    /** @return true once the text shows up, false if it has not within a fair window */
+    private static boolean awaitOutput(ByteArrayOutputStream bytes, String text) throws Exception {
+        return awaitTrue(() -> bytes.toString(StandardCharsets.UTF_8).contains(text));
+    }
+
+    /** @return true once the list reaches {@code size}, false if it has not within a fair window */
+    private static boolean awaitCount(List<String> items, int size) throws Exception {
+        return awaitTrue(() -> items.size() >= size);
+    }
+
+    private static boolean awaitTrue(java.util.function.BooleanSupplier condition) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        while (System.nanoTime() < deadline) {
+            if (condition.getAsBoolean()) return true;
+            Thread.sleep(10);
+        }
+        return condition.getAsBoolean();
+    }
 }

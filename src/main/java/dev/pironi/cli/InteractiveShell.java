@@ -42,7 +42,9 @@ public final class InteractiveShell {
     private final List<String> conversationHistory = new ArrayList<>();
     private Runnable onShutdown = () -> { };
     private volatile boolean userWriting;
-    private final Object autoTurnLock = new Object();
+    /** One agent loop at a time: the loop and the memory behind it are not built to be shared. */
+    private final java.util.concurrent.locks.ReentrantLock turnLock =
+            new java.util.concurrent.locks.ReentrantLock();
     /** Holds the last auto-turn answer that completed while the user was typing;
      * flushed to the screen when readLine() returns. */
     private volatile String pendingAutoTurnResult;
@@ -262,37 +264,36 @@ public final class InteractiveShell {
      * pressing Enter.
      */
     public Runnable autoTurnCallback() {
-        return () -> {
-            synchronized (autoTurnLock) {
+        return () -> Thread.ofVirtual().name("pironi-auto-turn").start(() -> {
+            // A turn already in flight drains finished sub-agents itself at the top of its next
+            // turn. Starting a second loop beside it took those results away from the first, which
+            // then stalled on filler tool calls and finally redid the child's work for a second
+            // answer. When the lock is taken there is nothing here left to do.
+            if (!turnLock.tryLock()) return;
+            try {
+                AgentResult result = runner.run(
+                        "[системно известие] Провери дали има нови резултати от под-агенти и ги представи на потребителя.");
+                if (result == null) return;
+                String answer = result.output();
+                if (answer == null || answer.isBlank()) return;
+                conversationHistory.add("User: [auto-turn]");
+                conversationHistory.add("Pironi: " + answer);
+                while (conversationHistory.size() > 8) conversationHistory.removeFirst();
                 if (userWriting) {
-                    // User is typing — defer the result display until they press Enter.
+                    pendingAutoTurnResult = answer;
+                } else {
+                    printAgentAnswer(answer);
                 }
+            } catch (Exception ignored) {
+                // auto-turn failures are silent; user retries on next message
+            } finally {
+                turnLock.unlock();
             }
-            Thread.ofVirtual().name("pironi-auto-turn").start(() -> {
-                try {
-                    AgentResult result = runner.run(
-                            "[системно известие] Провери дали има нови резултати от под-агенти и ги представи на потребителя.");
-                    if (result == null) return;
-                    String answer = result.output();
-                    if (answer == null || answer.isBlank()) return;
-                    conversationHistory.add("User: [auto-turn]");
-                    conversationHistory.add("Pironi: " + answer);
-                    while (conversationHistory.size() > 8) conversationHistory.removeFirst();
-                    // Always buffer the answer — streaming from a virtual thread is unreliable with
-                    // JLine, so we show it via the REPL loop or printAgentAnswer.
-                    if (userWriting) {
-                        pendingAutoTurnResult = answer;
-                    } else {
-                        printAgentAnswer(answer);
-                    }
-                } catch (Exception ignored) {
-                    // auto-turn failures are silent; user retries on next message
-                }
-            });
-        };
+        });
     }
 
     private AgentResult runTask(String task) throws InterruptedException {
+        turnLock.lockInterruptibly();
         try {
             return runner.run(task);
         } catch (IOException | RuntimeException e) {
@@ -301,6 +302,8 @@ public final class InteractiveShell {
             printError("Request failed: " + detail);
             printError("You can retry or change the model.");
             return null;
+        } finally {
+            turnLock.unlock();
         }
     }
 
