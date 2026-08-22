@@ -191,8 +191,11 @@ class CommandScopePolicyTest {
         assertNotNull(CommandScopePolicy.rejection(
                 "dir " + home + "\\Local Settings\\Microsoft\\Credentials",
                 ShellScope.USER, "Windows 11"));
-        assertNotNull(CommandScopePolicy.rejection(
-                "type " + home + "\\SSH~1\\id_rsa", ShellScope.USER, "Windows 11"));
+        // The 8.3 alias of a store directory - "SSH~1" for .ssh - is deliberately not asserted
+        // here. It exists only where that directory does, and the store list this rule reads comes
+        // from the real user.home, which a test must not write into. Asserting it passed on a
+        // developer machine that happens to have ~/.ssh and failed on a runner that does not.
+        // SecretStoresTest covers the resolution itself, on a temp home it controls.
     }
 
     @Test
