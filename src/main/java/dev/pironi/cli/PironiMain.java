@@ -212,6 +212,7 @@ public final class PironiMain {
                         hiddenAgentPaths
                 ),
                 new InspectFileTool(workspace, readRoots),
+                new dev.pironi.tool.ReadLevelDbTool(workspace, readRoots),
                 new SystemInfoTool(workspace),
                 new AppControlTool(),
                 new dev.pironi.tool.ProcessInspectTool(),
@@ -953,6 +954,7 @@ public final class PironiMain {
             if (tool instanceof ReadFileTool readFile) readFile.useGrants(grants);
             if (tool instanceof ListFilesTool listFiles) listFiles.useGrants(grants);
             if (tool instanceof InspectFileTool inspect) inspect.useGrants(grants);
+            if (tool instanceof dev.pironi.tool.ReadLevelDbTool leveldb) leveldb.useGrants(grants);
             if (tool instanceof FindFilesTool find) find.useGrants(grants);
         }
         return new ToolRegistry(availableTools, grants);

@@ -1,7 +1,7 @@
 # windows-outlook-teams
 
 description: Where Outlook and Teams keep data on Windows, how to reach it, and what lies to you.
-triggers: outlook, teams, calendar, meetings, mailbox, inbox, mail, appointments, com, mapi, ost, pst, olk, msteams, meeting, invite, sent items, аутлук, тиймс, календар, срещи, среща, поща, имейл, имейли, писма, кутия, пощенска
+triggers: outlook, teams, calendar, meetings, mailbox, inbox, mail, appointments, com, mapi, ost, pst, olk, msteams, meeting, invite, sent items, аутлук, тиймс, календар, срещи, среща, поща, имейл, имейли, писма, кутия, пощенска, leveldb, indexeddb, ebwebview
 
 This is a map, not a recipe. It says where things are, how to open them, and which answers are
 lies. What to do with what you find is the user's call — ask them rather than deciding a shape
@@ -122,27 +122,40 @@ local, and appointments made on the web are not in it.
 ## Teams
 
 The current client is a WebView2 app (`MSTeams` MSIX, process `ms-teams`). There is no COM. Its
-data is a Chromium IndexedDB, values serialised by V8:
+data is a Chromium IndexedDB, values serialised by V8, and `read_leveldb` opens it directly:
 
 ```
-%LOCALAPPDATA%\Packages\MSTeams_8wekyb3d8bbwe\LocalCache\Microsoft\MSTeams\
-    EBWebView\WV2Profile_tfl\IndexedDB\https_teams.live.com_0.indexeddb.leveldb\
+%LOCALAPPDATA%\Packages\MSTeams_8wekyb3d8bbwe\LocalCache\Microsoft\MSTeams\EBWebView\
+    WV2Profile_tfl\IndexedDB\https_teams.live.com_0.indexeddb.leveldb\      personal account
+    WV2Profile_tfw\IndexedDB\https_teams.microsoft.com_0.indexeddb.leveldb\ work or school
 ```
 
-Before anyone signs in the package folder holds a couple of files; after, several hundred
-megabytes. Calendar events are in there as structured records — `subject`, `startTime` and
-`endTime`, `organizerName`, `myResponseType`, `showAs`, `isOnlineMeeting`, `bodyPreview`,
-`skypeTeamsMeetingUrl` — so a meeting that never touched Outlook is still reachable locally.
+**Do not go looking for the data with a file search.** The whole `EBWebView` tree is thousands of
+cache, shader and service-worker files, and walking it takes minutes and finds nothing — the store
+itself is the `.leveldb` directory named above, and on this machine it was six files and 1.4 MB
+holding 32,241 records, which `read_leveldb` scans in about a fifth of a second. Point the tool at
+that directory. Anything slower means the wrong path.
 
-- **Teams holds the files open.** A plain read fails; open with `FileShare.ReadWrite` and it works
-  with Teams running. Do not ask the user to quit it.
-- **Dates are Blink doubles**: the tag `D` followed by eight little-endian bytes, milliseconds
-  since the epoch.
-- **The schema is undocumented and changes.** Parsers written for Teams 1.x return nothing on the
-  current client. Treat anything read here as evidence that may stop being true after an update,
-  and say so when reporting from it.
-- Scanning thousands of cache files in PowerShell is slow enough to look hung. Prefer a proper
-  LevelDB/V8 reader when one is available.
+Calendar events are in there as whole JSON payloads — `subject`, `startTime`, `endTime`,
+`organizerId`, `meetingType`, `eventRecurrencePattern`, `isCancelled`, `iCalUid`, `exchangeId` and
+the join URL — so a meeting that never touched Outlook is still reachable locally. Filtering with
+`contains` on a subject, on `"meeting"` or on a date is far cheaper than reading the store whole.
+
+- **Teams keeps the files open, and that is fine.** `read_leveldb` reads with every share flag set
+  and works with Teams running. Never ask the user to quit it.
+- **`exchangeId` is the join between the two worlds.** A meeting present in both Teams and the
+  Exchange calendar carries it, which is how to reconcile the two without matching on subject text.
+- **Deleted and superseded records are still there.** The reader does not resolve tombstones or
+  sequence numbers, so the same meeting can appear several times, in older and newer forms. Read
+  the newest, and never report a count of records as a count of meetings.
+- **Dates come in two shapes.** The JSON payloads carry ISO 8601 strings. Elsewhere V8 writes a
+  date as the tag `D` followed by eight little-endian bytes: milliseconds since the epoch.
+- **The schema is undocumented and changes.** Parsers written for Teams 1.x return nothing at all
+  on the current client. Treat what is read here as evidence that may stop being true after an
+  update, and say so when reporting from it.
+- **A block count of skipped blocks is not noise.** `read_leveldb` says when a block used a
+  compression it cannot undo — Chromium has been moving towards zstd. Zero found *and* blocks
+  skipped means "unknown", not "empty".
 
 ### Which meetings end up where
 
@@ -175,3 +188,6 @@ subject lines are the content, not the metadata.
 These are PowerShell one-liners, so they need `run_command`, which is not classified read-only and
 will ask for approval. Shell scope has to reach outside the workspace. Long COM calls can block:
 give them a timeout and expect to have to say why nothing came back.
+
+`read_leveldb` is the exception: it is a read, needs no shell and no approval beyond read scope,
+and does not care whether Teams is running. Reach for it before any PowerShell against Teams.
