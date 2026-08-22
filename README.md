@@ -84,19 +84,66 @@ No installer, elevation, Maven, `JAVA_HOME`, or system `PATH` change is used.
 confirmation in the Windows portable default. Use it only on a backed-up user
 profile and review the requested task carefully.
 
-When no override is supplied, `pironi.bat` uses `%USERPROFILE%` as both the
-writable workspace and search root (including Downloads, Desktop, and
-Documents), enables user-scoped shell commands, and uses the
-`.pironi` directory beside `pironi.bat` for `SOUL.md`, `USER.md`, skills, and
-sessions. Personal context is layered from `%USERPROFILE%\.pironi`, through the
-portable home, and then through `.pironi` directories down to the workspace;
-nearer layers override conflicting instructions from broader layers. `CLAUDE.md`
-files cascade from the user home down to the workspace in the same order. These
-personal files are sent to the selected cloud provider; pass
-`--personal-context deny` to disable that.
-Arguments after `pironi.bat` override the launcher defaults, so an explicit
+`pironi.bat` sets almost nothing. A release reads `%USERPROFILE%.pironi` like
+every other way of running Pironi, so upgrading is unzipping a new folder and
+the skills, sessions and memory carry over. The working directory is the one
+you are standing in — except when the launcher is double-clicked, where it
+would otherwise be the program's own folder, and `%USERPROFILE%` is used
+instead so an agent does not write into its own installation.
+
+On first run the skills in `skills` beside the launcher are copied into
+`%USERPROFILE%.pironiskills` and marked as shipped. `/skills` tells a shipped
+skill from one written here, and from one that was shipped and then edited; a
+later release replaces only the untouched ones, and one deleted here stays
+deleted.
+
+`--portable` keeps everything inside the bundle instead, for a copy on a stick
+that leaves nothing behind.
+
+Personal context is layered from `%USERPROFILE%.pironi` through `.pironi`
+directories down to the workspace; nearer layers override conflicting
+instructions from broader ones. `CLAUDE.md` cascades the same way but sits
+directly in the directories rather than under `.pironi`. Both are sent to the
+selected provider on every turn; `--personal-context deny` switches that off,
+and `auto` restricts it to a local model.
+
+Arguments after `pironi.bat` override anything the launcher set, so an explicit
 `--workspace` still selects a project. Pironi creates a missing final workspace
 directory automatically.
+
+### Running with full access
+
+Pironi is cautious by default: it reads freely, asks before every change, and
+confines the shell to the workspace. To let it work unattended:
+
+```powershell
+.pironi.bat --provider deepseek --model deepseek-v4-flash `
+  --approval auto `
+  --shell-scope unrestricted `
+  --read-scope unrestricted `
+  --personal-context allow `
+  --workspace "$env:USERPROFILE"
+```
+
+| Flag | Without it | With it |
+| --- | --- | --- |
+| `--approval auto` | every mutating tool call and shell command is refused (`read-only` is the default) | they run unattended |
+| `--shell-scope unrestricted` | the shell is confined to the workspace | it reaches the whole machine, including UNC paths to other machines |
+| `--read-scope unrestricted` | — | already the default; listed for completeness |
+| `--personal-context allow` | — | already the default; `deny` switches it off |
+| `--workspace PATH` | the directory you are standing in | changes act there |
+
+`--activity auto` is a shorthand for `--approval auto` and wins even when
+`--approval ask` also appears.
+
+**One exception holds at every scope.** Credential stores — `~/.ssh`, the DPAPI
+keys under `%APPDATA%MicrosoftProtect`, Windows Credentials and the rest —
+require an explicit yes each time they are touched, including through the second
+names Windows gives them such as `SSH~1` or the `Application Data` junction.
+No flag turns that off.
+
+Before using `--approval auto`: have a backup or OneDrive history, and keep the
+task narrow. The agent will write and delete without asking.
 
 #### Windows alternative: an existing unpacked JDK 25
 
@@ -557,6 +604,14 @@ cannot evict them, and trimming keeps both ends of the list. The store merges
 rather than overwrites, so two runs in the same workspace do not erase each
 other.
 
+Findings are bounded by weight as well as by count. One entry is cut at 500
+characters and says it was cut, because nothing had ever capped the size of a
+single one: a model answering `remember` with a pasted document stored the
+document and replayed it on every tool result. The rendered ledger has a 6,000
+character budget and reports how many entries it left out. `/findings` shows
+what the stored set costs in characters and in tokens per tool result, and
+`/findings clear` drops it.
+
 A hedge is not a finding. `nothing conclusive yet` and its relatives are dropped
 rather than recorded: nagging about a missing finding taught the model to fill
 the field with a placeholder, which then occupied the ledger for the whole run
@@ -616,11 +671,36 @@ Skills are procedural guidance below identity, privacy, project rules and
 approval policy. They cannot authorize external messages, change `SOUL.md` or
 `USER.md`, preserve temporary location as identity, or bypass confirmation.
 
-Portable bundles include a `team-lead` skill for safe Planner/Teams CSV
-reconciliation, status reporting, calendar drafts, and Office Open XML
-artifacts. Activate it with `/skill team-lead`. Pironi can create `.xlsx`,
-`.docx`, and `.pptx` through native Java tools without Microsoft Office,
-administrator rights, COM automation, PowerShell generators, or downloads.
+A release carries its skills in `skills/` beside the launcher — the seed, not
+the store. On first run they are copied into `~/.pironi/skills` and a manifest
+records the hash each had when planted, which is what tells three states apart:
+shipped and untouched, shipped and since edited here, or written here. A later
+release replaces only the untouched ones; an edited skill is left alone, and one
+deleted here is not planted again.
+
+This release ships three:
+
+| Skill | What it is for |
+| --- | --- |
+| `team-lead` | Planner/Teams CSV reconciliation, status reports, calendar drafts, Office artifacts |
+| `windows-outlook-teams` | where Outlook and Teams keep data on Windows, how to reach it, and which answers lie |
+| `weather-forecast` | forecasts without an API key, and working out which place was meant |
+
+Selection weighs a word matching a skill's name or its `triggers:` as worth the
+threshold on its own, and a word matching only its description as half. Both
+counted alike before, which cut both ways: a question naming its subject in one
+word applied nothing, while a question containing a word that happened to appear
+in some skill's prose applied that skill.
+
+Adding a skill to a release is `skills/<name>/SKILL.md` and nothing else. It
+needs a `description:` line in its first 40 lines, a directory name matching
+`[a-zA-Z0-9_-]+`, and under 24,000 characters; `BundledSkillsTest` fails the
+build otherwise, because a skill that breaks one of those rules is packaged,
+shipped, and then silently not loaded.
+
+Pironi can create `.xlsx`, `.docx`, and `.pptx` through native Java tools
+without Microsoft Office, administrator rights, COM automation, PowerShell
+generators, or downloads.
 
 `run_command` is considered mutating because arbitrary shell commands can
 change files or external state. In auto mode, opt in explicitly with an exact

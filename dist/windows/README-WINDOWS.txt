@@ -1,62 +1,151 @@
-PIRONI PORTABLE FOR WINDOWS 11
-==============================
+PIRONI PORTABLE ЗА WINDOWS 11
+=============================
 
-Не са нужни admin права, Maven или инсталирана Java.
+Не са нужни admin права, Maven или инсталирана Java. Java 25 е вътре в папката.
 
-1. Разархивирай ZIP файла в папка, в която имаш право да пишеш,
-   например Documents\Pironi.
 
-2. Отвори PowerShell в разархивираната папка.
+КАКВО ИМА В ПАПКАТА
+-------------------
 
-3. Задай API ключа само за текущия PowerShell прозорец:
+   pironi.bat        стартерът
+   pironi.jar        програмата
+   runtime\          Java 25, само за нея
+   skills\           скиловете, с които идва това издание
+   SOUL.example.md   образец за самоличност на агента
+   USER.example.md   образец за това какво да знае за теб
+   version.txt       коя версия е това
 
-   $env:DEEPSEEK_API_KEY = "твоят-ключ"
+Не мести pironi.bat, pironi.jar и runtime поотделно — трябва да останат заедно.
 
-4. Стартирай Pironi:
 
-   .\pironi.bat --provider deepseek --model deepseek-v4-flash --context 131072 --max-output-tokens 16384 --max-turns 30 --activity auto
+ПЪРВО ПУСКАНЕ
+-------------
 
-PowerShell изисква .\ пред локален executable. Горната env променлива живее
-само до затварянето на прозореца. За перманентна user променлива без admin
-права изпълни веднъж и после отвори нов PowerShell:
+1. Разархивирай ZIP-а в папка, в която имаш право да пишеш.
 
-   [Environment]::SetEnvironmentVariable("DEEPSEEK_API_KEY", "твоят-ключ", "User")
+2. Отвори PowerShell в нея.
 
-Без допълнителни аргументи launcher-ът използва:
+3. Задай API ключа само за този прозорец:
 
-   workspace:    %USERPROFILE%
-   search roots: %USERPROFILE%
-   shell scope:  user
-   memory:       папката .pironi до pironi.bat
-   context:      .pironi\SOUL.md и .pironi\USER.md
+      $env:DEEPSEEK_API_KEY = "твоят-ключ"
 
-Така агентът може да намира, чете и променя файлове от Downloads, Desktop и
-Documents. При --activity auto тези операции и shell командите не искат
-потвърждение — използвай backup/OneDrive history и задавай тесни задачи.
+   За постоянна променлива, без admin права — изпълни веднъж и отвори нов
+   PowerShell:
 
-Sessions и skills също се пазят в тази portable .pironi папка. Така остават с
-Pironi, когато преместиш цялата разархивирана директория.
+      [Environment]::SetEnvironmentVariable("DEEPSEEK_API_KEY", "твоят-ключ", "User")
 
-SOUL.md и USER.md се наслагват йерархично: глобалните файлове от
-%USERPROFILE%\.pironi са основа, следват portable .pironi и файловете в
-.pironi папките по пътя към workspace-а. Най-близкият до workspace-а слой има
-предимство при конфликт. CLAUDE.md използва същия модел по директориите.
+4. Стартирай:
 
-SOUL.md и USER.md се изпращат към избрания cloud модел. Ако не желаеш това,
-добави --personal-context deny след останалите аргументи.
+      .\pironi.bat --provider deepseek --model deepseek-v4-flash
 
-Можеш да подадеш друга workspace папка с:
+   PowerShell изисква .\ пред локален файл.
 
-   .\pironi.bat --workspace "C:\Users\ТВОЕТО-ИМЕ\Documents\project" --provider deepseek --model deepseek-v4-flash --activity auto
+При първото пускане скиловете от skills\ се копират в %USERPROFILE%\.pironi и
+се отбелязват като доставени. Оттам нататък живеят там, заедно със сесиите и
+паметта — тоест разархивирането на следваща версия ги запазва.
 
-Pironi създава последната workspace папка, ако още не съществува. Кавичките са
-задължителни, когато пътят съдържа интервали.
 
-За one-shot задача с кирилица, кавички или други Unicode символи запиши prompt-а
-като UTF-8 файл и използвай --task-file, вместо да го подаваш през cmd.exe:
+КАК ДА ГО ПУСНЕШ С ПЪЛНИ ПРАВА
+------------------------------
 
-   Set-Content -Path .\task.txt -Value 'Прегледай проекта и обобщи риска. ✓' -Encoding utf8
-   .\pironi.bat --provider deepseek --model deepseek-v4-flash --no-interactive --task-file .\task.txt --activity auto
+По подразбиране Pironi е предпазлив: чете свободно, но за всяка промяна пита,
+а шелът е ограничен до работната папка. Ако искаш да работи без да пита:
 
-Не мести pironi.bat, pironi.jar или runtime поотделно. Те трябва да останат
-заедно в разархивираната папка.
+   .\pironi.bat --provider deepseek --model deepseek-v4-flash `
+     --approval auto `
+     --shell-scope unrestricted `
+     --read-scope unrestricted `
+     --personal-context allow `
+     --workspace "$env:USERPROFILE"
+
+Обратната наклонена черта на края на реда е продължение в PowerShell. На един
+ред работи също.
+
+Какво прави всеки от тях:
+
+   --approval auto              променя и трие файлове, и изпълнява шел
+                                команди, без да пита. По подразбиране е
+                                read-only, тоест отказва всяка промяна.
+
+   --shell-scope unrestricted   шелът достига цялата машина, включително UNC
+                                пътища към други машини. По подразбиране е
+                                workspace.
+
+   --read-scope unrestricted    четенето достига всички дискове. Това вече е
+                                подразбирането — тук е само за пълнота.
+
+   --personal-context allow     зарежда SOUL.md и USER.md. Също подразбиране.
+
+   --workspace "..."            къде действат промените. Без него работната
+                                папка е тази, в която стоиш, а при двоен клик
+                                върху pironi.bat — %USERPROFILE%.
+
+ЕДНО ИЗКЛЮЧЕНИЕ ОСТАВА ВИНАГИ: хранилищата за пароли и ключове. Дори при
+unrestricted, достъп до .ssh, до DPAPI ключовете и до Windows Credentials
+изисква изричното ти "да" при всяко обръщение. Това не се изключва с флаг.
+
+Преди да ползваш --approval auto: имай backup или OneDrive history и задавай
+тесни задачи. Агентът ще пише и трие без да пита.
+
+
+ПРЕНОСИМ РЕЖИМ
+--------------
+
+   .\pironi.bat --portable --provider deepseek --model deepseek-v4-flash
+
+Тогава сесиите, скиловете и паметта живеят в .pironi вътре в тази папка, а не
+в %USERPROFILE%. За копие на флашка, което не оставя нищо по машината.
+
+Без този флаг всичко е в %USERPROFILE%\.pironi и се дели с всяка друга версия
+на Pironi — което е смисълът: обновяването е разархивиране на нова папка.
+
+
+САМОЛИЧНОСТ И ЛИЧНИ ДАННИ
+-------------------------
+
+Преименувай образците и ги сложи в %USERPROFILE%\.pironi:
+
+   SOUL.example.md  ->  %USERPROFILE%\.pironi\SOUL.md
+   USER.example.md  ->  %USERPROFILE%\.pironi\USER.md
+
+Точното изписване има значение: зарежда се SOUL.md, а не soul.md.
+
+Двата файла се наслагват по път — %USERPROFILE%\.pironi е основата, следват
+.pironi папките надолу към работната. По-близкият до работната папка надделява
+при противоречие. CLAUDE.md работи по същия начин, но стои направо в папките,
+не в .pironi.
+
+СЪДЪРЖАНИЕТО ИМ СЕ ИЗПРАЩА НА ОБЛАЧНИЯ МОДЕЛ при всеки ход. Ако не искаш това:
+
+   --personal-context deny     никога не ги зарежда
+   --personal-context auto     само при локален модел (Ollama)
+
+
+ДРУГА РАБОТНА ПАПКА
+-------------------
+
+   .\pironi.bat --workspace "C:\Users\ТИ\Documents\проект" --provider deepseek --model deepseek-v4-flash
+
+Кавичките са задължителни при интервали в пътя. Pironi създава папката, ако я
+няма.
+
+
+ЗАДАЧА С КИРИЛИЦА ИЛИ КАВИЧКИ
+-----------------------------
+
+Не я подавай през командния ред — cmd.exe я разваля, преди Java да я види.
+Запиши я като UTF-8 файл:
+
+   Set-Content -Path .\task.txt -Value 'Прегледай проекта и обобщи риска.' -Encoding utf8
+   .\pironi.bat --provider deepseek --model deepseek-v4-flash --no-interactive --task-file .\task.txt
+
+
+ПОЛЕЗНИ КОМАНДИ В СЕСИЯТА
+-------------------------
+
+   /doctor      какво вижда Pironi: терминал, пътища, инструменти
+   /skills      кои скилове има и кои са дошли с изданието
+   /findings    какво помни от предишни пускания и колко струва това
+   /workspace   къде действат промените, и как да се премести
+   /access      кои инструменти са разрешени
+   /help        всички команди
