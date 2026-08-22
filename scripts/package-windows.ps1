@@ -31,8 +31,17 @@ Copy-Item -LiteralPath $Jar -Destination (Join-Path $bundleDir "pironi.jar")
 Copy-Item -LiteralPath "dist/windows/pironi.bat" -Destination (Join-Path $bundleDir "pironi.bat")
 Copy-Item -LiteralPath "dist/windows/README-WINDOWS.txt" -Destination (Join-Path $bundleDir "README-WINDOWS.txt")
 Copy-Item -LiteralPath "README.md" -Destination (Join-Path $bundleDir "README.md")
-New-Item -ItemType Directory -Path (Join-Path $bundleDir ".pironi\skills\team-lead") -Force | Out-Null
-Copy-Item -LiteralPath "skills/team-lead/SKILL.md" -Destination (Join-Path $bundleDir ".pironi\skills\team-lead\SKILL.md")
+# Every directory under skills/ ships. Naming them one at a time meant a new skill had to be
+# added here and in package-unix.sh, and one missing from either shipped on a single platform -
+# which is how the Unix bundle came to carry a skill its launcher never read.
+if (Test-Path -LiteralPath "skills") {
+    $skillsTarget = Join-Path $bundleDir ".pironi\skills"
+    New-Item -ItemType Directory -Path $skillsTarget -Force | Out-Null
+    Get-ChildItem -LiteralPath "skills" -Directory | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination $skillsTarget -Recurse -Force
+    }
+    Write-Host "bundled skills: $((Get-ChildItem -LiteralPath $skillsTarget -Directory).Count)"
+}
 
 if (Test-Path -LiteralPath $archive) {
     Remove-Item -LiteralPath $archive -Force

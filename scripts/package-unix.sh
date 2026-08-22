@@ -28,8 +28,16 @@ cp "$jar_path" "$bundle_dir/pironi.jar"
 printf '%s' "$version" > "$bundle_dir/version.txt"
 cp dist/unix/pironi "$bundle_dir/pironi"
 cp README.md "$bundle_dir/README.md"
-mkdir -p "$bundle_dir/.pironi/skills/team-lead"
-cp skills/team-lead/SKILL.md "$bundle_dir/.pironi/skills/team-lead/SKILL.md"
+# Every directory under skills/ ships. Naming them one at a time meant a new skill had to be
+# added here and in package-windows.ps1, and one missing from either shipped on a single platform.
+if [ -d skills ]; then
+  mkdir -p "$bundle_dir/.pironi/skills"
+  for skill in skills/*/; do
+    [ -d "$skill" ] || continue
+    cp -R "$skill" "$bundle_dir/.pironi/skills/"
+  done
+  echo "bundled skills: $(find "$bundle_dir/.pironi/skills" -mindepth 1 -maxdepth 1 -type d | wc -l)"
+fi
 chmod +x "$bundle_dir/pironi"
 
 archive="${output_dir}/${bundle_name}.tar.gz"
