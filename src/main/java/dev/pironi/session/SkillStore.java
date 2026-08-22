@@ -22,8 +22,6 @@ import java.util.stream.Stream;
 
 /** Filesystem-based skill store. */
 public final class SkillStore {
-    private static final int MAX_PROMPT_INDEX_CHARACTERS = 2_400;
-    private static final int MAX_PROMPT_INDEX_ENTRIES = 24;
     private static final int MAX_SKILL_CHARACTERS = 24_000;
     /** What a word in the name or triggers is worth, against one that is only in the prose. */
     private static final int NAMED_WORD = 2;
@@ -34,7 +32,6 @@ public final class SkillStore {
         this.skillsDir = pironiHome.resolve("skills");
         Files.createDirectories(skillsDir);
         Files.createDirectories(skillsDir.resolve(".archive"));
-        ensureIndex();
     }
 
     // ── list ───────────────────────────────────────────────────────────
@@ -227,7 +224,6 @@ public final class SkillStore {
             } finally {
                 Files.deleteIfExists(temporary);
             }
-            rebuildIndex();
             return true;
         } catch (IOException e) {
             return false;
@@ -259,7 +255,6 @@ public final class SkillStore {
             } finally {
                 Files.deleteIfExists(temporary);
             }
-            rebuildIndex();
             return true;
         } catch (IOException e) {
             return false;
@@ -275,7 +270,6 @@ public final class SkillStore {
             Path dst = skillsDir.resolve(".archive").resolve(name);
             if (!Files.exists(src)) return false;
             Files.move(src, dst);
-            rebuildIndex();
             return true;
         } catch (IOException e) {
             return false;
@@ -292,7 +286,6 @@ public final class SkillStore {
             // A skill archived for going unused carries an old usage stamp, and restoring it
             // without a fresh one would hand it straight back to the next prune.
             markUsed(name);
-            rebuildIndex();
             return true;
         } catch (IOException e) {
             return false;
@@ -381,44 +374,6 @@ public final class SkillStore {
             }
         }
         return Instant.ofEpochMilli(fallbackMillis);
-    }
-
-    // ── index ──────────────────────────────────────────────────────────
-
-    private void ensureIndex() throws IOException {
-        Path index = skillsDir.resolve("INDEX.md");
-        if (!Files.exists(index)) {
-            Files.writeString(index, "# Pironi Skills\n\n", StandardCharsets.UTF_8);
-        }
-    }
-
-    public String loadIndex() {
-        try {
-            List<SkillEntry> available = list();
-            if (available.isEmpty()) return "";
-            StringBuilder compact = new StringBuilder("# Pironi Skills\n\n");
-            int count = 0;
-            for (SkillEntry entry : available) {
-                if (count >= MAX_PROMPT_INDEX_ENTRIES) break;
-                String line = "- **" + entry.name() + "**: "
-                        + truncate(entry.description(), 80) + "\n";
-                if (compact.length() + line.length() > MAX_PROMPT_INDEX_CHARACTERS) break;
-                compact.append(line);
-                count++;
-            }
-            return compact.toString();
-        } catch (IOException e) {
-            return "";
-        }
-    }
-
-    private void rebuildIndex() throws IOException {
-        var sb = new StringBuilder("# Pironi Skills\n\n");
-        for (SkillEntry entry : list()) {
-            sb.append("- **").append(entry.name()).append("**: ")
-                    .append(truncate(entry.description(), 80)).append("\n");
-        }
-        Files.writeString(skillsDir.resolve("INDEX.md"), sb.toString(), StandardCharsets.UTF_8);
     }
 
     // ── helpers ────────────────────────────────────────────────────────
