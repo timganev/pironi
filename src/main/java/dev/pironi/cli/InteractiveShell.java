@@ -48,6 +48,8 @@ public final class InteractiveShell {
     /** Holds the last auto-turn answer that completed while the user was typing;
      * flushed to the screen when readLine() returns. */
     private volatile String pendingAutoTurnResult;
+    /** A pasted block stands as one line on the prompt and is restored when the line is sent. */
+    private final PastedBlocks pastes = new PastedBlocks();
 
     public InteractiveShell(
             Terminal terminal,
@@ -63,6 +65,7 @@ public final class InteractiveShell {
         this.theme = theme;
         this.themeStore = themeStore;
         this.lineReader = createLineReader(terminal, theme);
+        if (this.lineReader != null) collapsePastedBlocks(this.lineReader, this.pastes);
         this.fallbackInput = null;
         this.output = output;
         this.runner = runner;
@@ -211,7 +214,9 @@ public final class InteractiveShell {
             }
 
             if (line == null) break;
-            line = ByteOrderMark.stripped(line).strip();
+            // The prompt showed a stand-in; the agent gets every character that was pasted.
+            line = pastes.expand(ByteOrderMark.stripped(line)).strip();
+            pastes.clear();
             if (line.isBlank()) continue;
 
             if (line.equals("/exit") || line.equals("/quit")) {
@@ -627,6 +632,41 @@ public final class InteractiveShell {
                 new Command("/exit", "Close this session"),
                 new Command("/quit", "Close this session")
         );
+    }
+
+    /**
+     * Wraps JLine's own bracketed-paste widget so a pasted block leaves a one-line stand-in on the
+     * prompt instead of the whole thing. The built-in does the reading; only what it left in the
+     * buffer is rewritten, so the terminal handshake stays JLine's business.
+     */
+    private static void collapsePastedBlocks(LineReader reader, PastedBlocks pastes) {
+        String widget = "pironi-paste";
+        reader.getWidgets().put(widget, () -> {
+            String before = reader.getBuffer().toString();
+            int at = reader.getBuffer().cursor();
+            reader.callWidget(LineReader.BEGIN_PASTE);
+            String after = reader.getBuffer().toString();
+            String pasted = insertedText(before, after, at);
+            String shown = pastes.collapse(pasted);
+            if (pasted.isEmpty() || shown.equals(pasted)) return true;
+            reader.getBuffer().clear();
+            reader.getBuffer().write(before.substring(0, at) + shown + before.substring(at));
+            return true;
+        });
+        // xterm brackets a paste with these; JLine binds the first to BEGIN_PASTE by default.
+        Reference binding = new Reference(widget);
+        for (String keyMapName : List.of(LineReader.MAIN, LineReader.EMACS, LineReader.VIINS)) {
+            KeyMap<org.jline.reader.Binding> keyMap = reader.getKeyMaps().get(keyMapName);
+            if (keyMap != null) keyMap.bind(binding, "\033[200~");
+        }
+    }
+
+    /** What the paste added, given where the cursor was. Empty when the buffer did not grow. */
+    static String insertedText(String before, String after, int at) {
+        if (after.length() <= before.length() || at > before.length()) return "";
+        int added = after.length() - before.length();
+        if (at + added > after.length()) return "";
+        return after.substring(at, at + added);
     }
 
     private static LineReader createLineReader(Terminal terminal, ThemeSettings theme) {
