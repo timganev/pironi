@@ -26,7 +26,7 @@ class LastSessionHomeTest {
     }
 
     private CliOptions options(String... extra) {
-        String[] head = {"--provider", "deepseek", "--model", "deepseek-v4-flash",
+        String[] head = {"--provider", "ollama", "--model", "qwen3.6:35b-a3b",
                 "--workspace", home.toString()};
         String[] all = new String[head.length + extra.length];
         System.arraycopy(head, 0, all, 0, head.length);
@@ -53,7 +53,7 @@ class LastSessionHomeTest {
         List<String> replayed = List.of(store().loadArguments());
 
         assertTrue(replayed.contains("--model"));
-        assertTrue(replayed.contains("deepseek-v4-flash"));
+        assertTrue(replayed.contains("qwen3.6:35b-a3b"));
         assertTrue(replayed.contains("--approval"));
         assertTrue(replayed.contains("ask"));
     }
@@ -61,8 +61,8 @@ class LastSessionHomeTest {
     @Test
     void aWorkspaceThatIsGoneIsNotReplayedIntoExistence() throws Exception {
         Path gone = Files.createDirectories(home.resolve("scratch"));
-        store().save(CliOptions.parse(new String[]{"--provider", "deepseek",
-                "--model", "deepseek-v4-flash", "--workspace", gone.toString()}, java.util.Map.of()));
+        store().save(CliOptions.parse(new String[]{"--provider", "ollama",
+                "--model", "qwen3.6:35b-a3b", "--workspace", gone.toString()}, java.util.Map.of()));
         Files.delete(gone);
 
         List<String> replayed = List.of(store().loadArguments());
