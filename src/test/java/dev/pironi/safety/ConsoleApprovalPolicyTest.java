@@ -106,26 +106,74 @@ class ConsoleApprovalPolicyTest {
     }
 
     @Test
-    void autoPromptsForExplicitActionsAndBatchModeDeniesThem() {
-        Tool explicit = new ExplicitTool();
+    void autoRunsAnActionThatWouldOtherwiseBeConfirmed() {
+        // approval=auto used to prompt for every shell command anyway, on the reasoning that a
+        // command's effect cannot be read off its name. A twenty-command run became twenty
+        // prompts, and the documented meaning of the flag - "without asking" - was false.
         ConsoleApprovalPolicy interactive = new ConsoleApprovalPolicy(
                 ApprovalMode.AUTO,
-                new BufferedReader(new StringReader("yes\n")),
+                new BufferedReader(new StringReader("n\n")),
+                new PrintStream(new ByteArrayOutputStream()),
+                true
+        );
+
+        assertEquals(ApprovalDecision.ALLOW, interactive.decide(new ExplicitTool(), arguments));
+    }
+
+    @Test
+    void autoStillAsksBeforeTheBoundaryItselfMoves() {
+        Tool boundary = new RuleChangingTool();
+        ConsoleApprovalPolicy refusing = new ConsoleApprovalPolicy(
+                ApprovalMode.AUTO,
+                new BufferedReader(new StringReader("n\n")),
                 new PrintStream(new ByteArrayOutputStream()),
                 true
         );
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         ConsoleApprovalPolicy batch = new ConsoleApprovalPolicy(
                 ApprovalMode.AUTO,
-                new BufferedReader(new StringReader("yes\n")),
+                new BufferedReader(new StringReader("y\n")),
                 new PrintStream(output),
                 false
         );
 
-        assertEquals(ApprovalDecision.ALLOW, interactive.decide(explicit, arguments));
-        assertEquals(ApprovalDecision.DENY, batch.decide(explicit, arguments));
+        assertEquals(ApprovalDecision.DENY, refusing.decide(boundary, arguments));
+        assertEquals(ApprovalDecision.DENY, batch.decide(boundary, arguments));
         assertTrue(output.toString().contains("requires explicit approval"));
     }
+
+    @Test
+    void alwaysStopsTheAskingForThatToolAndOnlyThatTool() {
+        ConsoleApprovalPolicy policy = policy("a\n");
+        Tool explicit = new ExplicitTool();
+
+        assertEquals(ApprovalDecision.ALLOW, policy.decide(explicit, arguments));
+        // The reader is exhausted: a second prompt would read EOF and deny, so an ALLOW here can
+        // only mean it did not ask again.
+        assertEquals(ApprovalDecision.ALLOW, policy.decide(explicit, arguments));
+        assertEquals(ApprovalDecision.DENY, policy.decide(new OtherExplicitTool(), arguments));
+    }
+
+    @Test
+    void alwaysCannotBeSaidAboutACredentialStore() {
+        // The one promise that holds in every mode. "always" is taken as a yes for this call and
+        // said to be un-waivable, rather than silently asking again next time.
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        ConsoleApprovalPolicy policy = new ConsoleApprovalPolicy(
+                ApprovalMode.AUTO,
+                new BufferedReader(new StringReader("a\na\n")),
+                new PrintStream(output),
+                true
+        );
+        Tool guarded = new GuardedReadTool();
+
+        assertEquals(ApprovalDecision.ALLOW, policy.decide(guarded, arguments));
+        assertTrue(output.toString().contains("cannot be waived"), output.toString());
+        assertEquals(ApprovalDecision.ALLOW, policy.decide(guarded, arguments));
+        assertEquals(2, output.toString().split("cannot be waived", -1).length - 1,
+                "it must ask every time: " + output);
+    }
+
 
     private ConsoleApprovalPolicy policy(String input) {
         return new ConsoleApprovalPolicy(
@@ -150,6 +198,35 @@ class ConsoleApprovalPolicyTest {
         public String description() { return "test"; }
         public String argumentSchema() { return "{}"; }
         public boolean mutating() { return true; }
+        public boolean requiresExplicitApproval(JsonNode ignored) { return true; }
+        public ToolResult execute(JsonNode ignored) { return ToolResult.success(""); }
+    }
+
+    private static final class OtherExplicitTool implements Tool {
+        public String name() { return "other-explicit"; }
+        public String description() { return "test"; }
+        public String argumentSchema() { return "{}"; }
+        public boolean mutating() { return true; }
+        public boolean requiresExplicitApproval(JsonNode ignored) { return true; }
+        public ToolResult execute(JsonNode ignored) { return ToolResult.success(""); }
+    }
+
+    private static final class RuleChangingTool implements Tool {
+        public String name() { return "boundary"; }
+        public String description() { return "test"; }
+        public String argumentSchema() { return "{}"; }
+        public boolean mutating() { return true; }
+        public boolean requiresExplicitApproval(JsonNode ignored) { return true; }
+        public boolean changesTheRules(JsonNode ignored) { return true; }
+        public ToolResult execute(JsonNode ignored) { return ToolResult.success(""); }
+    }
+
+    /** A read that reaches a credential store: never mutating, always asked about. */
+    private static final class GuardedReadTool implements Tool {
+        public String name() { return "guarded-read"; }
+        public String description() { return "test"; }
+        public String argumentSchema() { return "{}"; }
+        public boolean mutating() { return false; }
         public boolean requiresExplicitApproval(JsonNode ignored) { return true; }
         public ToolResult execute(JsonNode ignored) { return ToolResult.success(""); }
     }

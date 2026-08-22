@@ -230,4 +230,83 @@ class TerminalStatusReporterTest {
         assertTrue(after.contains("ccc"), after);
         assertFalse(after.contains("project"), after);
     }
+
+    @Test
+    void keepsTheStatusRowOutOfTheAnswerWhileItIsPrinting() {
+        // Run 2026-08-23T0219: the model wrote a PowerShell script and the row landed inside it -
+        // "$seen[$m.ConversationTopic] = $trueprocessing | ~32.43 tok/s | sub 0/2". The script the
+        // user was handed would not have run.
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
+        TerminalStatusReporter reporter = new TerminalStatusReporter(
+                "model", Path.of("/workspace/project"), 8_192, 8, out
+        );
+
+        reporter.outputStarted();
+        out.print("$seen[$m.ConversationTopic] = $true");
+        reporter.idle();                       // the ticker, arriving between two words
+        reporter.tool("read_file");
+        out.print("\n$results += ...");
+        reporter.outputFinished();
+
+        String output = bytes.toString(StandardCharsets.UTF_8);
+        assertTrue(output.contains("$true\n$results"), "answer was interrupted: " + output);
+        assertFalse(output.substring(0, output.indexOf("$results")).contains("ready"),
+                "a status row was drawn into the answer: " + output);
+    }
+
+    @Test
+    void drawsTheRowItHeldOnceThePrintingIsOver() {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        TerminalStatusReporter reporter = new TerminalStatusReporter(
+                "model", Path.of("/workspace/project"), 8_192, 8,
+                new PrintStream(bytes, true, StandardCharsets.UTF_8)
+        );
+
+        reporter.outputStarted();
+        reporter.tool("read_file");
+        reporter.idle();
+        reporter.outputFinished();
+
+        // Holding must not mean losing: the row says what it would have said, not what it said
+        // before the answer began.
+        String output = bytes.toString(StandardCharsets.UTF_8);
+        assertTrue(output.contains("ready"), output);
+        assertFalse(output.contains("tool read_file"), "a superseded row was replayed: " + output);
+    }
+
+    @Test
+    void anApprovalPromptInsideARunDoesNotFreeTheRowEarly() {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        PrintStream out = new PrintStream(bytes, true, StandardCharsets.UTF_8);
+        TerminalStatusReporter reporter = new TerminalStatusReporter(
+                "model", Path.of("/workspace/project"), 8_192, 8, out
+        );
+
+        reporter.outputStarted();
+        reporter.outputStarted();              // the approval prompt, nested
+        reporter.outputFinished();
+        out.print("still printing");
+        reporter.idle();
+        reporter.outputFinished();
+
+        String output = bytes.toString(StandardCharsets.UTF_8);
+        assertFalse(output.substring(0, output.indexOf("still printing")).contains("ready"),
+                "the inner prompt released the row: " + output);
+    }
+
+    @Test
+    void holdsASubagentActivityLineRatherThanDroppingIt() {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        TerminalStatusReporter reporter = new TerminalStatusReporter(
+                "model", Path.of("/workspace/project"), 8_192, 8,
+                new PrintStream(bytes, true, StandardCharsets.UTF_8)
+        );
+
+        reporter.outputStarted();
+        reporter.skill("windows-outlook-teams");
+        reporter.outputFinished();
+
+        assertTrue(bytes.toString(StandardCharsets.UTF_8).contains("windows-outlook-teams"));
+    }
 }

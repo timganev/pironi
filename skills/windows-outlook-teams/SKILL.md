@@ -7,6 +7,24 @@ This is a map, not a recipe. It says where things are, how to open them, and whi
 lies. What to do with what you find is the user's call — ask them rather than deciding a shape
 for the output.
 
+## Read this before doing anything else
+
+**Classic Outlook is reachable only through COM, and COM is reachable only through
+`run_command`.** If `run_command` is unavailable — a read-only session, or a denied tool — then
+there is no route to a mailbox at all, and the only correct answer is to say so and stop. Say
+which flags would change it: `--approval ask` or `--approval auto`, with `--shell-scope
+unrestricted`.
+
+**There is nothing to find on the filesystem, so do not go looking.** Outlook does not leave
+`.eml` or `.msg` files anywhere. The `.ost` and `.pst` files are MAPI databases, exclusively
+locked while Outlook runs and unreadable as text when it does not. A search of `AppData` costs
+tens of seconds and answers nothing. One run of `read_leveldb` is the only file-level route here,
+and it reads Teams, not Outlook.
+
+**Never name a store the user's "main account" unless they said so.** A profile can carry a
+stale entry pointing at a deleted file; that is a leftover, not evidence of where their mail
+lives. Report what each store is and what it held, and let them tell you which one matters.
+
 ## Verified against
 
 Everything below was established by running it, on 2026-08-22, against:
@@ -112,8 +130,18 @@ local, and appointments made on the web are not in it.
 - **`ReceivedTime` cannot be set.** `PropertyAccessor` accepts `PR_MESSAGE_DELIVERY_TIME`
   (`0x0E060040`) without complaint and the value does not change. Mail cannot be back-dated, so
   test data with a spread of dates cannot be built this way.
-- **Items created in an IMAP store do not persist.** `Items.Add` returns, `Save` succeeds in
-  milliseconds, and `Items.Count` stays where it was. Use a local `.pst` for anything synthetic.
+- **A mail created with `Items.Add` lands in Drafts, not in the folder it was created on.**
+  `inbox.Items.Add(0)` then `Save()` succeeds, `inbox.Items.Count` stays where it was, and the
+  item is sitting in Drafts — which reads exactly like "the write was discarded" and is not.
+  Verified on 2026-08-23: six items created against a Gmail inbox were all in Drafts. `Save()`
+  saves an unsent message, and an unsent message belongs in Drafts. To place one somewhere else,
+  `Move()` it after saving, or import a `.eml` with `Namespace.OpenSharedItem`.
+- **Drafts are not received mail, and counting them as mail is a wrong answer that looks right.**
+  A folder walk that does not say which folder each item came from will report drafts, sent items
+  and calendar invitations as if they were correspondence. Name the folder.
+- **`ReceivedTime` is the creation time on anything made this way** and cannot be set, so a
+  synthetic week cannot be built by creating items. Import `.eml` files whose `Date:` header
+  carries the time instead.
 - **`Delete()` moves an item to Deleted Items of the default store**, so it fails whenever that
   store is the broken one. `Items.Remove(index)` is the other route.
 

@@ -40,6 +40,9 @@ public final class SwitchWorkspaceTool implements Tool {
     /** Never auto-approved, whatever the approval mode: the human owns this one. */
     @Override public boolean requiresExplicitApproval(JsonNode arguments) { return true; }
 
+    /** Where every write lands is the boundary itself, so approval=auto does not cover moving it. */
+    @Override public boolean changesTheRules(JsonNode arguments) { return true; }
+
     @Override public String approvalPreview(JsonNode arguments) {
         try {
             Path target = requested(arguments);

@@ -28,6 +28,15 @@ public interface Tool {
         return false;
     }
 
+    /**
+     * Whether this alters the rules the rest of the session runs under, rather than acting within
+     * them. approval=auto means "act without asking"; it does not mean "and move the boundary of
+     * what acting may touch", so these are confirmed in every mode.
+     */
+    default boolean changesTheRules(JsonNode arguments) {
+        return false;
+    }
+
     default String approvalPreview(JsonNode arguments) {
         return arguments.toString();
     }

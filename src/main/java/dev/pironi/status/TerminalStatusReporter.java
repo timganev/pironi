@@ -36,6 +36,19 @@ public final class TerminalStatusReporter implements StatusReporter {
     private volatile double lastEvalTokensPerSecond;
     private volatile boolean lastEvalRateApproximate;
     private volatile java.util.function.Supplier<int[]> subagentCounts;
+    /**
+     * How many writers are putting text on the screen right now. A counter rather than a flag: the
+     * approval prompt nests inside a run, and a flag would let the inner one clear the outer.
+     */
+    private final java.util.concurrent.atomic.AtomicInteger outputInProgress =
+            new java.util.concurrent.atomic.AtomicInteger();
+    private volatile String heldLine;
+    /**
+     * Activity lines that arrived while something was printing. Dropping them would lose what a
+     * sub-agent did; they are held and printed once the screen is free.
+     */
+    private final java.util.Queue<String> heldActivity =
+            new java.util.concurrent.ConcurrentLinkedQueue<>();
     private boolean closed;
 
     /** Sets a supplier returning {active, max} sub-agents, rendered as "sub A/M". Null disables. */
@@ -196,6 +209,7 @@ public final class TerminalStatusReporter implements StatusReporter {
 
     @Override
     public void outputStarted() {
+        outputInProgress.incrementAndGet();
         if (useJLine()) {
             synchronized (terminal) {
                 if (closed) return;
@@ -211,6 +225,7 @@ public final class TerminalStatusReporter implements StatusReporter {
 
     @Override
     public void outputFinished() {
+        boolean last = outputInProgress.decrementAndGet() <= 0;
         if (useJLine()) {
             synchronized (terminal) {
                 if (closed) return;
@@ -219,6 +234,15 @@ public final class TerminalStatusReporter implements StatusReporter {
             }
         }
         // Nothing to restore on the raw path: the next refresh redraws the row.
+        if (!last) return;
+        for (String activity = heldActivity.poll(); activity != null; activity = heldActivity.poll()) {
+            activityLine(activity);
+        }
+        String held = heldLine;
+        heldLine = null;
+        // Whatever the row would have said during the output, it says now - otherwise a status
+        // that changed while the answer was printing would not appear until the next tick.
+        if (held != null) render(held);
     }
 
     private void eraseRawStatusRow() {
@@ -304,6 +328,14 @@ public final class TerminalStatusReporter implements StatusReporter {
     }
 
     private void render(String rawLine) {
+        // The answer is printed word by word with a pause between the words, and the status ticker
+        // runs on its own thread. Both take the terminal lock, so neither can land inside the
+        // other's write - but nothing stopped one landing *between* two words, which put the row
+        // into the middle of a shell script the model had just written. Hold it instead.
+        if (outputInProgress.get() > 0) {
+            heldLine = rawLine;
+            return;
+        }
         String line = glyphs.downgrade(rawLine);
         if (useJLine()) {
             renderViaJLine(clampToWidth(line));
@@ -354,6 +386,12 @@ public final class TerminalStatusReporter implements StatusReporter {
     }
 
     private void activityLine(String rawLine) {
+        // A sub-agent reports on its own thread, so this can arrive mid-answer just as the status
+        // row could. Queued rather than dropped: what a sub-agent did is worth reading late.
+        if (outputInProgress.get() > 0) {
+            heldActivity.add(rawLine);
+            return;
+        }
         String line = glyphs.downgrade(rawLine);
         if (useJLine()) {
             synchronized (terminal) {

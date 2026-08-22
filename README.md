@@ -136,11 +136,22 @@ confines the shell to the workspace. To let it work unattended:
 `--activity auto` is a shorthand for `--approval auto` and wins even when
 `--approval ask` also appears.
 
-**One exception holds at every scope.** Credential stores — `~/.ssh`, the DPAPI
-keys under `%APPDATA%MicrosoftProtect`, Windows Credentials and the rest —
-require an explicit yes each time they are touched, including through the second
-names Windows gives them such as `SSH~1` or the `Application Data` junction.
-No flag turns that off.
+**Two exceptions hold at every scope, and only these two.**
+
+Credential stores — `~/.ssh`, the DPAPI keys under `%APPDATA%\Microsoft\Protect`,
+Windows Credentials and the rest — require an explicit yes each time they are
+touched, including through the second names Windows gives them such as `SSH~1`
+or the `Application Data` junction. Answering `a` there approves that one call
+and says so; it cannot be waived.
+
+Moving the workspace is the other. `--approval auto` means "act without asking";
+it does not mean "and move the boundary of what acting may touch", so
+`switch_workspace` is confirmed in every mode. So is writing to `SOUL.md`,
+`USER.md` or `CLAUDE.md`, which are the agent's own standing instructions.
+
+Everything else under `--approval auto` runs unattended, shell commands
+included. Under `--approval ask` each prompt offers `a` as well as `y`, which
+approves that tool for the rest of the session.
 
 Before using `--approval auto`: have a backup or OneDrive history, and keep the
 task narrow. The agent will write and delete without asking.

@@ -590,14 +590,21 @@ public final class InteractiveShell {
         return new ConsoleApprovalPolicy.Interaction() {
             @Override
             public String request(String toolName, String preview) throws IOException {
+                return request(toolName, preview, false);
+            }
+
+            @Override
+            public String request(String toolName, String preview, boolean waivable)
+                    throws IOException {
                 outputStarted.run();
+                String choices = waivable ? "[y/N/a=always] " : "[y/N] ";
                 try {
                     println("Allow tool '" + toolName + "'?");
                     println(preview);
                     if (lineReader != null) {
-                        return lineReader.readLine("[y/N] ");
+                        return lineReader.readLine(choices);
                     }
-                    output.print("[y/N] ");
+                    output.print(choices);
                     output.flush();
                     return fallbackInput.readLine();
                 } catch (UserInterruptException | EndOfFileException ignored) {
