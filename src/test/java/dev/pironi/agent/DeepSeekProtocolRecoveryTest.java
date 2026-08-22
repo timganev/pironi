@@ -40,7 +40,9 @@ class DeepSeekProtocolRecoveryTest {
             String body;
             if (number == 1) {
                 status = 200;
-                body = response("{\\\"thought\\\":\\\"cut\\\",\\\"toolCalls\\\":[],\\\"finalAnswer\\\":\\\"visible too early\\\"");
+                // Cut off inside the answer: what is missing is content, so the harness cannot
+                // rebuild it and must ask again rather than publish half a sentence.
+                body = response("{\\\"thought\\\":\\\"cut\\\",\\\"toolCalls\\\":[],\\\"finalAnswer\\\":\\\"visible too");
             } else {
                 status = 200;
                 body = response("{\\\"thought\\\":\\\"fixed\\\",\\\"toolCalls\\\":[],\\\"finalAnswer\\\":\\\"recovered\\\"}");
@@ -73,6 +75,47 @@ class DeepSeekProtocolRecoveryTest {
             assertEquals(2, requests.get());
             assertEquals(List.of("json_object", "json_object"), formats);
             assertTrue(prompts.get(1).contains("valid json object"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void usesAWholeAnswerThatMerelyLostItsClosingBrace() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        AtomicInteger requests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/chat/completions", exchange -> {
+            requests.incrementAndGet();
+            byte[] bytes = response(
+                    "{\\\"thought\\\":\\\"t\\\",\\\"toolCalls\\\":[],\\\"finalAnswer\\\":\\\"the whole answer\\\""
+            ).getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        server.start();
+
+        try {
+            URI base = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
+            var model = OpenAiCompatibleClient.deepSeek(
+                    base, "deepseek-v4-flash", "key", Duration.ofSeconds(5), 512
+            );
+            StringBuilder visible = new StringBuilder();
+            AgentLoop loop = new AgentLoop(
+                    model, new DecisionParser(mapper), mapper, new ToolRegistry(List.of()),
+                    (tool, arguments) -> ApprovalDecision.ALLOW, new NoOpTraceWriter(),
+                    new AgentContext("", "", ""), new NoOpStatusReporter(),
+                    new NoOpVerificationGate(), 4, 2, visible::append, AgentMemory.none()
+            );
+
+            AgentResult result = loop.run("find note");
+
+            // The string closed, so the answer is the model's own and whole; only the brace is
+            // missing. Asking again for it cost a round-trip on every truncation this model made.
+            assertTrue(result.success());
+            assertEquals("the whole answer", result.output());
+            assertEquals(1, requests.get());
         } finally {
             server.stop(0);
         }

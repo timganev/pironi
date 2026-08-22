@@ -89,11 +89,34 @@ class DecisionParserTest {
     }
 
     @Test
-    void refusesToFinishAResponseThatWasCutShort() {
-        // A truncated finalAnswer would be published as if the model had finished the sentence.
-        // Ending in the middle of a value is what tells the two apart from a misplaced closer.
-        assertEquals("", parser.withBalancedClosers(
-                "{\"thought\":\"cut\",\"toolCalls\":[],\"finalAnswer\":\"visible too early\""));
+    void finishesAResponseThatRanOutOfRoomAfterAWholeValue() throws Exception {
+        // A closed string was closed by the model, so nothing here is guessed at - only the
+        // braces the response never reached. Refusing cost a whole round-trip per truncation.
+        String cut = "{\"thought\":\"cut\",\"toolCalls\":[],\"finalAnswer\":\"the whole answer\"";
+
+        AgentDecision decision = parser.parse(parser.withBalancedClosers(cut));
+
+        assertEquals("the whole answer", decision.finalAnswer());
+    }
+
+    @Test
+    void finishesATruncatedToolCall() throws Exception {
+        String cut = "{\"thought\":\"t\",\"toolCalls\":[{\"name\":\"read_file\","
+                + "\"arguments\":{\"path\":\"a.txt\"}}]";
+
+        AgentDecision decision = parser.parse(parser.withBalancedClosers(cut));
+
+        assertEquals("read_file", decision.toolCalls().getFirst().name());
+        assertEquals("a.txt", decision.toolCalls().getFirst().arguments().path("path").asText());
+    }
+
+    @Test
+    void refusesWhereAValueIsStillOwed() {
+        // Closing here either does not parse or invents an object the model never wrote.
+        assertEquals("", parser.withBalancedClosers("{\"thought\":\"t\",\"toolCalls\":["));
+        assertEquals("", parser.withBalancedClosers("{\"thought\":\"t\",\"toolCalls\":[{"));
+        assertEquals("", parser.withBalancedClosers("{\"thought\":\"t\",\"finalAnswer\":"));
+        assertEquals("", parser.withBalancedClosers("{\"thought\":\"t\","));
     }
 
     @Test

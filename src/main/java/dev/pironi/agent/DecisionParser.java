@@ -90,16 +90,20 @@ public final class DecisionParser {
 
     /**
      * Constrained decoding should make unbalanced JSON impossible and does not: a brace goes
-     * missing, or stands where a bracket belongs. Only punctuation is rebuilt, never content.
+     * missing, stands where a bracket belongs, or never arrives because the response ran out of
+     * room. Only punctuation is rebuilt, never content.
+     *
+     * <p>What makes rebuilding safe is that a closed string was closed by the model: a response cut
+     * off mid-value ends inside a string, and that is refused. So is one that ends where a value is
+     * still owed. What survives is a response whose every present value is whole, which may still
+     * be missing a key a tool needs - the tool rejects that itself, at the cost of one turn rather
+     * than of a wrong action.
      *
      * @return the response with its closers corrected, or empty when nothing can be corrected
      */
     public String withBalancedClosers(String rawContent) {
         if (rawContent == null || rawContent.isBlank()) return "";
-        // A response cut short ends in the middle of a value, and its finalAnswer may be half
-        // written; one that merely misplaced a closer still ends by trying to close.
-        String trimmed = rawContent.stripTrailing();
-        if (!trimmed.endsWith("}") && !trimmed.endsWith("]")) return "";
+        if (endsOwingAValue(rawContent)) return "";
         StringBuilder repaired = new StringBuilder(rawContent.length() + 8);
         Deque<Character> open = new ArrayDeque<>();
         boolean changed = false;
@@ -144,6 +148,18 @@ public final class DecisionParser {
     }
 
     /**
+     * Whether the response stops at a point where JSON still owes a value: after a comma, after a
+     * key's colon, or straight after an opener. Closing there would either not parse at all or
+     * would parse as an object the model never wrote, so the turn is better spent asking again.
+     */
+    private static boolean endsOwingAValue(String rawContent) {
+        String trimmed = rawContent.stripTrailing();
+        if (trimmed.isEmpty()) return true;
+        char last = trimmed.charAt(trimmed.length() - 1);
+        return last == ',' || last == ':' || last == '{' || last == '[';
+    }
+
+    /**
      * Jackson reads the first value and drops the rest, so a stray closing brace runs as if nothing
      * happened.
      *
@@ -160,8 +176,6 @@ public final class DecisionParser {
             String message = e.getOriginalMessage();
             return "trailing content after the JSON object: "
                     + (message == null ? "unparsed remainder" : message);
-        } catch (java.io.IOException e) {
-            return "";
         }
     }
 }
