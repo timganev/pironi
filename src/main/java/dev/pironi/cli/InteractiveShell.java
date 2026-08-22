@@ -50,6 +50,10 @@ public final class InteractiveShell {
     private volatile String pendingAutoTurnResult;
     /** A pasted block stands as one line on the prompt and is restored when the line is sent. */
     private final PastedBlocks pastes = new PastedBlocks();
+    /** Longer than any gap between two characters of one paste, shorter than any human pause. */
+    private static final int PASTE_GAP_MILLIS = 3;
+    /** A ceiling so a program piping at us cannot be joined into one unbounded line. */
+    static final int MAX_PASTED_LINES = 500;
 
     public InteractiveShell(
             Terminal terminal,
@@ -508,11 +512,74 @@ public final class InteractiveShell {
 
         promptRendered.run();
         try {
-            return lineReader.readLine(PROMPT);
+            return withPastedRemainder(lineReader.readLine(PROMPT));
         } catch (UserInterruptException e) {
             return "";
         } catch (EndOfFileException e) {
             return null;
+        }
+    }
+
+    /**
+     * Joins the rest of a pasted block to the line that was just accepted.
+     *
+     * <p>A terminal that brackets a paste says so, and the widget on the prompt turns the whole
+     * block into one line before anything is submitted. Windows does not: JLine's native terminal
+     * delivers a paste as ordinary characters, so every newline in it is an Enter and eighteen
+     * pasted lines became eighteen turns, each answered separately.
+     *
+     * <p>What is left to go on is timing. When a line is accepted because a person pressed Enter,
+     * nothing follows it; when it was accepted because a paste contained a newline, the next line
+     * is already in the buffer. Nobody types the second line of anything within a millisecond of
+     * the first.
+     */
+    private String withPastedRemainder(String first) {
+        if (terminal == null) return first;
+        Block block = joinArrivedTogether(first, this::moreArrivedWithIt, () -> {
+            try {
+                return lineReader.readLine("");
+            } catch (UserInterruptException | EndOfFileException stop) {
+                return null;
+            }
+        }, MAX_PASTED_LINES);
+        if (block.lines() > 1) {
+            printAboveByLine(PastedBlocks.placeholder(block.lines()), ThemeSettings.Element.USER);
+        }
+        return block.text();
+    }
+
+    /** One submitted line, and how many lines of a paste were joined to make it. */
+    record Block(String text, int lines) {
+    }
+
+    /**
+     * Joins lines that arrived together into one, stopping at the first that did not.
+     *
+     * @param more  whether the next line is already waiting, which is what a paste looks like
+     * @param next  reads that waiting line, or null when there is none to read
+     * @param max   a ceiling, so a program piping at us cannot make one unbounded line
+     */
+    static Block joinArrivedTogether(String first, java.util.function.BooleanSupplier more,
+            java.util.function.Supplier<String> next, int max) {
+        if (first == null) return new Block(null, 0);
+        if (max < 2 || !more.getAsBoolean()) return new Block(first, 1);
+        StringBuilder block = new StringBuilder(first);
+        int lines = 1;
+        while (lines < max && more.getAsBoolean()) {
+            String following = next.get();
+            if (following == null) break;
+            block.append(System.lineSeparator()).append(following);
+            lines++;
+        }
+        return new Block(block.toString(), lines);
+    }
+
+    /** True when the terminal already holds the next character, which no typist manages. */
+    private boolean moreArrivedWithIt() {
+        try {
+            return terminal.reader().peek(PASTE_GAP_MILLIS) >= 0;
+        } catch (IOException unreadable) {
+            return false;
         }
     }
 
