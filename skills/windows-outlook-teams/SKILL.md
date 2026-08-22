@@ -1,0 +1,177 @@
+# windows-outlook-teams
+
+description: Where Outlook and Teams keep data on Windows, how to reach it, and what lies to you.
+triggers: outlook, teams, calendar, meetings, mailbox, inbox, mail, appointments, com, mapi, ost, pst, olk, msteams, meeting, invite, sent items, аутлук, тиймс, календар, срещи, среща, поща, имейл, имейли, писма, кутия, покана, пощенска
+
+This is a map, not a recipe. It says where things are, how to open them, and which answers are
+lies. What to do with what you find is the user's call — ask them rather than deciding a shape
+for the output.
+
+## Verified against
+
+Everything below was established by running it, on 2026-08-22, against:
+
+| | |
+|---|---|
+| Windows | 11 Pro, build 22621, amd64 |
+| classic Outlook | Office 16.0.20326.20100 (Click-to-Run), `Office16\OUTLOOK.EXE` |
+| new Outlook | Microsoft.OutlookForWindows 1.2026.728.0 |
+| Teams | MSTeams 26198.304.4946.9672 |
+| Java | 25.0.4, JLine's native Windows terminal |
+
+Re-check rather than trust when the versions differ. The paragraph below says which parts are
+likely to have moved.
+
+## What a newer version is likely to break
+
+**The Teams store, first and worst.** Its IndexedDB layout is internal and has already changed
+once: parsers written for Teams 1.x return nothing at all on the current client, silently. If a
+scan finds no meetings, that is as likely to mean the schema moved as that the calendar is empty
+— check that the file holds a subject you know before believing a zero.
+
+**The Teams profile folder is per account type.** `WV2Profile_tfl` is the personal one — "Teams
+for Life". A work or school account writes under a different profile directory in the same
+`EBWebView` folder. List what is there instead of assuming this name.
+
+**Classic Outlook has a horizon.** Microsoft's direction is the new client, and COM is not coming
+to it. The object model is stable and decades old, so the calls here will keep working for as
+long as classic Outlook is installed — but on a machine that only ever had the new one, none of
+the COM half applies and the answer is Graph or nothing.
+
+**Paths that carry a version.** The registry CLSID is fixed, but `Office16` in the executable
+path is the Office major version and would become `Office17`. Read `LocalServer32` rather than
+building the path.
+
+Stable enough to rely on: the folder ids, `Restrict` and its date format, `ConversationTopic`,
+`IncludeRecurrences`, and the four traps below — those are properties of MAPI, not of a build.
+
+---
+
+## First: which Outlook is on this machine
+
+Windows 11 ships two programs called Outlook and only one can be automated. Establish which
+before promising anything.
+
+```powershell
+(Get-ItemProperty "HKLM:\SOFTWARE\Classes\CLSID\{0006F03A-0000-0000-C000-000000000046}\LocalServer32" -EA SilentlyContinue).'(default)'
+Get-Process olk, OUTLOOK -EA SilentlyContinue | Select-Object ProcessName, Path
+Get-AppxPackage MSTeams, Microsoft.OutlookForWindows -EA SilentlyContinue | Select Name, Version
+```
+
+| | classic `OUTLOOK.EXE` | new `olk.exe` |
+|---|---|---|
+| COM / MAPI | **yes** | **no** — Microsoft states this outright |
+| local store | `.ost` / `.pst` | a WebView2 IndexedDB, undocumented |
+| what is reachable | everything the object model exposes | little, and only by reverse engineering |
+
+**Adding an account through the default Windows 11 experience puts it in the new one.** The two
+keep separate profiles and do not share. A machine can have classic installed, registered, and
+answering COM, while every mailbox lives in the other program — the object model then opens
+onto an empty profile. Check that a store exists before concluding anything about a mailbox.
+
+---
+
+## Classic Outlook, through COM
+
+```powershell
+$ol = New-Object -ComObject Outlook.Application
+$ns = $ol.GetNamespace("MAPI")
+```
+
+Folder ids worth knowing: `3` Deleted Items, `5` Sent Items, `6` Inbox, `9` Calendar, `10`
+Contacts. `Items.Restrict("[Start] >= 'MM/dd/yyyy HH:mm' AND ...")` filters server-side and is far
+cheaper than walking. `$items.IncludeRecurrences = $true` expands a recurring series into
+occurrences — necessary for "when was I busy", wrong for "how many distinct meetings".
+`ConversationTopic` groups a thread; `Store`, `SenderName`, `ReceivedTime`, `SentOn`, `Duration`
+and `BodyPreview` are the fields most questions need.
+
+### Four things that will waste your time
+
+**`RPC_E_CALL_REJECTED` means two different things.** Outlook returns it while it is busy, and
+also while it is showing a modal dialog. The first clears itself; the second never will, and no
+amount of retrying helps. Tell them apart by looking for a window of class `#32770` belonging to
+the process — that is a dialog, and it needs a person. Retry a few times with a growing wait, then
+say which one it probably is instead of hanging.
+
+**`Namespace.GetDefaultFolder` follows the profile's *default* store**, which need not be a
+mailbox and need not open. A stale "Outlook Data File" entry whose `.pst` has been deleted makes
+every folder call answer "the file cannot be found" while a perfectly good account sits in the
+next slot — and raises that dialog on every launch. Walk `$ns.Stores` by index and use
+`$store.GetDefaultFolder(n)`, skipping stores that refuse to open. Enumerating `$ns.Stores`
+through the pipeline can itself throw; index it with `.Item($i)`.
+
+**An account that has not synced answers zero.** Zero meetings and no mailbox look identical in
+any summary, and only one of them is an answer. When no store opened, say so; never report a
+count you did not really obtain.
+
+**A Gmail/IMAP account in classic Outlook gets a calendar marked "This computer only".** It is
+local, and appointments made on the web are not in it.
+
+### What cannot be done, so do not try
+
+- **`ReceivedTime` cannot be set.** `PropertyAccessor` accepts `PR_MESSAGE_DELIVERY_TIME`
+  (`0x0E060040`) without complaint and the value does not change. Mail cannot be back-dated, so
+  test data with a spread of dates cannot be built this way.
+- **Items created in an IMAP store do not persist.** `Items.Add` returns, `Save` succeeds in
+  milliseconds, and `Items.Count` stays where it was. Use a local `.pst` for anything synthetic.
+- **`Delete()` moves an item to Deleted Items of the default store**, so it fails whenever that
+  store is the broken one. `Items.Remove(index)` is the other route.
+
+---
+
+## Teams
+
+The current client is a WebView2 app (`MSTeams` MSIX, process `ms-teams`). There is no COM. Its
+data is a Chromium IndexedDB, values serialised by V8:
+
+```
+%LOCALAPPDATA%\Packages\MSTeams_8wekyb3d8bbwe\LocalCache\Microsoft\MSTeams\
+    EBWebView\WV2Profile_tfl\IndexedDB\https_teams.live.com_0.indexeddb.leveldb\
+```
+
+Before anyone signs in the package folder holds a couple of files; after, several hundred
+megabytes. Calendar events are in there as structured records — `subject`, `startTime` and
+`endTime`, `organizerName`, `myResponseType`, `showAs`, `isOnlineMeeting`, `bodyPreview`,
+`skypeTeamsMeetingUrl` — so a meeting that never touched Outlook is still reachable locally.
+
+- **Teams holds the files open.** A plain read fails; open with `FileShare.ReadWrite` and it works
+  with Teams running. Do not ask the user to quit it.
+- **Dates are Blink doubles**: the tag `D` followed by eight little-endian bytes, milliseconds
+  since the epoch.
+- **The schema is undocumented and changes.** Parsers written for Teams 1.x return nothing on the
+  current client. Treat anything read here as evidence that may stop being true after an update,
+  and say so when reporting from it.
+- Scanning thousands of cache files in PowerShell is slow enough to look hung. Prefer a proper
+  LevelDB/V8 reader when one is available.
+
+### Which meetings end up where
+
+| booked | in the Exchange calendar | reachable by COM |
+|---|---|---|
+| in Outlook | yes | yes |
+| in Teams, work account | yes — Teams writes to Exchange | yes |
+| in Teams, personal account | no Exchange at all | only the IndexedDB above |
+| an ad-hoc call or "meet now" | no calendar item exists | neither; only Graph call records |
+
+So "not everything is booked" splits in two: meetings *scheduled* in Teams on a work account do
+reach Exchange and the object model sees them. Only spontaneous calls are genuinely missing.
+
+---
+
+## Before reading a real mailbox
+
+On macOS the equivalent data is masked — subjects and senders arrive as `pii:<hash>`. Here they
+are not. COM returns real subject lines, real addresses, real body text, and whatever passes
+through the session goes wherever the model runs.
+
+Ask the owner before running any of this against a work mailbox, and prefer a local model. If
+they want an aggregate, produce the aggregate on the machine and let only that reach the prompt —
+subject lines are the content, not the metadata.
+
+---
+
+## Running any of this
+
+These are PowerShell one-liners, so they need `run_command`, which is not classified read-only and
+will ask for approval. Shell scope has to reach outside the workspace. Long COM calls can block:
+give them a timeout and expect to have to say why nothing came back.
