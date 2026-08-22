@@ -155,4 +155,46 @@ class CommandScopePolicyTest {
         assertNotNull(CommandScopePolicy.rejection(
                 "copy x C:\\Windows\\x", ShellScope.WORKSPACE, "Windows 11"));
     }
+
+    @Test
+    void aCredentialStoreIsOutOfReachAtUserScopeAsWellAsWorkspace() {
+        // The check sat below the user-scope exit, so at the scope people actually run the shell
+        // walked into a key without a question. Same shape as the UNC rule two commits earlier.
+        assertNotNull(CommandScopePolicy.rejection(
+                "type C:\\Users\\me\\.ssh\\id_rsa", ShellScope.USER, "Windows 11"));
+        assertNotNull(CommandScopePolicy.rejection(
+                "cat ~/.ssh/id_rsa", ShellScope.USER, "Linux"));
+        assertNotNull(CommandScopePolicy.rejection(
+                "type %APPDATA%\\Microsoft\\Protect\\key", ShellScope.USER, "Windows 11"));
+        // Unrestricted is the deliberate opt-out and still is.
+        assertNull(CommandScopePolicy.rejection(
+                "type C:\\Users\\me\\.ssh\\id_rsa", ShellScope.UNRESTRICTED, "Windows 11"));
+    }
+
+    @Test
+    void aWindowsStoreIsNamedWhicheverWayItIsSpelled() {
+        // Windows path spelling is case-insensitive; matching the command case-sensitively was
+        // matching a spelling nobody is obliged to type.
+        assertNotNull(CommandScopePolicy.rejection(
+                "type %appdata%\\microsoft\\protect\\key", ShellScope.USER, "Windows 11"));
+        // "Application Data" and "Local Settings" are junctions kept from XP; both exist on a
+        // stock install and both land in AppData.
+        assertNotNull(CommandScopePolicy.rejection(
+                "type C:\\Users\\me\\Application Data\\Microsoft\\Protect\\key",
+                ShellScope.USER, "Windows 11"));
+        assertNotNull(CommandScopePolicy.rejection(
+                "dir C:\\Users\\me\\Local Settings\\Microsoft\\Credentials",
+                ShellScope.USER, "Windows 11"));
+    }
+
+    @Test
+    void outlookDataIsNotACredentialStore() {
+        // The list is named on purpose rather than derived from "hidden": AppData carries the
+        // hidden attribute on Windows, so a rule by hiddenness would lock away exactly this.
+        assertNull(CommandScopePolicy.rejection(
+                "dir C:\\Users\\me\\AppData\\Local\\Microsoft\\Outlook",
+                ShellScope.USER, "Windows 11"));
+        assertNull(CommandScopePolicy.rejection(
+                "dir C:\\Users\\me\\Documents", ShellScope.USER, "Windows 11"));
+    }
 }

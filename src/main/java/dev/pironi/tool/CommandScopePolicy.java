@@ -51,13 +51,16 @@ final class CommandScopePolicy {
             return "shell scope " + cliName(scope) + " does not reach UNC paths; they name "
                     + "another machine, not this one. Opt in with --shell-scope unrestricted.";
         }
-        if (scope == ShellScope.USER) return null;
-        // Reading anywhere on this machine is allowed; the boundary is on writing.
+        // Before the user-scope exit, for the same reason as the UNC rule above it: reading
+        // anywhere on this machine is the point of user scope, and a credential store is the one
+        // carve-out from it. Sitting below the exit made every store free at the scope people
+        // actually run - "type ~/.ssh/id_rsa" passed without a question.
         String store = namedSecretStore(command, osName);
         if (store != null) {
             return "shell scope " + cliName(scope) + " does not reach credential stores (" + store
                     + "); ask the user to read it, or move the workspace there deliberately";
         }
+        if (scope == ShellScope.USER) return null;
         if (ReadOnlyCommand.isReadOnly(command, osName) && !UNC.matcher(command).find()) return null;
         if (PARENT.matcher(command).find()
                 || (!windows && UNIX_ABSOLUTE.matcher(command).find())
@@ -79,17 +82,69 @@ final class CommandScopePolicy {
      * past.
      */
     private static String namedSecretStore(String command, String osName) {
+        boolean windows = osName.toLowerCase(Locale.ROOT).contains("win");
+        // Windows path spelling is case-insensitive, so matching the command case-sensitively was
+        // matching a spelling nobody is obliged to use: "%appdata%\microsoft\protect" walked past.
+        String haystack = windows ? command.toLowerCase(Locale.ROOT) : command;
         for (java.nio.file.Path store : dev.pironi.safety.SecretStores.stores(osName)) {
             String full = store.toString();
-            if (command.contains(full)) return full;
+            for (String spelling : spellings(full, windows)) {
+                if (haystack.contains(windows ? spelling.toLowerCase(Locale.ROOT) : spelling)) {
+                    return full;
+                }
+            }
             java.nio.file.Path fileName = store.getFileName();
             if (fileName == null) continue;
             String name = fileName.toString();
-            for (String prefix : new String[]{"~/", "~\\", "/", "\\", "%USERPROFILE%\\"}) {
-                if (command.contains(prefix + name)) return full;
+            if (windows) name = name.toLowerCase(Locale.ROOT);
+            for (String prefix : new String[]{"~/", "~\\", "/", "\\", "%userprofile%\\"}) {
+                if (haystack.contains((windows ? prefix : prefix.toUpperCase(Locale.ROOT)) + name)) {
+                    return full;
+                }
+            }
+        }
+        return storeUnderAPathToken(command);
+    }
+
+    /**
+     * Matching text can only catch spellings we thought of, and Windows has one we cannot derive:
+     * the 8.3 alias, whose "~1" is an index into whatever else collided in that directory. So each
+     * token that names something on disk is put to the file system, which knows where it lands.
+     * A guard over the words in a command line, not a parser for them.
+     */
+    private static String storeUnderAPathToken(String command) {
+        for (String token : command.split("[\\s\"'|&;<>()]+")) {
+            if (token.length() < 3) continue;
+            try {
+                java.nio.file.Path store =
+                        dev.pironi.safety.SecretStores.protectedBy(java.nio.file.Path.of(token));
+                if (store != null) return store.toString();
+            } catch (RuntimeException notAPath) {
+                // A switch or an argument, not a path. Nothing to check.
             }
         }
         return null;
+    }
+
+    /**
+     * The ways one store can be written on a command line. Windows keeps junctions from XP, so
+     * %APPDATA% is reachable as "Application Data" and %LOCALAPPDATA% as "Local Settings"; both
+     * exist on a stock install and both land in the same directory.
+     */
+    private static java.util.List<String> spellings(String store, boolean windows) {
+        if (!windows) return java.util.List.of(store);
+        java.util.List<String> spellings = new java.util.ArrayList<>();
+        spellings.add(store);
+        for (String[] junction : new String[][]{
+                {"\\AppData\\Roaming", "\\Application Data"},
+                {"\\AppData\\Local", "\\Local Settings"}}) {
+            int at = store.toLowerCase(Locale.ROOT).indexOf(junction[0].toLowerCase(Locale.ROOT));
+            if (at >= 0) {
+                spellings.add(store.substring(0, at) + junction[1]
+                        + store.substring(at + junction[0].length()));
+            }
+        }
+        return spellings;
     }
 
     private static String cliName(ShellScope scope) {
