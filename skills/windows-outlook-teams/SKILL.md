@@ -1,7 +1,7 @@
 # windows-outlook-teams
 
 description: Where Outlook and Teams keep data on Windows, how to reach it, and what lies to you.
-triggers: outlook, teams, calendar, meetings, mailbox, inbox, mail, appointments, com, mapi, ost, pst, olk, msteams, meeting, invite, sent items, аутлук, тиймс, календар, срещи, среща, поща, имейл, имейли, писма, кутия, покана, пощенска
+triggers: outlook, teams, calendar, meetings, mailbox, inbox, mail, appointments, com, mapi, ost, pst, olk, msteams, meeting, invite, sent items, аутлук, тиймс, календар, срещи, среща, поща, имейл, имейли, писма, кутия, пощенска
 
 This is a map, not a recipe. It says where things are, how to open them, and which answers are
 lies. What to do with what you find is the user's call — ask them rather than deciding a shape
