@@ -96,4 +96,66 @@ class ListFilesToolTest {
         Path path = Files.createDirectories(workspaceRoot.resolve(directory)).resolve(file);
         Files.writeString(path, "");
     }
+
+    @Test
+    void oneDirectoryThisAccountCannotOpenDoesNotLoseTheListing() throws Exception {
+        Files.writeString(workspaceRoot.resolve("keep.txt"), "");
+        Path locked = Files.createDirectories(workspaceRoot.resolve("locked"));
+        Files.writeString(locked.resolve("inside.txt"), "");
+        if (!denyAccess(locked)) {
+            org.junit.jupiter.api.Assumptions.abort("this account cannot stage an unreadable dir");
+        }
+        try {
+            // The premise, asserted rather than assumed: the directory really will not open.
+            try (var stream = Files.newDirectoryStream(locked)) {
+                stream.iterator();
+                org.junit.jupiter.api.Assumptions.abort("the deny did not take on this filesystem");
+            } catch (java.io.IOException expected) {
+                // good - this is the case the walk used to die on
+            }
+
+            ToolResult result = new ListFilesTool(new Workspace(workspaceRoot), 100)
+                    .execute(OBJECT_MAPPER.createObjectNode().put("path", "."));
+
+            // Files.walk abandoned the whole traversal here, so a user listing their own home on
+            // Windows got nothing at all - one INetCache directory took the rest down with it.
+            assertEquals(true, result.success(), result.output());
+            assertEquals(true, result.output().contains("keep.txt"), result.output());
+        } finally {
+            restoreAccess(locked);
+        }
+    }
+
+    private static boolean denyAccess(Path directory) throws Exception {
+        if (System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win")) {
+            return icacls("/deny", System.getProperty("user.name") + ":(OI)(CI)(RX)", directory);
+        }
+        try {
+            Files.setPosixFilePermissions(directory, Set.of());
+            return true;
+        } catch (UnsupportedOperationException | java.io.IOException e) {
+            return false;
+        }
+    }
+
+    private static void restoreAccess(Path directory) throws Exception {
+        if (System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win")) {
+            icacls("/remove:d", System.getProperty("user.name"), directory);
+            return;
+        }
+        try {
+            Files.setPosixFilePermissions(directory,
+                    java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"));
+        } catch (UnsupportedOperationException | java.io.IOException ignored) {
+            // nothing left to restore; the temp directory cleanup will report it if it matters
+        }
+    }
+
+    private static boolean icacls(String flag, String argument, Path directory) throws Exception {
+        Process process = new ProcessBuilder(
+                "icacls", directory.toString(), flag, argument)
+                .redirectErrorStream(true).start();
+        return process.waitFor(20, java.util.concurrent.TimeUnit.SECONDS)
+                && process.exitValue() == 0;
+    }
 }

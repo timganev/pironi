@@ -5,8 +5,10 @@ import dev.pironi.safety.AccessGrants;
 import dev.pironi.safety.Workspace;
 
 import java.io.IOException;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Map;
@@ -107,16 +109,7 @@ public final class ListFilesTool implements Tool {
                 return ToolResult.failure("Not a directory: " + path);
             }
 
-            List<Path> files;
-            try (var walk = Files.walk(directory)) {
-                files = walk
-                        .filter(Files::isRegularFile)
-                        .filter(file -> !isIgnored(directory.relativize(file)))
-                        .filter(file -> !hiddenPaths.contains(canonicalize(file)))
-                        .sorted(Comparator.naturalOrder())
-                        .limit(MAX_SCANNED_FILES)
-                        .toList();
-            }
+            List<Path> files = scan(directory);
             String listing = files.stream()
                     .limit(maxEntries)
                     .map(file -> file.startsWith(workspace.root())
@@ -131,6 +124,43 @@ public final class ListFilesTool implements Tool {
         } catch (IllegalArgumentException | IOException e) {
             return ToolResult.failure(e.getMessage());
         }
+    }
+
+    /**
+     * The files under a directory, skipping what this account may not open.
+     *
+     * <p>Files.walk gives up the whole traversal on the first unreadable directory, and on Windows
+     * a user's own tree has them: listing %LOCALAPPDATA%\Microsoft threw on INetCache\Content.IE5
+     * and lost the Outlook data three directories over with it. One closed door is not a reason to
+     * report nothing.
+     */
+    private List<Path> scan(Path directory) throws IOException {
+        List<Path> files = new ArrayList<>();
+        Files.walkFileTree(directory, new java.nio.file.SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attributes) {
+                return isIgnored(directory.relativize(dir))
+                        ? FileVisitResult.SKIP_SUBTREE : FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) {
+                if (files.size() >= MAX_SCANNED_FILES) return FileVisitResult.TERMINATE;
+                if (attributes.isRegularFile()
+                        && !isIgnored(directory.relativize(file))
+                        && !hiddenPaths.contains(canonicalize(file))) {
+                    files.add(file);
+                }
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFileFailed(Path file, IOException unreadable) {
+                return FileVisitResult.CONTINUE;
+            }
+        });
+        files.sort(Comparator.naturalOrder());
+        return files;
     }
 
     private record Entry(Path relative, long bytes, long modified) {
