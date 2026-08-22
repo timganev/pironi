@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class BundledSkillsTest {
     private static final Path SKILLS = Path.of("skills");
+    private static final String QUOTE = String.valueOf((char) 34);
     private static final int MAX_SKILL_CHARACTERS = 24_000;
 
     @TempDir Path home;
@@ -113,7 +114,15 @@ class BundledSkillsTest {
             assertTrue(!unix.contains(name),
                     "package-unix.sh names " + name + "; it should copy the directory");
         }
-        assertTrue(windows.contains(".pironi\\skills"), "the bundle's skills path must be there");
-        assertTrue(unix.contains(".pironi/skills"), "the bundle's skills path must be there");
+        // Beside the launcher, in plain sight: this is the seed a release carries, and the
+        // person who unzipped it must be able to read it without being told about a dot folder.
+        assertTrue(windows.contains("Join-Path $bundleDir " + QUOTE + "skills" + QUOTE),
+                "the bundle's skills folder must sit beside the launcher");
+        assertTrue(unix.contains(QUOTE + "$bundle_dir/skills" + QUOTE),
+                "the bundle's skills folder must sit beside the launcher");
+        // Neither may write a .pironi into the bundle any more: the store lives under the home,
+        // and the bundle is the program plus its seed.
+        assertTrue(!windows.contains(".pironi"), "a release carries no .pironi");
+        assertTrue(!unix.contains(".pironi"), "a release carries no .pironi");
     }
 }

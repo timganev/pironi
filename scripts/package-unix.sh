@@ -28,15 +28,20 @@ cp "$jar_path" "$bundle_dir/pironi.jar"
 printf '%s' "$version" > "$bundle_dir/version.txt"
 cp dist/unix/pironi "$bundle_dir/pironi"
 cp README.md "$bundle_dir/README.md"
+# The examples ship beside the README so a person can see what a persona looks like without
+# going to the repository for it.
+for example in SOUL.example.md USER.example.md; do
+  [ -f "$example" ] && cp "$example" "$bundle_dir/$example"
+done
 # Every directory under skills/ ships. Naming them one at a time meant a new skill had to be
 # added here and in package-windows.ps1, and one missing from either shipped on a single platform.
 if [ -d skills ]; then
-  mkdir -p "$bundle_dir/.pironi/skills"
+  mkdir -p "$bundle_dir/skills"
   for skill in skills/*/; do
     [ -d "$skill" ] || continue
-    cp -R "$skill" "$bundle_dir/.pironi/skills/"
+    cp -R "$skill" "$bundle_dir/skills/"
   done
-  echo "bundled skills: $(find "$bundle_dir/.pironi/skills" -mindepth 1 -maxdepth 1 -type d | wc -l)"
+  echo "bundled skills: $(find "$bundle_dir/skills" -mindepth 1 -maxdepth 1 -type d | wc -l)"
 fi
 chmod +x "$bundle_dir/pironi"
 

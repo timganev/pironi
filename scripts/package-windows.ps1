@@ -31,11 +31,18 @@ Copy-Item -LiteralPath $Jar -Destination (Join-Path $bundleDir "pironi.jar")
 Copy-Item -LiteralPath "dist/windows/pironi.bat" -Destination (Join-Path $bundleDir "pironi.bat")
 Copy-Item -LiteralPath "dist/windows/README-WINDOWS.txt" -Destination (Join-Path $bundleDir "README-WINDOWS.txt")
 Copy-Item -LiteralPath "README.md" -Destination (Join-Path $bundleDir "README.md")
+# The examples ship beside the README so a person can see what a persona looks like without
+# going to the repository for it.
+foreach ($example in @("SOUL.example.md", "USER.example.md")) {
+    if (Test-Path -LiteralPath $example) {
+        Copy-Item -LiteralPath $example -Destination (Join-Path $bundleDir $example)
+    }
+}
 # Every directory under skills/ ships. Naming them one at a time meant a new skill had to be
 # added here and in package-unix.sh, and one missing from either shipped on a single platform -
 # which is how the Unix bundle came to carry a skill its launcher never read.
 if (Test-Path -LiteralPath "skills") {
-    $skillsTarget = Join-Path $bundleDir ".pironi\skills"
+    $skillsTarget = Join-Path $bundleDir "skills"
     New-Item -ItemType Directory -Path $skillsTarget -Force | Out-Null
     Get-ChildItem -LiteralPath "skills" -Directory | ForEach-Object {
         Copy-Item -LiteralPath $_.FullName -Destination $skillsTarget -Recurse -Force
@@ -46,6 +53,10 @@ if (Test-Path -LiteralPath "skills") {
 if (Test-Path -LiteralPath $archive) {
     Remove-Item -LiteralPath $archive -Force
 }
-Compress-Archive -LiteralPath $bundleDir -DestinationPath $archive
+# The zip holds the bundle's contents, not the bundle folder. Explorer's "Extract All" already
+# makes a folder named after the archive, so shipping one inside gave everybody
+# pironi-v0.7.0-windows-x64\pironi-v0.7.0-windows-x64\pironi.bat. The tar.gz keeps its top folder,
+# because "tar xzf" on Unix extracts where you stand and scattering files there is worse.
+Compress-Archive -Path (Join-Path $bundleDir "*") -DestinationPath $archive
 $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
 Set-Content -LiteralPath "$archive.sha256" -Value "$hash  $([IO.Path]::GetFileName($archive))" -Encoding ascii
