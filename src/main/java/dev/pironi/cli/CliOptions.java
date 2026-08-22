@@ -324,9 +324,13 @@ record CliOptions(
                 Duration.ofSeconds(positiveInt(values, "timeout-seconds", 600)),
                 trace,
                 pironiHome,
+                // SOUL.md and USER.md load unless someone says otherwise. "auto" withheld them
+                // from every provider but Ollama, which meant the agent forgot who it was talking
+                // to the moment you pointed it at a hosted model - the case people actually run.
+                // Withholding is still one flag away: --personal-context auto, or deny.
                 PersonalContextMode.parse(values.getOrDefault(
                         "personal-context",
-                        environment.getOrDefault("PIRONI_DEFAULT_PERSONAL_CONTEXT", "auto")
+                        environment.getOrDefault("PIRONI_DEFAULT_PERSONAL_CONTEXT", "allow")
                 )),
                 StatusMode.parse(values.getOrDefault("status", "auto")),
                 values.get("verify-command"),

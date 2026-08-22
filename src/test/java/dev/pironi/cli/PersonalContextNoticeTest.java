@@ -42,10 +42,19 @@ class PersonalContextNoticeTest {
 
     @Test void tellsTheUserWhenAPersonaWasWrittenButNotLoaded() throws Exception {
         Files.writeString(home.resolve("SOUL.md"), "# Persona\nReply in Bulgarian.");
-        String output = noticeFor(base());
+        // "auto" is the mode that withholds; it is no longer the default, so it is asked for here.
+        String output = noticeFor(base("--personal-context", "auto"));
         assertTrue(output.contains("SOUL.md/USER.md were not loaded"), output);
         assertTrue(output.contains("--personal-context allow"), output);
         assertTrue(output.contains("deepseek"), "must name where the contents would go: " + output);
+    }
+
+    @Test void aPersonaLoadsOnAHostedModelWithoutBeingAskedTo() throws Exception {
+        Files.writeString(home.resolve("SOUL.md"), "# Persona\nReply in Bulgarian.");
+
+        // The default withheld the persona from every provider but Ollama, so the agent forgot who
+        // it was talking to the moment it was pointed at a hosted model - which is what people run.
+        assertFalse(noticeFor(base()).contains("were not loaded"), "nothing was withheld");
     }
 
     @Test void staysQuietWhenThereIsNoPersonaToLoad() throws Exception {
