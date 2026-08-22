@@ -199,6 +199,36 @@ class CommandScopePolicyTest {
     }
 
     @Test
+    void workspaceScopeHoldsWhicheverShellSpellsTheVariable() {
+        // The expansion list was written in cmd's notation. A PowerShell command reaching the
+        // same directory named none of it, so at the tightest scope - the one whose whole job is
+        // to keep writes inside the sandbox - this wrote to the home directory unrefused.
+        assertNotNull(CommandScopePolicy.rejection(
+                "powershell -c \"Set-Content $env:USERPROFILE\\taken.txt x\"",
+                ShellScope.WORKSPACE, "Windows 11"));
+        assertNotNull(CommandScopePolicy.rejection(
+                "powershell -c \"Remove-Item ${env:APPDATA}\\something\"",
+                ShellScope.WORKSPACE, "Windows 11"));
+        assertNotNull(CommandScopePolicy.rejection(
+                "powershell -c \"Copy-Item a.txt $env:HOMEDRIVE$env:HOMEPATH\"",
+                ShellScope.WORKSPACE, "Windows 11"));
+        // The .NET route to the same places names none of the variables at all.
+        assertNotNull(CommandScopePolicy.rejection(
+                "powershell -c \"Set-Content ([Environment]::GetFolderPath('UserProfile')) x\"",
+                ShellScope.WORKSPACE, "Windows 11"));
+        // cmd's spelling was already held and still is.
+        assertNotNull(CommandScopePolicy.rejection(
+                "copy x.txt %USERPROFILE%\\taken.txt", ShellScope.WORKSPACE, "Windows 11"));
+        // A variable that names no directory outside the workspace is not the point.
+        assertNull(CommandScopePolicy.rejection(
+                "powershell -c \"$env:PATH\"", ShellScope.WORKSPACE, "Windows 11"));
+        // User scope deliberately reaches the whole machine, and still does.
+        assertNull(CommandScopePolicy.rejection(
+                "powershell -c \"Set-Content $env:USERPROFILE\\notes.txt x\"",
+                ShellScope.USER, "Windows 11"));
+    }
+
+    @Test
     void outlookDataIsNotACredentialStore() {
         // The list is named on purpose rather than derived from "hidden": AppData carries the
         // hidden attribute on Windows, so a rule by hiddenness would lock away exactly this.

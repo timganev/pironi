@@ -69,12 +69,29 @@ final class CommandScopePolicy {
                 || command.contains("~")
                 || lower.contains("$home")
                 || lower.contains("${home}")
-                || WINDOWS_EXPANSIONS.stream().anyMatch(lower::contains)
+                || namesAnExpansion(lower)
                 || DIRECTORY_CHANGE.matcher(command).find()) {
             return "shell scope workspace blocks explicit paths or directory changes outside "
                     + "the workspace; use scoped file tools or opt in with --shell-scope user";
         }
         return null;
+    }
+
+    /**
+     * The same variables, however the shell in the command spells them. The list was written in
+     * cmd's notation, so at workspace scope "copy x %USERPROFILE%\taken.txt" was held while
+     * "powershell -c \"Set-Content $env:USERPROFILE\taken.txt x\"" wrote there unrefused - and
+     * workspace scope exists precisely to stop that write.
+     */
+    private static boolean namesAnExpansion(String lower) {
+        for (String expansion : WINDOWS_EXPANSIONS) {
+            if (lower.contains(expansion)) return true;
+            String name = expansion.substring(1, expansion.length() - 1);
+            if (lower.contains("$env:" + name) || lower.contains("${env:" + name)) return true;
+        }
+        // The .NET way to the same directories, which names none of the variables above.
+        return lower.contains("[environment]::getfolderpath")
+                || lower.contains("[environment]::getenvironmentvariable");
     }
 
     /**
