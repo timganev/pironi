@@ -2,5 +2,23 @@
 set -eu
 
 PIRONI_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-exec "$PIRONI_DIR/runtime/bin/java" -jar "$PIRONI_DIR/pironi.jar" "$@"
 
+# The same defaults the Windows launcher sets. Without them this bundle fell back to ~/.pironi,
+# so the skills the packager copies into ./.pironi/skills were never once read on Unix, and the
+# same release behaved differently depending on the platform it was unzipped on.
+#
+# Anything already in the environment wins: these are defaults, not decisions.
+PIRONI_DEFAULT_WORKSPACE="${PIRONI_DEFAULT_WORKSPACE:-$HOME}"
+PIRONI_DEFAULT_SEARCH_ROOTS="${PIRONI_DEFAULT_SEARCH_ROOTS:-$HOME}"
+PIRONI_DEFAULT_HOME="${PIRONI_DEFAULT_HOME:-$PIRONI_DIR/.pironi}"
+PIRONI_DEFAULT_PERSONAL_CONTEXT="${PIRONI_DEFAULT_PERSONAL_CONTEXT:-allow}"
+PIRONI_DEFAULT_SHELL_SCOPE="${PIRONI_DEFAULT_SHELL_SCOPE:-user}"
+export PIRONI_DEFAULT_WORKSPACE PIRONI_DEFAULT_SEARCH_ROOTS PIRONI_DEFAULT_HOME
+export PIRONI_DEFAULT_PERSONAL_CONTEXT PIRONI_DEFAULT_SHELL_SCOPE
+
+if [ ! -x "$PIRONI_DIR/runtime/bin/java" ]; then
+  echo "Pironi runtime is missing: $PIRONI_DIR/runtime/bin/java" >&2
+  exit 1
+fi
+
+exec "$PIRONI_DIR/runtime/bin/java" -jar "$PIRONI_DIR/pironi.jar" "$@"
