@@ -344,6 +344,44 @@ class InteractiveShellTest {
 
 
     @Test
+    void anAutoTurnDoesNotReprintWhatTheLoopAlreadyStreamed() throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        CountDownLatch entered = new CountDownLatch(1);
+        InteractiveShell shell = new InteractiveShell(
+                new BufferedReader(new StringReader("")),
+                new PrintStream(bytes, true, StandardCharsets.UTF_8),
+                task -> {
+                    entered.countDown();
+                    return new AgentResult(true, "the forecast table", 1, true);
+                }
+        );
+
+        shell.autoTurnCallback().run();
+
+        assertTrue(entered.await(5, TimeUnit.SECONDS), "the auto-turn never reached the runner");
+        // The answer went to the screen once as the loop streamed it; printing it here is what put
+        // the same forecast on the screen twice.
+        assertFalse(
+                awaitOutput(bytes, "the forecast table"),
+                "an already streamed answer was printed a second time"
+        );
+    }
+
+    @Test
+    void anAutoTurnStillPrintsAnAnswerNobodyStreamed() throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        InteractiveShell shell = new InteractiveShell(
+                new BufferedReader(new StringReader("")),
+                new PrintStream(bytes, true, StandardCharsets.UTF_8),
+                task -> new AgentResult(true, "the forecast table", 1, false)
+        );
+
+        shell.autoTurnCallback().run();
+
+        assertTrue(awaitOutput(bytes, "the forecast table"), "nothing showed the answer at all");
+    }
+
+    @Test
     void anAutoTurnStandsDownWhileATurnIsAlreadyRunning() throws Exception {
         List<String> tasks = Collections.synchronizedList(new ArrayList<>());
         CountDownLatch userTurnEntered = new CountDownLatch(1);

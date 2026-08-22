@@ -279,6 +279,9 @@ public final class InteractiveShell {
                 conversationHistory.add("User: [auto-turn]");
                 conversationHistory.add("Pironi: " + answer);
                 while (conversationHistory.size() > 8) conversationHistory.removeFirst();
+                // The loop streams a validated answer as it lands. Printing it again here is what
+                // put the same answer on the screen twice; only an unstreamed one needs a printer.
+                if (result.streamed()) return;
                 if (userWriting) {
                     pendingAutoTurnResult = answer;
                 } else {
