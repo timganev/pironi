@@ -50,7 +50,8 @@ record CliOptions(
     private static final Path DEFAULT_WORKSPACE = Path.of(
             System.getProperty("user.dir", ".")
     ).toAbsolutePath().normalize();
-    private static final Set<String> BOOLEAN_FLAGS = Set.of("interactive", "no-interactive", "no-tui", "continue");
+    private static final Set<String> BOOLEAN_FLAGS = Set.of(
+            "interactive", "no-interactive", "no-tui", "continue", "portable");
     private static final Set<String> VALUE_OPTIONS = Set.of(
             "provider", "base-url", "api-key-env", "model", "workspace", "task", "task-file",
             "approval", "activity", "max-turns", "context", "max-output-tokens",
@@ -274,9 +275,16 @@ record CliOptions(
         Path trace = values.containsKey("trace")
                 ? Path.of(values.get("trace"))
                 : workspace.resolve(".pironi/trace.jsonl");
+        // A release keeps its skills, sessions and memory in ~/.pironi like every other way of
+        // running Pironi, so upgrading is unzipping a new folder rather than starting over.
+        // --portable puts all of it inside the bundle instead, for a copy on a stick that leaves
+        // nothing behind; the launcher says where the bundle is, and only it can answer that.
+        String bundle = environment.get("PIRONI_BUNDLE_DIR");
+        String portableHome = values.containsKey("portable") && bundle != null && !bundle.isBlank()
+                ? Path.of(bundle).resolve(".pironi").toString() : null;
         Path pironiHome = Path.of(values.getOrDefault(
                 "pironi-home",
-                environment.getOrDefault(
+                portableHome != null ? portableHome : environment.getOrDefault(
                         "PIRONI_DEFAULT_HOME",
                         Path.of(System.getProperty("user.home"), ".pironi").toString()
                 )
