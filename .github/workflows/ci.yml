@@ -29,3 +29,42 @@ jobs:
       - name: Interactive terminal regression
         if: runner.os == 'Linux' || runner.os == 'macOS'
         run: java -jar target/pironi-0.1.0-SNAPSHOT.jar --test-keys
+
+  # The packagers ran only on a tag, so a break in them appeared for the first time during a
+  # release - and nothing anywhere unpacked the result and started it. PortableLauncherTest
+  # compares the two launcher scripts as text; it has never executed either one.
+  package:
+    name: Bundle / ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+          - os: windows-latest
+            platform: windows-x64
+          - os: macos-latest
+            platform: macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      - name: Build the jar
+        run: mvn --batch-mode --no-transfer-progress -DskipTests clean package
+      - name: Package Linux or macOS bundle
+        if: runner.os != 'Windows'
+        run: scripts/package-unix.sh target/pironi-0.1.0-SNAPSHOT.jar build/release ci "${{ matrix.platform }}"
+      - name: Package Windows bundle
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: scripts/package-windows.ps1 -Jar target/pironi-0.1.0-SNAPSHOT.jar -Output build/release -Version ci -Platform "${{ matrix.platform }}"
+      - name: Unpack the bundle and run it
+        shell: bash
+        run: |
+          skills=$(find skills -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+          archive=$(ls build/release/pironi-ci-${{ matrix.platform }}.tar.gz build/release/pironi-ci-${{ matrix.platform }}.zip 2>/dev/null | head -1)
+          bash scripts/smoke-bundle.sh "$archive" "$skills"
