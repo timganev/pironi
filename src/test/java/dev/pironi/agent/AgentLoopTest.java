@@ -956,6 +956,40 @@ class AgentLoopTest {
         assertTrue(afterCompression.contains("export: mail.txt"));
     }
 
+    /**
+     * Compression is housekeeping, and a failure in it used to end the task: the summarising call
+     * is made from inside the turn loop, so a rate limit or a dropped socket on that request came
+     * out of run() and the whole run was reported as failed - work already done, answer never
+     * given. Skipping a cycle costs context; failing the task costs the work.
+     */
+    @Test
+    void aFailedCompressionCostsTheCycleAndNotTheTask() throws Exception {
+        ModelClient model = new ModelClient() {
+            private int calls;
+            @Override public ModelResponse chat(List<ChatMessage> messages) {
+                return new ModelResponse(
+                        "{\"thought\":\"done\",\"toolCalls\":[],\"finalAnswer\":\"answer\"}",
+                        0, 0, 0);
+            }
+            @Override public ModelResponse chatText(List<ChatMessage> messages) throws IOException {
+                calls++;
+                throw new IOException("429 Too Many Requests");
+            }
+        };
+        AgentMemory memory = new AgentMemory() {
+            @Override public boolean shouldCompress() { return true; }
+            @Override public String compressionPrompt(List<ChatMessage> messages, String task) {
+                return "compress this";
+            }
+        };
+
+        AgentResult result = loop(model, List.of(), new NoOpVerificationGate(), memory)
+                .run("weekly report");
+
+        assertTrue(result.success(), "the task was going fine; only the summary failed");
+        assertEquals("answer", result.output());
+    }
+
     private AgentLoop loop(ModelClient model, List<Tool> tools) {
         return loop(model, tools, new NoOpVerificationGate());
     }

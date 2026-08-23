@@ -74,15 +74,25 @@ public final class AgentLoop {
         private final java.util.Map<String, Integer> bodyCounts = new java.util.HashMap<>();
         private final java.util.Deque<Boolean> recent = new java.util.ArrayDeque<>();
 
+        /**
+         * Both sets are capped. They exist to notice repetition, and an approach that has produced
+         * a hundred distinct answers is not repeating itself - past that the entries are weight
+         * with nothing left to say, and the ledger meant to stop waste was the thing accumulating.
+         */
+        private static final int MAX_REMEMBERED_OUTPUTS = 100;
+
         void record(boolean success, String output) {
             attempts++;
             String body = informativeBody(output);
-            boolean novel = success && !body.isEmpty() && seenOutputs.add(body);
+            boolean novel = success && !body.isEmpty()
+                    && seenOutputs.size() < MAX_REMEMBERED_OUTPUTS && seenOutputs.add(body);
             if (!success) lastError = summarize(output);
             // Count the answer itself, not the call: a loop can vary its arguments and still come
             // back with the same content every time.
             String keyed = body.isEmpty() ? summarize(output) : body;
-            int repeats = bodyCounts.merge(keyed, 1, Integer::sum);
+            int repeats = bodyCounts.size() >= MAX_REMEMBERED_OUTPUTS && !bodyCounts.containsKey(keyed)
+                    ? 1
+                    : bodyCounts.merge(keyed, 1, Integer::sum);
             recent.addLast(novel);
             if (recent.size() > APPROACH_STALE_WINDOW) recent.removeFirst();
             boolean windowStale = recent.size() == APPROACH_STALE_WINDOW
@@ -557,7 +567,9 @@ public final class AgentLoop {
             long toolStarted = System.nanoTime();
             String signature = ApproachSignature.approachSignature(call);
             Approach known = approaches.get(signature);
-            if (known != null && known.blocked() && ApproachSignature.blockable(signature)) {
+            boolean blockedCall = known != null && known.blocked()
+                    && ApproachSignature.blockable(signature);
+            if (blockedCall) {
                 result = ToolResult.failure(
                         signature + " is blocked after " + known.attempts
                                 + " attempts that produced nothing new. This approach will not "
@@ -594,8 +606,14 @@ public final class AgentLoop {
             if (result.success() && informativeBody(result.output()).isEmpty()) {
                 emptyResults.add(call.name());
             }
-            approaches.computeIfAbsent(ApproachSignature.approachSignature(call), key -> new Approach())
-                    .record(result.success(), result.output());
+            // A blocked call never ran, so there is nothing to learn from its outcome - and
+            // recording it grew the ledger without bound: the refusal names the attempt count, so
+            // every repeat was a brand new key in a map that only ever gained entries, in the one
+            // structure whose whole job is to stop wasted repetition.
+            if (!blockedCall) {
+                approaches.computeIfAbsent(signature, key -> new Approach())
+                        .record(result.success(), result.output());
+            }
 
             traceWriter.toolResult(turn, call.name(), call.arguments(), result);
             memory.recordTool(call.name(), call.arguments(), result.output());
@@ -881,10 +899,22 @@ public final class AgentLoop {
         if (!memory.shouldCompress()) return;
         String prompt = memory.compressionPrompt(messages, task);
         if (prompt == null) return;
-        ModelResponse summary = modelClient.chatText(List.of(
-                ChatMessage.system("Summarize conversation state faithfully and concisely."),
-                ChatMessage.user(prompt)
-        ));
+        ModelResponse summary;
+        try {
+            summary = modelClient.chatText(List.of(
+                    ChatMessage.system("Summarize conversation state faithfully and concisely."),
+                    ChatMessage.user(prompt)
+            ));
+        } catch (IOException e) {
+            // Housekeeping, not the task. This call used to be able to end a run that was going
+            // fine: a rate limit or a dropped socket on the summarising request propagated out of
+            // the turn loop and the whole thing was reported as failed. Skipping a compression
+            // cycle costs context; failing the task costs the work.
+            traceWriter.harnessNote(0, "compression-skipped", "Compression was skipped after "
+                    + e.getClass().getSimpleName() + ": " + e.getMessage()
+                    + ". The conversation continues uncompressed and will be tried again.");
+            return;
+        }
         String compressed = memory.storeSummary(summary.content());
         List<ChatMessage> tail = new ArrayList<>(messages.subList(
                 Math.max(1, messages.size() - 4), messages.size()
