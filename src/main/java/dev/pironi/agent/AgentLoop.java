@@ -342,9 +342,12 @@ public final class AgentLoop {
 
             boolean findingSupplied = !decision.finding().isBlank();
             FindingsLedger.recordFinding(findings, decision.finding(), pinnedFindings);
-            // Only what this turn nominated as durable is written down.
+            // Only what this turn nominated as durable is written down, and clipped on the way:
+            // a finding is capped and this was not, so a pasted document nominated as worth
+            // remembering was persisted whole and then rode on every later session against this
+            // workspace. That is the incident the findings ledger was capped for, one field over.
             if (!decision.remember().isBlank()) {
-                memory.rememberFindings(List.of(decision.remember().strip()));
+                memory.rememberFindings(List.of(FindingsLedger.clip(decision.remember().strip())));
             }
             String thisFinding = decision.finding().strip();
             repeatedFindings = !thisFinding.isEmpty() && thisFinding.equals(lastFinding)

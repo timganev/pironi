@@ -90,7 +90,7 @@ record CliOptions(
                 resumeSession,
                 searchRoots,
                 interactive,
-                false,
+                noTui,
                 maxSubagents,
                 subagentTimeoutSeconds
         );
@@ -129,7 +129,7 @@ record CliOptions(
                 resumeSession,
                 searchRoots,
                 interactive,
-                false,
+                noTui,
                 maxSubagents,
                 subagentTimeoutSeconds
         );
@@ -161,7 +161,7 @@ record CliOptions(
                 resumeSession,
                 searchRoots,
                 interactive,
-                false,
+                noTui,
                 maxSubagents,
                 subagentTimeoutSeconds
         );
@@ -193,7 +193,7 @@ record CliOptions(
                 resumeSession,
                 searchRoots,
                 interactive,
-                false,
+                noTui,
                 maxSubagents,
                 subagentTimeoutSeconds
         );
@@ -359,7 +359,7 @@ record CliOptions(
                 values.containsKey("continue") ? "" : values.get("resume"),
                 searchRoots,
                 interactive,
-                false,
+                values.containsKey("no-tui"),
                 positiveInt(values, "max-subagents", 2),
                 positiveInt(values, "subagent-timeout-seconds", 120)
         );

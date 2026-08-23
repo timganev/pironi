@@ -16,10 +16,17 @@ public final class CsvTool implements Tool {
     public enum Operation { MERGE, SANITIZE }
     private final Workspace workspace;
     private final Operation operation;
+    private final dev.pironi.safety.CheckpointManager checkpointManager;
 
     public CsvTool(Workspace workspace, Operation operation) {
+        this(workspace, operation, null);
+    }
+
+    public CsvTool(Workspace workspace, Operation operation,
+            dev.pironi.safety.CheckpointManager checkpointManager) {
         this.workspace = workspace;
         this.operation = operation;
+        this.checkpointManager = checkpointManager;
     }
     @Override public String name() { return operation == Operation.MERGE ? "csv_merge" : "csv_sanitize"; }
     @Override public String description() { return operation == Operation.MERGE
@@ -48,11 +55,13 @@ public final class CsvTool implements Tool {
         try {
             List<List<String>> result = operation == Operation.MERGE ? merge(arguments) : sanitize(arguments);
             Path output = workspace.resolveForWriteCreatingParents(arguments.path("output").asText());
-            Files.writeString(output, render(result), StandardCharsets.UTF_8);
+            String checkpoint = SafeWrite.snapshot(checkpointManager, output);
+            SafeWrite.write(output, render(result));
             List<List<String>> roundTrip = parse(Files.readString(output, StandardCharsets.UTF_8));
             if (!roundTrip.equals(result)) throw new IOException("CSV round-trip validation failed");
             return ToolResult.success("Created and validated " + workspace.root().relativize(output)
-                    + " with " + Math.max(0, result.size() - 1) + " data rows");
+                    + " with " + Math.max(0, result.size() - 1) + " data rows"
+                    + SafeWrite.checkpointNote(checkpoint));
         } catch (IOException | IllegalArgumentException e) { return ToolResult.failure(e); }
     }
 
@@ -72,7 +81,19 @@ public final class CsvTool implements Tool {
             int keyIndex = header.indexOf(key);
             if (keyIndex < 0) throw new IllegalArgumentException("Key header not found: " + key);
             LinkedHashMap<String, List<String>> deduplicated = new LinkedHashMap<>();
-            for (List<String> row : rows) deduplicated.put(row.get(keyIndex), row);
+            for (List<String> row : rows) {
+                // A short row is ordinary in an export, and row.get(keyIndex) threw
+                // IndexOutOfBoundsException - which is not IllegalArgumentException, so it went
+                // straight past execute()'s catch and out of the tool as a raw failure naming no
+                // file and no row.
+                if (keyIndex >= row.size()) {
+                    throw new IllegalArgumentException(
+                            "Row " + (rows.indexOf(row) + 1) + " has " + row.size()
+                                    + " columns but the key '" + key + "' is column "
+                                    + (keyIndex + 1) + "; deduplication needs every row to carry it");
+                }
+                deduplicated.put(row.get(keyIndex), row);
+            }
             rows = new ArrayList<>(deduplicated.values());
         }
         List<List<String>> result = new ArrayList<>(); result.add(header); result.addAll(rows); return result;
