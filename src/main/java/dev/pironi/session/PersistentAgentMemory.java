@@ -423,7 +423,7 @@ public final class PersistentAgentMemory implements AgentMemory {
         String name = relevant.get().name();
         skills.load(name).ifPresent(content -> {
             activeSkill = name;
-            activeSkillContent = truncate(content, 8_000);
+            activeSkillContent = skillForPrompt(name, content);
             skills.markUsed(name);
         });
     }
@@ -455,6 +455,27 @@ public final class PersistentAgentMemory implements AgentMemory {
     private static String cleanText(String value, int max) {
         if (value == null) return "";
         return truncate(value.replace('\r', ' ').replace('\n', ' ').strip(), max);
+    }
+
+    /**
+     * The chosen skill, whole where it fits.
+     *
+     * <p>It used to be cut at 8,000 characters with nothing said, which quietly threw away
+     * two thirds of the largest shipped skill: a warning written at the end of the file had never
+     * once reached the model, while the fixes that happened to sit before the cut worked
+     * immediately. The ceiling now matches the one the store itself enforces, so a skill that
+     * loads is a skill that arrives - and if it still does not fit, the cut says so and says where
+     * the rest is. One skill is applied per task, and it was chosen for this one.
+     */
+    static final int MAX_SKILL_PROMPT_CHARACTERS = 24_000;
+
+    static String skillForPrompt(String name, String content) {
+        if (content == null) return "";
+        if (content.length() <= MAX_SKILL_PROMPT_CHARACTERS) return content;
+        return content.substring(0, MAX_SKILL_PROMPT_CHARACTERS)
+                + "\n\n[cut here: this skill is " + content.length() + " characters and only the"
+                + " first " + MAX_SKILL_PROMPT_CHARACTERS + " are shown. Call read_skill with '"
+                + name + "' for the rest before relying on it.]";
     }
 
     private static String truncate(String value, int max) {
