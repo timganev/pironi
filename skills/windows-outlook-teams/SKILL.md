@@ -107,8 +107,14 @@ and `BodyPreview` are the fields most questions need.
 splits every thread in two, because the first message has no `RE:` — use `ConversationTopic`,
 which is the subject with the prefixes already stripped. And a question about clients, projects
 or workstreams is a level above that again: one engagement runs across many conversations, so a
-top five of conversations answers a question nobody asked. `email-triage` says what does carry
-the grouping.
+top five of conversations answers a question nobody asked.
+
+**Any question about what happened, rather than where things are, wants the other half of this.**
+Only one skill is applied to a task, and for anything phrased around Outlook it will be this one —
+which knows where the mail is and nothing about reading it. Call `read_skill` with `email-triage`
+before answering: what carries a project, why an inbox-only count is wrong, and why "nothing
+happened after Tuesday" is a statement about the search rather than about the week. That last one
+was a real answer, and four of the five threads it should have found were in the mailbox.
 
 `ConversationTopic` can also mislead in the other direction: it is matched on text, so two
 unrelated threads both called "Status" merge into one. Where a grouping looks wrong, say so

@@ -217,6 +217,7 @@ public final class PironiMain {
                 new AppControlTool(),
                 new dev.pironi.tool.ProcessInspectTool(),
                 new dev.pironi.tool.ProcessControlTool(),
+                new dev.pironi.tool.ReadSkillTool(skills),
                 new SaveSkillTool(memory),
                 new dev.pironi.tool.DeleteSkillTool(memory),
                 new dev.pironi.tool.RestoreSkillTool(memory),

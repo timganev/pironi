@@ -86,12 +86,33 @@ public final class BundledSkills {
             }
             Files.createDirectories(target.getParent());
             Files.write(target, content);
+            plantCompanions(seed, target.getParent());
             manifest.put(name, new Record(name, planted_hash, version));
             planted.add(name);
         }
 
         writeManifest(skillsDir, manifest);
         return List.copyOf(planted);
+    }
+
+    /**
+     * The rest of a skill's directory: a helper script, a template, a sample file. The packagers
+     * copy a skill folder whole, so anything alongside SKILL.md reaches the release - and planting
+     * only SKILL.md left the skill in the store referring to a file that was never written. The
+     * failure is silent and only appears when the skill is used.
+     *
+     * <p>SKILL.md is the identity, so it alone is hashed and tracked; a companion is overwritten
+     * with what the release carries, because a skill and its script have to be one version.
+     */
+    private static void plantCompanions(Path seed, Path target) throws IOException {
+        try (Stream<Path> entries = Files.list(seed)) {
+            for (Path entry : entries.filter(Files::isRegularFile).toList()) {
+                String fileName = entry.getFileName().toString();
+                if (fileName.equals("SKILL.md")) continue;
+                Files.copy(entry, target.resolve(fileName),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
     }
 
     /** What the store can say about where a skill came from. */

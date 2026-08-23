@@ -125,4 +125,41 @@ class BundledSkillsTest {
         assertTrue(!windows.contains(".pironi"), "a release carries no .pironi");
         assertTrue(!unix.contains(".pironi"), "a release carries no .pironi");
     }
+
+    @Test
+    void plantsTheRestOfASkillsDirectoryAndNotOnlyItsInstructions() throws Exception {
+        // Test plan section И4. The packagers copy a skill folder whole, so a helper script
+        // reaches the release; planting only SKILL.md left the installed skill pointing at a file
+        // that was never written, and nothing said so until the skill was used.
+        Path seed = Files.createDirectories(home.resolve("seed/with-script"));
+        Files.writeString(seed.resolve("SKILL.md"), "---\ndescription: Has a script\n---\nRun it.");
+        Files.writeString(seed.resolve("collect.ps1"), "Get-ChildItem C:/Users");
+        Files.createDirectories(home.resolve("skills"));
+
+        BundledSkills.install(seed.getParent(), home.resolve("skills"), "v1");
+
+        Path installed = home.resolve("skills/with-script");
+        assertTrue(Files.isRegularFile(installed.resolve("SKILL.md")));
+        assertTrue(Files.isRegularFile(installed.resolve("collect.ps1")),
+                "the script the skill needs did not arrive");
+        assertEquals("Get-ChildItem C:/Users",
+                Files.readString(installed.resolve("collect.ps1")));
+    }
+
+    @Test
+    void aNewerReleaseReplacesTheScriptAlongsideTheInstructions() throws Exception {
+        // A skill and its script have to be one version; leaving an old script beside new
+        // instructions is the shape of a bug nobody would look for.
+        Path seed = Files.createDirectories(home.resolve("seed/versioned"));
+        Files.writeString(seed.resolve("SKILL.md"), "---\ndescription: One\n---\nFirst.");
+        Files.writeString(seed.resolve("run.ps1"), "first");
+        Files.createDirectories(home.resolve("skills"));
+        BundledSkills.install(seed.getParent(), home.resolve("skills"), "v1");
+
+        Files.writeString(seed.resolve("SKILL.md"), "---\ndescription: Two\n---\nSecond.");
+        Files.writeString(seed.resolve("run.ps1"), "second");
+        BundledSkills.install(seed.getParent(), home.resolve("skills"), "v2");
+
+        assertEquals("second", Files.readString(home.resolve("skills/versioned/run.ps1")));
+    }
 }
