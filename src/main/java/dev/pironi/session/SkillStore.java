@@ -79,7 +79,12 @@ public final class SkillStore {
      * @param reason chosen, no-match, below-threshold, tie, or empty-query
      * @param scores one "name=score/breadth" entry per skill considered, highest first
      */
-    public record SkillDecision(Optional<SkillEntry> chosen, String reason, List<String> scores) {}
+    public record SkillDecision(Optional<SkillEntry> chosen, String reason, List<String> scores,
+                                List<String> tied) {
+        public SkillDecision(Optional<SkillEntry> chosen, String reason, List<String> scores) {
+            this(chosen, reason, scores, List.of());
+        }
+    }
 
     public Optional<SkillEntry> findRelevant(String task) {
         return decide(task).chosen();
@@ -99,6 +104,7 @@ public final class SkillStore {
             return new SkillDecision(Optional.empty(), "empty-query", List.of());
         }
         List<String> scores = new ArrayList<>();
+        java.util.Map<String, Integer> scored = new java.util.LinkedHashMap<>();
         try {
             SkillEntry best = null;
             int bestScore = 0;
@@ -131,6 +137,7 @@ public final class SkillStore {
                 Set<String> metadata = new HashSet<>(named);
                 metadata.addAll(described);
                 scores.add(entry.name() + "=" + score + "/" + metadata.size());
+                if (score > 0) scored.put(entry.name(), score);
                 if (score > bestScore) {
                     best = entry;
                     bestScore = score;
@@ -156,9 +163,19 @@ public final class SkillStore {
                     : bestScore < NAMED_WORD ? "below-threshold"
                     : tied ? "tie"
                     : "chosen";
+            // Which skills tied, so the model can be told rather than left with nothing. A tie
+            // still applies neither - picking between two equal claims would be a guess dressed
+            // as a decision - but saying nothing at all reads as "no skill covers this", which
+            // is the one thing it does not mean.
+            final int top = bestScore;
+            List<String> tiedNames = !"tie".equals(reason) ? List.<String>of()
+                    : scored.entrySet().stream()
+                            .filter(e -> e.getValue() == top)
+                            .map(java.util.Map.Entry::getKey)
+                            .toList();
             return new SkillDecision(
                     "chosen".equals(reason) ? Optional.of(best) : Optional.empty(),
-                    reason, List.copyOf(scores));
+                    reason, List.copyOf(scores), tiedNames);
         } catch (IOException e) {
             return new SkillDecision(Optional.empty(), "error", List.copyOf(scores));
         }
@@ -414,9 +431,19 @@ public final class SkillStore {
         return "";
     }
 
+    /**
+     * The cap is on characters, and this used to weigh bytes. In Cyrillic a character costs two,
+     * so a skill could sit well inside every other limit and still drop out of {@link #list()} -
+     * and a skill missing from the list is not reported anywhere, it simply stops being offered.
+     * The largest shipped skill is written in two alphabets, which is how close this came.
+     */
     private static boolean isLoadable(Path path) {
         try {
-            return Files.isRegularFile(path) && Files.size(path) <= MAX_SKILL_CHARACTERS;
+            if (!Files.isRegularFile(path)) return false;
+            // Bytes bound characters from above, so the cheap check settles the ordinary case
+            // without decoding the file.
+            if (Files.size(path) <= MAX_SKILL_CHARACTERS) return true;
+            return Files.readString(path, StandardCharsets.UTF_8).length() <= MAX_SKILL_CHARACTERS;
         } catch (IOException e) {
             return false;
         }
