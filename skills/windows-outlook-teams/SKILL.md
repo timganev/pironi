@@ -116,6 +116,50 @@ rather than reporting it.
 
 ### Four things that will waste your time
 
+**A modal dialog blocks COM until something closes it, and you can close it.** A stale data-file
+entry raises "The file ... cannot be found" on *every* Outlook launch, with an OK button and
+nothing else, and every COM call hangs behind it. Waiting does not help and neither does asking
+the user, who may not be at the machine. Close it: run the COM work as a background job and watch
+for the window in the foreground.
+
+```powershell
+Add-Type @"
+using System;using System.Text;using System.Runtime.InteropServices;
+public class Dlg {
+  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr l);
+  public delegate bool EnumWindowsProc(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] public static extern int GetClassName(IntPtr h, StringBuilder s, int m);
+  [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr h, StringBuilder s, int m);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] public static extern IntPtr PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+}
+"@
+$job = Start-Job -FilePath .\com-work.ps1
+while ($job.State -eq 'Running') {
+  $null = [Dlg]::EnumWindows({ param($h, $l)
+    $c = New-Object Text.StringBuilder 256; [void][Dlg]::GetClassName($h, $c, 256)
+    if ($c.ToString() -eq "#32770" -and [Dlg]::IsWindowVisible($h)) {
+      $t = New-Object Text.StringBuilder 512; [void][Dlg]::GetWindowText($h, $t, 512)
+      if ($t.ToString() -match "Outlook") {
+        [void][Dlg]::PostMessage($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)   # WM_CLOSE
+      }
+    }
+    return $true }, [IntPtr]::Zero)
+  Start-Sleep -Milliseconds 500
+}
+```
+
+`WM_CLOSE` is what an OK-only message box treats as OK; `WM_COMMAND` with IDOK does not reach it,
+because the button is drawn rather than a real control. Expect one or two dialogs per Outlook
+launch, and expect a new one whenever Outlook restarts mid-run.
+
+**The profile cannot be repaired from COM.** `RemoveStore` refuses the folder of a store that
+never opened ("Type mismatch"), `AddStoreEx` on the missing path answers "failed to load for this
+session" even after a restart, and editing the profile keys in the registry broke the working
+account and had to be rolled back from a backup. Removing the entry is Control Panel → Mail →
+Data Files → Remove, which needs a person and works while Outlook itself will not start. Say that
+plainly rather than trying; then close the dialog and get on with the reachable stores.
+
 **`RPC_E_CALL_REJECTED` means two different things.** Outlook returns it while it is busy, and
 also while it is showing a modal dialog. The first clears itself; the second never will, and no
 amount of retrying helps. Tell them apart by looking for a window of class `#32770` belonging to
