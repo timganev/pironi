@@ -73,6 +73,24 @@ say which threads were folded into it**, so the grouping can be argued with.
 When the grouping genuinely cannot be inferred, say so and show the threads — but say it after
 trying, not instead of trying.
 
+**Every thread lands somewhere, and a leftover list is an unfinished grouping.** Ending with "the
+remaining conversations" is where the answer goes wrong, because the leftovers are not evenly
+spread: they cluster on the busiest project, which is the one with the most threads to lose. In
+the run this is written from, five threads belonged to one client; two were grouped, two were left
+in the tail and one was filed under a different project, and the largest project came second.
+
+Two things pull a stray thread back where it belongs:
+
+- **A thread that follows on from another belongs with it.** A post-mortem, a close-out, a root
+  cause, a fix release — each of these is the next act of a story that started somewhere.
+- **A system named in one thread ties every other thread naming it.** A DNS record pointing at
+  the old cluster belongs to whatever migration was cutting over, however little the subject line
+  says so.
+
+**Count both directions.** A question about "my mail" that reads only the inbox undercounts every
+thread the user is active in, and by a different amount per project — the ones being argued about
+lose the most. Sent Items is half the evidence, not a refinement.
+
 ## What a count of messages is worth
 
 Not much on its own. Fifty messages on one project can be two people arguing about a variable name,

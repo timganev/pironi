@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ListFilesToolTest {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -157,5 +159,26 @@ class ListFilesToolTest {
                 .redirectErrorStream(true).start();
         return process.waitFor(20, java.util.concurrent.TimeUnit.SECONDS)
                 && process.exitValue() == 0;
+    }
+
+    @Test
+    void doesNotResolveEveryVisitedFileToAnswerAQuestionAboutOne() throws Exception {
+        // Listing %LOCALAPPDATA%\Packages took 18 seconds because the hidden-path check called
+        // toRealPath on every file it walked. The names almost never match, and a name comparison
+        // is free.
+        Path root = Files.createDirectory(workspaceRoot.resolve("many"));
+        for (int i = 0; i < 300; i++) {
+            Files.writeString(root.resolve("file-" + i + ".txt"), "x");
+        }
+        Path hidden = Files.writeString(root.resolve("trace.jsonl"), "secret");
+        ListFilesTool tool = new ListFilesTool(
+                new Workspace(root), 1_000, List.of(root), Set.of(hidden));
+
+        ToolResult result = tool.execute(
+                new ObjectMapper().createObjectNode().put("path", root.toString()));
+
+        assertTrue(result.success(), result.output());
+        assertFalse(result.output().contains("trace.jsonl"), "the hidden path leaked");
+        assertTrue(result.output().contains("file-299.txt"), result.output());
     }
 }

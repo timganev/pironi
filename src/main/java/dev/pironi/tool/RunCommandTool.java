@@ -149,7 +149,12 @@ public final class RunCommandTool implements Tool {
             String result = "exitCode=" + exitCode + cause(exitCode, PlatformShell.name())
                     + answerNotFailure(exitCode, output)
                     + "\n" + output;
-            return exitCode == 0
+            // A command that ran and answered is not a failed tool call, whatever it exited with.
+            // Reporting grep's "no matches" as a failure had the agent rewriting scripts that were
+            // working, twice in one run. What stays a failure is a command that could not run at
+            // all - not found, not executable, killed - or one that exited non-zero saying nothing,
+            // where there is no answer to read either way.
+            return exitCode == 0 || answered(exitCode, output)
                     ? ToolResult.success(result)
                     : ToolResult.failure(result);
         } catch (IllegalArgumentException | IOException | ExecutionException e) {
@@ -165,10 +170,21 @@ public final class RunCommandTool implements Tool {
      * differences, both having printed what was asked.
      */
     private static String answerNotFailure(int exitCode, String output) {
-        return exitCode > 0 && exitCode < 126 && !output.isBlank()
-                ? " (non-zero, but the command printed output: some programs report an answer"
-                        + " this way - grep exits 1 for no matches, diff exits 1 for differences)"
+        return answered(exitCode, output)
+                ? " (non-zero, but the command ran and printed output: some programs report an"
+                        + " answer this way - grep exits 1 for no matches, diff exits 1 for"
+                        + " differences. The code below is the command's verdict, not a fault in"
+                        + " running it; read the output before deciding anything failed.)"
                 : "";
+    }
+
+    /**
+     * Whether a non-zero exit carries an answer rather than a fault. 126 and above are the shell's
+     * own codes - not executable, not found, killed by a signal - and mean the command never got
+     * to say anything.
+     */
+    private static boolean answered(int exitCode, String output) {
+        return exitCode > 0 && exitCode < 126 && !output.isBlank();
     }
 
     private String truncate(String output) {

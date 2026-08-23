@@ -129,6 +129,25 @@ next slot — and raises that dialog on every launch. Walk `$ns.Stores` by index
 `$store.GetDefaultFolder(n)`, skipping stores that refuse to open. Enumerating `$ns.Stores`
 through the pipeline can itself throw; index it with `.Item($i)`.
 
+**And `$store.GetDefaultFolder(6)` lies on every store that is not the delivery store.** A `.pst`
+added as a data file — an archive, an export, someone else's mailbox — has no default Inbox, and
+the call does not say so: it returns a folder with an **empty name and no items**, so a store
+holding a full year of mail reports zero and looks exactly like an empty one. `GetDefaultFolder(5)`
+for Sent Items throws outright on the same store, while `GetDefaultFolder(9)` for the calendar
+works. Measured on 2026-08-23:
+
+```
+store 'Outlook Data File'
+   GetDefaultFolder(6) -> ''  items=0        <- 111 messages are sitting in a folder named Inbox
+   GetDefaultFolder(5) FAILED :: An object could not be found
+   GetDefaultFolder(9) -> 'Calendar' items=15
+   plain folders: Deleted Items(0), Calendar(15), Inbox(111), Sent Items(45)
+```
+
+So: **check the name of the folder you were handed.** If it is empty, or the count is zero, walk
+`GetRootFolder().Folders` instead and read the folders by name. Zero from a store that opened
+cleanly is not evidence of an empty mailbox — it is usually evidence of asking the wrong way.
+
 **An account that has not synced answers zero.** Zero meetings and no mailbox look identical in
 any summary, and only one of them is an answer. When no store opened, say so; never report a
 count you did not really obtain.

@@ -31,6 +31,7 @@ public final class ListFilesTool implements Tool {
     private final int maxEntries;
     private final List<Path> allowedRoots;
     private final Set<Path> hiddenPaths;
+    private final Set<Path> hiddenNames;
 
     public ListFilesTool(Workspace workspace, int maxEntries) {
         this(workspace, maxEntries, List.of(workspace.root()), Set.of());
@@ -54,6 +55,10 @@ public final class ListFilesTool implements Tool {
         this.allowedRoots = List.copyOf(roots);
         this.hiddenPaths = hiddenPaths.stream()
                 .map(ListFilesTool::canonicalize)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        this.hiddenNames = this.hiddenPaths.stream()
+                .map(Path::getFileName)
+                .filter(java.util.Objects::nonNull)
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
@@ -109,7 +114,8 @@ public final class ListFilesTool implements Tool {
                 return ToolResult.failure("Not a directory: " + path);
             }
 
-            List<Path> files = scan(directory);
+            Scan scan = scan(directory);
+            List<Path> files = scan.files();
             String listing = files.stream()
                     .limit(maxEntries)
                     .map(file -> file.startsWith(workspace.root())
@@ -117,10 +123,12 @@ public final class ListFilesTool implements Tool {
                     .map(Path::toString)
                     .reduce((left, right) -> left + System.lineSeparator() + right)
                     .orElse("");
-            if (files.size() <= maxEntries && listing.length() <= MAX_OUTPUT_CHARACTERS) {
+            if (!scan.truncated()
+                    && files.size() <= maxEntries
+                    && listing.length() <= MAX_OUTPUT_CHARACTERS) {
                 return ToolResult.success(listing);
             }
-            return ToolResult.success(profile(directory, files));
+            return ToolResult.success(profile(directory, scan));
         } catch (IllegalArgumentException | IOException e) {
             return ToolResult.failure(e);
         }
@@ -134,8 +142,11 @@ public final class ListFilesTool implements Tool {
      * and lost the Outlook data three directories over with it. One closed door is not a reason to
      * report nothing.
      */
-    private List<Path> scan(Path directory) throws IOException {
+    private Scan scan(Path directory) throws IOException {
         List<Path> files = new ArrayList<>();
+        List<Entry> entries = new ArrayList<>();
+        boolean[] hitCeiling = {false};
+        long[] totalBytes = {0};
         Files.walkFileTree(directory, new java.nio.file.SimpleFileVisitor<Path>() {
             @Override
             public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attributes) {
@@ -145,12 +156,20 @@ public final class ListFilesTool implements Tool {
 
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) {
-                if (files.size() >= MAX_SCANNED_FILES) return FileVisitResult.TERMINATE;
-                if (attributes.isRegularFile()
-                        && !isIgnored(directory.relativize(file))
-                        && !hiddenPaths.contains(canonicalize(file))) {
-                    files.add(file);
+                if (files.size() >= MAX_SCANNED_FILES) {
+                    hitCeiling[0] = true;
+                    return FileVisitResult.TERMINATE;
                 }
+                if (!attributes.isRegularFile()) return FileVisitResult.CONTINUE;
+                Path relative = directory.relativize(file);
+                if (isIgnored(relative) || isHidden(file)) return FileVisitResult.CONTINUE;
+                files.add(file);
+                // The walk has already stat'd this file and hands the result over. Asking the file
+                // system again for its size and time, as the profile used to, tripled the syscalls
+                // for a listing that was already the slowest thing in a run.
+                entries.add(new Entry(relative, attributes.size(),
+                        attributes.lastModifiedTime().toMillis()));
+                totalBytes[0] += attributes.size();
                 return FileVisitResult.CONTINUE;
             }
 
@@ -160,7 +179,22 @@ public final class ListFilesTool implements Tool {
             }
         });
         files.sort(Comparator.naturalOrder());
-        return files;
+        return new Scan(files, entries, totalBytes[0], hitCeiling[0]);
+    }
+
+    private record Scan(List<Path> files, List<Entry> entries, long totalBytes, boolean truncated) {
+    }
+
+    /**
+     * Whether this is a path the agent must not see. Resolving every visited file through
+     * {@code toRealPath} to answer this cost one system call per file and made listing a large
+     * Windows tree take eighteen seconds; the name is a free filter that almost always says no.
+     */
+    private boolean isHidden(Path file) {
+        if (hiddenPaths.isEmpty()) return false;
+        Path name = file.getFileName();
+        if (name != null && hiddenNames.stream().noneMatch(name::equals)) return false;
+        return hiddenPaths.contains(canonicalize(file));
     }
 
     private record Entry(Path relative, long bytes, long modified) {
@@ -170,21 +204,9 @@ public final class ListFilesTool implements Tool {
      * A truncated listing loses what matters in a big tree - how many files, of what kind, where
      * they cluster - so past the cap this reports shape instead of the first N paths.
      */
-    private static String profile(Path directory, List<Path> files) {
-        List<Entry> entries = new ArrayList<>(files.size());
-        long totalBytes = 0;
-        for (Path file : files) {
-            long bytes = 0;
-            long modified = 0;
-            try {
-                bytes = Files.size(file);
-                modified = Files.getLastModifiedTime(file).toMillis();
-            } catch (IOException ignored) {
-                // a file that vanished mid-walk still counts toward the shape
-            }
-            totalBytes += bytes;
-            entries.add(new Entry(directory.relativize(file), bytes, modified));
-        }
+    private static String profile(Path directory, Scan scan) {
+        List<Entry> entries = scan.entries();
+        long totalBytes = scan.totalBytes();
 
         Map<String, Long> byExtension = entries.stream().collect(Collectors.groupingBy(
                 entry -> extension(entry.relative()), Collectors.counting()
@@ -218,6 +240,14 @@ public final class ListFilesTool implements Tool {
         out.append(System.lineSeparator())
                 .append("[too many entries to list; this is a profile. Use find_files with a "
                         + "pattern, or list one of the directories above.]");
+        if (scan.truncated()) {
+            // A tree that hit the ceiling is described from a sample, and saying so is the
+            // difference between "this is the shape of it" and "this is the shape of the part
+            // that was looked at".
+            out.append(System.lineSeparator())
+                    .append("[the walk stopped at ").append(MAX_SCANNED_FILES)
+                    .append(" files, so this describes part of the tree, not all of it]");
+        }
         return out.toString();
     }
 

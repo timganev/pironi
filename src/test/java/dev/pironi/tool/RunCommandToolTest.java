@@ -237,4 +237,33 @@ class RunCommandToolTest {
         return System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT)
                 .contains("win");
     }
+
+    @Test
+    void aCommandThatAnsweredThroughItsExitCodeIsNotAFailedToolCall() throws Exception {
+        // Observed twice in one run: findstr and grep answered "nothing matched", the call came
+        // back as failed, and the agent rewrote a script that had been working.
+        org.junit.jupiter.api.Assumptions.assumeFalse(isWindows());
+        RunCommandTool tool = new RunCommandTool(
+                new Workspace(workspaceRoot), Duration.ofSeconds(5), 1_000);
+
+        ToolResult result = tool.execute(new ObjectMapper().readTree("""
+                {"command":"printf 'a\n' > f.txt; grep -c zzz f.txt"}
+                """));
+
+        assertTrue(result.success(), result.output());
+        assertTrue(result.output().startsWith("exitCode=1"), result.output());
+    }
+
+    @Test
+    void aSilentNonZeroExitIsStillAFailure() throws Exception {
+        // Nothing printed means there is no answer to read, so calling it a success would say
+        // the command did something when all that is known is that it stopped.
+        RunCommandTool tool = new RunCommandTool(
+                new Workspace(workspaceRoot), Duration.ofSeconds(5), 1_000);
+
+        ToolResult result = tool.execute(
+                new ObjectMapper().createObjectNode().put("command", "exit 4"));
+
+        assertFalse(result.success(), result.output());
+    }
 }
