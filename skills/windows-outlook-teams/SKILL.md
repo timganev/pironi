@@ -139,11 +139,36 @@ local, and appointments made on the web are not in it.
 - **Drafts are not received mail, and counting them as mail is a wrong answer that looks right.**
   A folder walk that does not say which folder each item came from will report drafts, sent items
   and calendar invitations as if they were correspondence. Name the folder.
-- **`ReceivedTime` is the creation time on anything made this way** and cannot be set, so a
-  synthetic week cannot be built by creating items. Import `.eml` files whose `Date:` header
-  carries the time instead.
+- **`ReceivedTime` and `SenderName` can be written, in one specific order.** They are read-only on
+  the object model, and `PropertyAccessor` accepts them and appears to do nothing — which is what
+  made an earlier note here say they could not be set at all. What that note had wrong was the
+  order. Set them on a *new, unsaved* item, clear `MSGFLAG_UNSENT` first, then save once:
+
+  ```powershell
+  $m = $folder.Items.Add(0)
+  $m.Subject = "..."
+  $pa = $m.PropertyAccessor
+  $pa.SetProperty("http://schemas.microsoft.com/mapi/proptag/0x0E070003", 1)          # MESSAGE_FLAGS
+  $pa.SetProperty("http://schemas.microsoft.com/mapi/proptag/0x0C1A001F", "Name")     # SENDER_NAME
+  $pa.SetProperty("http://schemas.microsoft.com/mapi/proptag/0x0C1F001F", "a@b.c")    # SENDER_EMAIL
+  $pa.SetProperty("http://schemas.microsoft.com/mapi/proptag/0x00390040", $utc)       # SUBMIT_TIME
+  $pa.SetProperty("http://schemas.microsoft.com/mapi/proptag/0x0E060040", $utc)       # DELIVERY_TIME
+  $m.Save()
+  ```
+
+  Verified on 2026-08-23: asking for 09:14:22 and reading back 12:14:22 in a UTC+3 zone. **The
+  value is stored as written and displayed as local**, so pass UTC or the mail arrives with the
+  offset added twice.
+- **`.eml` cannot be imported.** `Namespace.OpenSharedItem` answers "Invalid path or URL" for one:
+  it takes `.msg`, `.vcf` and `.ics` and nothing else. The path is not the problem, so do not go
+  shortening it.
 - **`Delete()` moves an item to Deleted Items of the default store**, so it fails whenever that
   store is the broken one. `Items.Remove(index)` is the other route.
+- **`Move()` goes through the default store too**, and fails the same way: "The set of folders
+  cannot be opened. The file ... cannot be found." A broken default store therefore makes it
+  impossible to put a message anywhere — which, combined with the Drafts routing above, means no
+  mail can be placed in a chosen folder at all until the profile is repaired. Check
+  `Namespace.DefaultStore.DisplayName` early: an empty answer is the broken one.
 
 ---
 
