@@ -18,5 +18,17 @@ if not exist "%PIRONI_DIR%runtime\bin\java.exe" (
   exit /b 1
 )
 
+rem Pironi writes UTF-8 bytes to stdout whatever the console is set to, so a console left on the
+rem legacy OEM page renders every non-ASCII answer as mojibake - correct bytes, unreadable screen.
+rem Windows Terminal hides this; plain cmd.exe does not, which is where it was found. The previous
+rem page is restored on the way out, because the console belongs to the person, not to this run.
+for /f "tokens=2 delims=:" %%a in ('chcp') do set "PIRONI_CP=%%a"
+set "PIRONI_CP=%PIRONI_CP: =%"
+set "PIRONI_CP=%PIRONI_CP:.=%"
+chcp 65001 >nul 2>&1
+
 "%PIRONI_DIR%runtime\bin\java.exe" -jar "%PIRONI_DIR%pironi.jar" %*
-exit /b %ERRORLEVEL%
+rem Read before restoring the page: chcp overwrites ERRORLEVEL with its own.
+set "PIRONI_EXIT=%ERRORLEVEL%"
+if defined PIRONI_CP chcp %PIRONI_CP% >nul 2>&1
+exit /b %PIRONI_EXIT%

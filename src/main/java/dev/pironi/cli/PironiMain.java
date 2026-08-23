@@ -90,6 +90,34 @@ public final class PironiMain {
     private static final int MAX_SUBAGENT_TURNS = 6;
 
     /**
+     * What the console actually hands us, which is not the default charset. On this Windows
+     * install {@code file.encoding} is UTF-8 while {@code stdin.encoding} is cp850, so decoding
+     * console bytes with the default turned every non-ASCII answer into something else - and the
+     * approval prompt has no branch for "not understood": an unrecognised answer is a denial, so
+     * typing "да" read as a refusal and said nothing about why.
+     *
+     * <p>Only the fallback reader is affected. With a real terminal JLine reads the answer through
+     * the console API and never goes near this, which is why it survived every interactive run.
+     */
+    static java.nio.charset.Charset consoleCharset() {
+        java.io.Console console = System.console();
+        if (console != null) {
+            try {
+                return console.charset();
+            } catch (UnsupportedOperationException ignored) {
+                // A console that will not name its charset is no worse than no console.
+            }
+        }
+        String named = System.getProperty("stdin.encoding", System.getProperty("native.encoding", ""));
+        try {
+            if (!named.isBlank()) return java.nio.charset.Charset.forName(named);
+        } catch (RuntimeException unknownName) {
+            // An unusable name is the same problem as an absent one.
+        }
+        return java.nio.charset.Charset.defaultCharset();
+    }
+
+    /**
      * The console streams speak UTF-8 whatever the JVM inferred.
      *
      * <p>On Windows {@code stdout.encoding} follows the ANSI code page - Cp1252 on this machine
@@ -224,12 +252,12 @@ public final class PironiMain {
                 new WriteFileTool(workspace, checkpoints),
                 new ApplyPatchTool(workspace, checkpoints),
                 new MoveFileTool(workspace, checkpoints),
-                new CsvTool(workspace, CsvTool.Operation.MERGE),
-                new CsvTool(workspace, CsvTool.Operation.SANITIZE),
-                new IcsCreateTool(workspace),
-                new OfficeOpenXmlTool(workspace, OfficeOpenXmlTool.Format.XLSX),
-                new OfficeOpenXmlTool(workspace, OfficeOpenXmlTool.Format.DOCX),
-                new OfficeOpenXmlTool(workspace, OfficeOpenXmlTool.Format.PPTX),
+                new CsvTool(workspace, CsvTool.Operation.MERGE, checkpoints),
+                new CsvTool(workspace, CsvTool.Operation.SANITIZE, checkpoints),
+                new IcsCreateTool(workspace, checkpoints),
+                new OfficeOpenXmlTool(workspace, OfficeOpenXmlTool.Format.XLSX, checkpoints),
+                new OfficeOpenXmlTool(workspace, OfficeOpenXmlTool.Format.DOCX, checkpoints),
+                new OfficeOpenXmlTool(workspace, OfficeOpenXmlTool.Format.PPTX, checkpoints),
                 new RollbackCheckpointTool(checkpoints),
                 new FindFilesTool(readRoots, hiddenAgentPaths),
                 new HttpGetTool(headerResolver),
@@ -371,7 +399,7 @@ public final class PironiMain {
 
         try (
                 var trace = new JsonlTraceWriter(options.tracePath(), objectMapper);
-                var input = new BufferedReader(new InputStreamReader(System.in));
+                var input = new BufferedReader(new InputStreamReader(System.in, consoleCharset()));
                 status
         ) {
             var agentContext = ContextFileLoader.load(
