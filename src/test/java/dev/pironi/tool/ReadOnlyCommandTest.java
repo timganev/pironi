@@ -78,6 +78,48 @@ class ReadOnlyCommandTest {
         assertFalse(ReadOnlyCommand.isReadOnly("git push"));
     }
 
+    /**
+     * A wrong answer here is not one prompt: {@code RunCommandTool.mutating} asks this, so false
+     * means the call is not a mutation at all, and ConsoleApprovalPolicy lets a non-mutation
+     * through in every approval mode - ask included. Each of these returned true.
+     */
+    @Test
+    void aSecondCommandCannotRideOnTheFirstOne() {
+        // A newline separates commands exactly as ";" does. bash runs both halves; the classifier
+        // saw one call to a reader with unusual arguments.
+        assertFalse(ReadOnlyCommand.isReadOnly("cat notes.txt\nrm -f notes.txt", "Linux"));
+        assertFalse(ReadOnlyCommand.isReadOnly("grep -rn TODO src\nrm -rf build", "Linux"));
+        assertFalse(ReadOnlyCommand.isReadOnly("ls\r\nrm x", "Linux"));
+        // Still one command, still a read.
+        assertTrue(ReadOnlyCommand.isReadOnly("grep -rn TODO src", "Linux"));
+    }
+
+    @Test
+    void aTextToolWithAShellInsideItIsAWrite() {
+        // The script is one quoted argument, so no shell metacharacter appears anywhere for the
+        // escape check to find - the shell never sees them either. awk and sed run these
+        // themselves.
+        assertFalse(ReadOnlyCommand.isReadOnly("awk 'BEGIN{system(\"touch pwned\")}'", "Linux"));
+        assertFalse(ReadOnlyCommand.isReadOnly("sed '1e touch pwned' file.txt", "Linux"));
+        assertTrue(ReadOnlyCommand.isReadOnly("awk '{print $2}' data.txt", "Linux"));
+        assertTrue(ReadOnlyCommand.isReadOnly("sed -n '1,20p' file.txt", "Linux"));
+    }
+
+    @Test
+    void theGitSubcommandsThatListAreNotTheOnesThatWrite() {
+        // branch, tag and remote were read-only whatever came after them.
+        assertFalse(ReadOnlyCommand.isReadOnly("git branch -D main", "Linux"));
+        assertFalse(ReadOnlyCommand.isReadOnly("git tag -d v0.9.4", "Linux"));
+        assertFalse(ReadOnlyCommand.isReadOnly("git remote add evil https://example.invalid", "Linux"));
+        assertFalse(ReadOnlyCommand.isReadOnly("git remote set-url origin https://example.invalid", "Linux"));
+
+        assertTrue(ReadOnlyCommand.isReadOnly("git branch", "Linux"));
+        assertTrue(ReadOnlyCommand.isReadOnly("git branch --list", "Linux"));
+        assertTrue(ReadOnlyCommand.isReadOnly("git tag -l", "Linux"));
+        assertTrue(ReadOnlyCommand.isReadOnly("git remote -v", "Linux"));
+        assertTrue(ReadOnlyCommand.isReadOnly("git log --oneline -5", "Linux"));
+    }
+
     @Test
     void anythingThatHidesAnotherProgramIsAWrite() {
         assertFalse(ReadOnlyCommand.isReadOnly("cat $(which rm)"));
