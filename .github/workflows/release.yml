@@ -52,7 +52,18 @@ jobs:
         run: |
           skills=$(find skills -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
           label='${{ steps.version.outputs.value }}'
-          archive=$(ls "build/release/pironi-$label-${{ matrix.platform }}.tar.gz" "build/release/pironi-$label-${{ matrix.platform }}.zip" 2>/dev/null | head -1)
+          # Named one at a time rather than with ls: only one of the two exists per platform, and
+          # ls exits 2 for the other, which under -e ends the step before the script runs.
+          archive=""
+          for candidate in "build/release/pironi-$label-${{ matrix.platform }}.tar.gz" \
+                           "build/release/pironi-$label-${{ matrix.platform }}.zip"; do
+            if [ -f "$candidate" ]; then archive="$candidate"; break; fi
+          done
+          if [ -z "$archive" ]; then
+            echo "the packager produced no archive; build/release holds:" >&2
+            ls -la build/release >&2 || true
+            exit 1
+          fi
           bash scripts/smoke-bundle.sh "$archive" "$skills"
       - uses: actions/upload-artifact@v4
         with:
