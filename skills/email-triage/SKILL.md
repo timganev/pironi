@@ -3,7 +3,7 @@
 description: Reading a pile of correspondence for what actually needs a decision, and the ways that reading goes wrong.
 triggers: triage, prioritise, prioritize, unanswered, unread, backlog, urgent, awaiting, overdue, sla, приоритет, приоритети, приоритизирай, спешно, спешни, неотговорени, отговорих, чакащи, натрупали, натрупало, изостанали, разчисти, разчистване
 
-Where the mail lives is a separate question — on Windows that is `windows-outlook-teams`. This
+Where the mail lives is a separate question — on Windows that is `windows-outlook`. This
 starts once the messages are in front of you.
 
 What to produce is the user's call. Ask if it is not obvious. What follows is what tends to be

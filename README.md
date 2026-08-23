@@ -694,7 +694,7 @@ This release ships three:
 | Skill | What it is for |
 | --- | --- |
 | `team-lead` | Planner/Teams CSV reconciliation, status reports, calendar drafts, Office artifacts |
-| `windows-outlook-teams` | where Outlook and Teams keep data on Windows, how to reach it, and which answers lie |
+| `windows-outlook` | where Outlook and Teams keep data on Windows, how to reach it, and which answers lie |
 | `weather-forecast` | forecasts without an API key, and working out which place was meant |
 
 Selection weighs a word matching a skill's name or its `triggers:` as worth the

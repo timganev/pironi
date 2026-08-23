@@ -4,7 +4,7 @@ description: Reading notes or a transcript for what was actually committed to, a
 triggers: action, items, commitment, commitments, decision, decisions, owner, owners, deadline, deadlines, followup, transcript, ангажимент, ангажименти, ангажира, решение, решения, решихме, договорихме, договорка, протокол, отговорник, отговорници, срок, срокове, стенограма, записки, обещал, обещание
 
 This is about judgement, not retrieval. Where the notes live is a separate question — on Windows
-that is `windows-outlook-teams`. This starts once the text is in front of you, from any source.
+that is `windows-outlook`. This starts once the text is in front of you, from any source.
 
 What to produce is the user's call. Ask if it is not obvious. What follows is what tends to be
 true about the material, not a shape to force the answer into.

@@ -50,8 +50,8 @@ class ShippedSkillRoutingTest {
         List<String[]> questions = List.of(
                 new String[]{"weather-forecast", "дай ми прогноза за времето за три дни"},
                 new String[]{"weather-forecast", "what is the forecast for Paris tomorrow"},
-                new String[]{"windows-outlook-teams", "извади ми срещите от календара на Outlook"},
-                new String[]{"windows-outlook-teams", "read the teams indexeddb store"},
+                new String[]{"windows-outlook", "извади ми срещите от календара на Outlook"},
+                new String[]{"windows-teams", "read the teams indexeddb store"},
                 new String[]{"action-items", "какво решихме и кой за какво е отговорник"},
                 new String[]{"action-items", "extract the commitments from this transcript"},
                 new String[]{"email-triage", "кое от натрупалите се е спешно"},
@@ -65,6 +65,66 @@ class ShippedSkillRoutingTest {
                     decision.chosen().map(SkillStore.SkillEntry::name).orElse(null),
                     question[1] + " -> " + decision.reason() + " " + decision.scores());
         }
+    }
+
+    /**
+     * The questions the seeded mailbox is graded on, verbatim from {@code pironi-eml/asks}. Each
+     * one costs minutes to run against a real Outlook, so which skill they reach is settled here
+     * in milliseconds: a routing regression used to surface as a wrong answer at the end of a
+     * twelve-minute run, with nothing pointing at the cause.
+     *
+     * <p>All five are about Outlook, so all five reach the skill that knows where the mail is.
+     * The one that knows how to read it is a `read_skill` away, and the Outlook skill says so.
+     */
+    @Test
+    void theGradedCorpusReachesTheSkillThatKnowsWhereTheMailIs() {
+        List<String> corpus = List.of(
+                "Прегледай пощата ми в Outlook за седмицата 17-21 август 2026 и ми дай топ 5 "
+                        + "проекта по брой писма. Кажи кои разговори си сложил в кой проект.",
+                "За седмицата 17-21 август 2026: в кой проект отидоха най-много минути срещи? "
+                        + "Ползвай календара в Outlook.",
+                "Проследи какво се случи с клиента Northwind през седмицата 17-21 август 2026 - "
+                        + "подред, по дни, от пощата в Outlook.",
+                // "Who wrote me the most" reached no skill at all: two skills scored the floor and
+                // tied, so the run went without the warning about hand-built delimited output that
+                // had already turned two senders into addresses that did not exist.
+                "Кой ми е писал най-много писма през седмицата 17-21 август 2026? Дай ги "
+                        + "подредени по брой."
+        );
+        for (String question : corpus) {
+            SkillStore.SkillDecision decision = store.decide(question);
+            assertEquals("windows-outlook",
+                    decision.chosen().map(SkillStore.SkillEntry::name).orElse(null),
+                    question + " -> " + decision.reason() + " " + decision.scores());
+        }
+    }
+
+    @Test
+    void aQuestionAboutReadingRatherThanLocatingReachesTheTriageSkill() {
+        String question = "За седмицата 17-21 август 2026 в Outlook: кои разговори чакат отговор "
+                + "от мен? Тоест последната дума в тях не е моя. Провери и изпратените, не само "
+                + "входящите.";
+
+        SkillStore.SkillDecision decision = store.decide(question);
+
+        assertEquals("email-triage",
+                decision.chosen().map(SkillStore.SkillEntry::name).orElse(null),
+                decision.reason() + " " + decision.scores());
+    }
+
+    /**
+     * A tie applies neither skill, which is the right call and used to be an invisible one: the
+     * run looked exactly like one where nothing matched. The names of what tied have to survive
+     * the decision so the model can be told to pick.
+     */
+    @Test
+    void aTieNamesWhatTiedInsteadOfLookingLikeNoMatch() {
+        SkillStore.SkillDecision decision = store.decide("triage my inbox");
+
+        assertEquals("tie", decision.reason(), decision.scores().toString());
+        assertTrue(decision.tied().size() > 1, "a tie with fewer than two skills is not a tie: "
+                + decision.tied());
+        assertTrue(decision.tied().contains("email-triage"), decision.tied().toString());
     }
 
     @Test

@@ -304,9 +304,9 @@ class TerminalStatusReporterTest {
         );
 
         reporter.outputStarted();
-        reporter.skill("windows-outlook-teams");
+        reporter.skill("windows-outlook");
         reporter.outputFinished();
 
-        assertTrue(bytes.toString(StandardCharsets.UTF_8).contains("windows-outlook-teams"));
+        assertTrue(bytes.toString(StandardCharsets.UTF_8).contains("windows-outlook"));
     }
 }

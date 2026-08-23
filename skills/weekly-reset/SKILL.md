@@ -4,7 +4,7 @@ description: The recurring look back over a week and forward over the next, and 
 triggers: weekly, fortnight, retrospective, retro, standup, ретроспекция, седмица, седмичен, седмичния, седмично, изминалата, следващата, предстоящи, застояли, забуксували, изостава, изостават, буксува, натовареност, капацитет
 
 Where the calendar, the mail and the tasks live is a separate question — on Windows that is
-`windows-outlook-teams`. This is about what a week's worth of them adds up to.
+`windows-outlook`. This is about what a week's worth of them adds up to.
 
 What to produce is the user's call. Ask if it is not obvious. What follows is what tends to be
 true about a weekly pass, not a shape to force the answer into.
