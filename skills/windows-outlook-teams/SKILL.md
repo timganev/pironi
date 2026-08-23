@@ -162,6 +162,23 @@ local, and appointments made on the web are not in it.
 - **`.eml` cannot be imported.** `Namespace.OpenSharedItem` answers "Invalid path or URL" for one:
   it takes `.msg`, `.vcf` and `.ics` and nothing else. The path is not the problem, so do not go
   shortening it.
+- **To put mail in a chosen folder, create a post and rewrite its class.** A post is written where
+  it is created rather than routed to Drafts, and `PR_MESSAGE_CLASS` turns it into mail
+  afterwards. No `Move()`, so this works even where the default store is broken:
+
+  ```powershell
+  $m = $folder.Items.Add(6)                                                  # olPostItem
+  $m.Subject = "..."; $m.Body = "..."
+  $pa = $m.PropertyAccessor
+  $pa.SetProperty("http://schemas.microsoft.com/mapi/proptag/0x001A001F", "IPM.Note")
+  # ...then the flags, sender and times above, then one Save().
+  ```
+
+  **Restart Outlook before believing what you read back.** In the session that wrote them the
+  items still report `Class = 45` (post) while `MessageClass` already says `IPM.Note`; after a
+  restart all of them report `Class = 43`. A walk that filters on `Class -ne 43` therefore skips
+  almost everything it just wrote. Verified on 2026-08-23 with 156 seeded messages: 101 of 111
+  read as posts before the restart and 111 of 111 as mail after it.
 - **`Delete()` moves an item to Deleted Items of the default store**, so it fails whenever that
   store is the broken one. `Items.Remove(index)` is the other route.
 - **`Move()` goes through the default store too**, and fails the same way: "The set of folders
