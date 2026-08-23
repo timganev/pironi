@@ -91,6 +91,22 @@ Two things pull a stray thread back where it belongs:
 thread the user is active in, and by a different amount per project — the ones being argued about
 lose the most. Sent Items is half the evidence, not a refinement.
 
+## "What happened with X" is not "which subjects contain X"
+
+A story is followed through its people and its subject matter, not through a keyword. Asked what
+happened with one client over a week, a keyword search found the two threads that spelled the
+client's name and reported that nothing happened after Tuesday. Three threads were missing — the
+escalation, the fault that caused it, and the whole of Wednesday, which was when it was resolved —
+because none of them named the client in the subject.
+
+Start from the keyword, then widen: everyone who appears in the threads it found, the client's own
+mail domain, and every thread that continues one of them. Then read what is left over: a thread
+about a system named in a thread you already have is almost always the same story.
+
+**And never report an absence without saying what was searched.** "No mail after Wednesday" sounds
+like a fact about the week and is a fact about the query. Say which folders, which window and
+which terms — then the person can see the gap you cannot.
+
 ## What a count of messages is worth
 
 Not much on its own. Fifty messages on one project can be two people arguing about a variable name,

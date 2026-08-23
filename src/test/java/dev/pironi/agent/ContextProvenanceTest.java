@@ -77,6 +77,43 @@ class ContextProvenanceTest {
         }
     }
 
+    @Test
+    void saysWhenTheIdentityFileIsNotSpeltTheWayItWasAskedFor() throws Exception {
+        // Test plan section И3. Windows and macOS open soul.md for a request for SOUL.md and used
+        // to report the name that was asked for, so the same directory silently loads nothing on
+        // Linux and the source line gives no hint why.
+        Path home = Files.createDirectories(root.resolve("cased-home"));
+        Files.writeString(home.resolve("soul.md"), "# who you are");
+
+        AgentContext context = load(home);
+
+        boolean caseInsensitive = Files.exists(home.resolve("SOUL.md"));
+        if (caseInsensitive) {
+            assertTrue(context.soul().contains("who you are"), "it should have loaded here");
+            assertTrue(context.personalSources().contains("on disk it is soul.md"),
+                    context.personalSources());
+            assertTrue(context.personalSources().contains("would not load on Linux"),
+                    context.personalSources());
+        } else {
+            // Where case matters the file is a different file, and the near-miss note is what
+            // tells someone why their identity vanished.
+            assertFalse(context.soul().contains("who you are"));
+            assertTrue(context.personalSources().contains("ignored"), context.personalSources());
+        }
+    }
+
+    @Test
+    void anExactlySpeltIdentityFileIsReportedWithoutAWarning() throws Exception {
+        Path home = Files.createDirectories(root.resolve("exact-home"));
+        Files.writeString(home.resolve("SOUL.md"), "# who you are");
+
+        AgentContext context = load(home);
+
+        assertTrue(context.soul().contains("who you are"));
+        assertFalse(context.personalSources().contains("on disk it is"),
+                context.personalSources());
+    }
+
     private AgentContext load(Path pironiHome) throws Exception {
         Path workspace = Files.createDirectories(root.resolve("work-" + pironiHome.getFileName()));
         return ContextFileLoader.load(

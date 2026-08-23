@@ -63,6 +63,22 @@ public final class ContextFileLoader {
      * A file nearly the name we load, and on some machines exactly it: {@code soul.md} loads on
      * macOS and Windows and is a different file on Linux.
      */
+    /**
+     * What the file is really called, when that is not what was asked for. Windows and macOS open
+     * {@code soul.md} for a request for {@code SOUL.md} and report the name that was asked for, so
+     * the same setup silently loads nothing on Linux and the source line gives no hint why.
+     */
+    private static String spellingWarning(Path home, String fileName) {
+        try {
+            String actual = home.resolve(fileName).toRealPath().getFileName().toString();
+            return actual.equals(fileName) ? ""
+                    : " (on disk it is " + actual + "; this loads here because the file system"
+                            + " ignores case, and would not load on Linux)";
+        } catch (IOException | RuntimeException e) {
+            return "";
+        }
+    }
+
     private static String differentlyCasedSibling(Path home, String fileName) {
         if (!Files.isDirectory(home)) return "";
         try (var entries = Files.list(home)) {
@@ -108,7 +124,7 @@ public final class ContextFileLoader {
             String content = readOptional(home.resolve(fileName), fileName);
             if (!content.isBlank()) {
                 layers.add(content);
-                sources.add(home.resolve(fileName).toString());
+                sources.add(home.resolve(fileName) + spellingWarning(home, fileName));
             } else {
                 String nearMiss = differentlyCasedSibling(home, fileName);
                 if (!nearMiss.isEmpty()) sources.add(nearMiss);
