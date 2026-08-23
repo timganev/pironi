@@ -39,7 +39,12 @@ if [ -d skills ]; then
   mkdir -p "$bundle_dir/skills"
   for skill in skills/*/; do
     [ -d "$skill" ] || continue
-    cp -R "$skill" "$bundle_dir/skills/"
+    # Without stripping the trailing slash this copies the directory on Linux and its *contents*
+    # on macOS - GNU cp and BSD cp disagree about what "cp -R dir/ dest/" means. Every macOS
+    # release shipped seven SKILL.md files overwriting each other directly in skills/, leaving one
+    # orphan and no skill directories at all: a bundle whose skills silently did not exist. Linux
+    # was correct throughout, which is why nothing ever looked wrong.
+    cp -R "${skill%/}" "$bundle_dir/skills/"
   done
   echo "bundled skills: $(find "$bundle_dir/skills" -mindepth 1 -maxdepth 1 -type d | wc -l)"
 fi
