@@ -11,6 +11,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -24,6 +25,8 @@ public final class OpenAiCompatibleClient implements ModelClient {
     private final int maxOutputTokens;
     private final boolean deepSeekThinking;
     private volatile boolean jsonSchemaSupported;
+    /** How far the retry may raise the output budget when reasoning ate all of it. */
+    static final int MAX_OUTPUT_BUDGET = 32_768;
 
     public OpenAiCompatibleClient(
             URI baseUri,
@@ -135,11 +138,12 @@ public final class OpenAiCompatibleClient implements ModelClient {
         int requestAttempts = 0;
         String fallbackFrom = "";
         long totalDurationNanos = 0;
+        int outputBudget = maxOutputTokens;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             boolean plainRecovery = structured && deepSeekThinking && attempt == maxAttempts;
             String schemaFailure = null;
             TimedResponse timed = send(messages, structured && !plainRecovery, jsonSchemaSupported,
-                    plainRecovery);
+                    plainRecovery, outputBudget);
             requestAttempts++;
             totalDurationNanos += timed.durationNanos();
             HttpResponse<String> response = timed.response();
@@ -186,11 +190,29 @@ public final class OpenAiCompatibleClient implements ModelClient {
             }
             String content = responseContent(message.get("content"));
             if (content.isBlank() && attempt < maxAttempts) {
+                // A thinking model can spend its whole output budget reasoning and never begin the
+                // answer; the response then carries reasoning_content, no content, and
+                // finish_reason=length. Sending the identical request again does the identical
+                // thing, three times, and reports a provider fault that is not one.
+                if ("length".equals(finishReason)) {
+                    outputBudget = Math.min(outputBudget * 2, MAX_OUTPUT_BUDGET);
+                }
                 continue;
             }
             if (content.isBlank()) {
+                // "Empty content" on its own is a wall. Whether the model ran out of room, was
+                // stopped, or answered in a field we did not read are three different problems
+                // with three different fixes, and the response says which.
                 throw new IOException(
-                        "Provider returned empty assistant content after " + maxAttempts + " attempts"
+                        "Provider returned empty assistant content after " + maxAttempts
+                                + " attempts (finish_reason=" + finishReason
+                                + ", promptTokens=" + body.path("usage").path("prompt_tokens").asLong(0)
+                                + ", completionTokens="
+                                + body.path("usage").path("completion_tokens").asLong(0)
+                                + ", format=" + (plainRecovery ? "text"
+                                        : jsonSchemaSupported ? "json_schema" : "json_object")
+                                + ", messageFields=" + fieldNames(message)
+                                + ", outputBudget=" + outputBudget + ")"
                 );
             }
             JsonNode usage = body.path("usage");
@@ -219,11 +241,22 @@ public final class OpenAiCompatibleClient implements ModelClient {
             boolean plainRecovery
     )
             throws IOException, InterruptedException {
+        return send(messages, structured, jsonSchema, plainRecovery, maxOutputTokens);
+    }
+
+    private TimedResponse send(
+            List<ChatMessage> messages,
+            boolean structured,
+            boolean jsonSchema,
+            boolean plainRecovery,
+            int outputBudget
+    )
+            throws IOException, InterruptedException {
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("model", model);
         payload.put("stream", false);
         payload.put("temperature", 0);
-        payload.put("max_tokens", maxOutputTokens);
+        payload.put("max_tokens", outputBudget);
         if (structured && jsonSchema) {
             payload.set("response_format", AgentResponseSchema.openAiResponseFormat(objectMapper));
         } else if (structured) {
@@ -318,5 +351,13 @@ public final class OpenAiCompatibleClient implements ModelClient {
             return "";
         }
         return body.length() <= 2_000 ? body : body.substring(0, 2_000) + "[truncated]";
+    }
+
+    /** Which keys the message actually carried, so "empty" can be told from "somewhere else". */
+    static String fieldNames(JsonNode message) {
+        if (message == null || !message.isObject()) return "none";
+        List<String> names = new ArrayList<>();
+        message.fieldNames().forEachRemaining(names::add);
+        return names.isEmpty() ? "none" : String.join(",", names);
     }
 }

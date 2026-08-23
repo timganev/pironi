@@ -79,6 +79,13 @@ spread: they cluster on the busiest project, which is the one with the most thre
 the run this is written from, five threads belonged to one client; two were grouped, two were left
 in the tail and one was filed under a different project, and the largest project came second.
 
+**A group of one thread is a finished answer, though.** "Somewhere" does not mean "into one of the
+big ones". Told to leave nothing over, the next run swept a four-message project and a
+three-message project into the largest group it had, which grew from 24 messages to 37 and was no
+longer about anything. A small project is small; say so and leave it at its own size. Putting a
+thread in the wrong group is worse than a top five with a one-thread entry in it, because the
+count that gets quoted is then wrong for two projects instead of none.
+
 **A group needs one identity.** If the name you gave it joins two — a client and a system, two
 products, "X and Y" — you have merged two projects, and the counts of both are now wrong. The
 check that catches it is the participants: open each thread you put in a group and look at who is
@@ -93,7 +100,10 @@ subjects sounded operational.
 Two things pull a stray thread back where it belongs:
 
 - **A thread that follows on from another belongs with it.** A post-mortem, a close-out, a root
-  cause, a fix release — each of these is the next act of a story that started somewhere.
+  cause, a fix release — each of these is the next act of a story that started somewhere. The
+  clearest sign is a subject that cannot stand alone: "I do not agree with that reading of the
+  benchmark" names no subject of its own, and the benchmark is in the thread beside it, between
+  the same two people. Match it on the people first and the words second.
 - **A system named in one thread ties every other thread naming it.** A DNS record pointing at
   the old cluster belongs to whatever migration was cutting over, however little the subject line
   says so.
