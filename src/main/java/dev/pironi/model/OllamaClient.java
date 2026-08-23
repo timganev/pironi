@@ -166,7 +166,18 @@ public final class OllamaClient implements ModelClient {
                 if (line.isBlank()) {
                     continue;
                 }
-                JsonNode body = objectMapper.readTree(line);
+                JsonNode body;
+                try {
+                    body = objectMapper.readTree(line);
+                } catch (IOException malformed) {
+                    // A connection dropped mid-line, or a proxy that split a chunk, used to throw
+                    // from here and take the whole StringBuilder with it - hundreds of tokens of a
+                    // long generation discarded because the last line was half a line. What did
+                    // arrive is worth returning; the protocol layer above can repair a truncated
+                    // object and will otherwise ask again, which is what it would have done anyway.
+                    finishReason = "stream_error";
+                    break;
+                }
                 String chunk = body.path("message").path("content").asText("");
                 if (!chunk.isEmpty()) {
                     content.append(chunk);

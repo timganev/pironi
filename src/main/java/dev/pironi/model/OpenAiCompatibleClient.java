@@ -25,6 +25,16 @@ public final class OpenAiCompatibleClient implements ModelClient {
     private final int maxOutputTokens;
     private final boolean deepSeekThinking;
     private volatile boolean jsonSchemaSupported;
+    /**
+     * Calls left before json_schema is offered again after a rejection.
+     *
+     * <p>One 400 used to turn structured output off for the life of the client, which is the life
+     * of the session. A provider that genuinely cannot do schemas says so every time and this
+     * costs it one wasted request per stretch; a provider that said it once because of a passing
+     * fault gets asked again instead of being written off on a single answer.
+     */
+    private volatile int callsBeforeSchemaRetry;
+    private static final int SCHEMA_RETRY_AFTER_CALLS = 20;
     /** How far the retry may raise the output budget when reasoning ate all of it. */
     static final int MAX_OUTPUT_BUDGET = 32_768;
     /** Attempts at getting an answer out of the transport, before the protocol is even read. */
@@ -134,6 +144,19 @@ public final class OpenAiCompatibleClient implements ModelClient {
         return chat(messages, false);
     }
 
+    /**
+     * Whether this call asks for a json_schema, re-arming it once the countdown from the last
+     * rejection has run out.
+     */
+    private synchronized boolean offerSchema() {
+        if (jsonSchemaSupported) return true;
+        if (callsBeforeSchemaRetry > 0 && --callsBeforeSchemaRetry == 0) {
+            jsonSchemaSupported = true;
+            return true;
+        }
+        return false;
+    }
+
     private ModelResponse chat(List<ChatMessage> messages, boolean structured)
             throws IOException, InterruptedException {
         long startNanos = System.nanoTime();
@@ -142,18 +165,21 @@ public final class OpenAiCompatibleClient implements ModelClient {
         String fallbackFrom = "";
         long totalDurationNanos = 0;
         int outputBudget = maxOutputTokens;
+        boolean offerSchema = offerSchema();
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             boolean plainRecovery = structured && deepSeekThinking && attempt == maxAttempts;
             String schemaFailure = null;
-            TimedResponse timed = send(messages, structured && !plainRecovery, jsonSchemaSupported,
+            TimedResponse timed = send(messages, structured && !plainRecovery, offerSchema,
                     plainRecovery, outputBudget);
             requestAttempts++;
             totalDurationNanos += timed.durationNanos();
             HttpResponse<String> response = timed.response();
-            if (structured && jsonSchemaSupported && schemaUnsupported(response)) {
+            if (structured && offerSchema && schemaUnsupported(response)) {
                 schemaFailure = "HTTP " + response.statusCode() + ": " + safeError(response.body());
                 fallbackFrom = "json_schema";
                 jsonSchemaSupported = false;
+                callsBeforeSchemaRetry = SCHEMA_RETRY_AFTER_CALLS;
+                offerSchema = false;
                 timed = send(messages, true, false, false);
                 requestAttempts++;
                 totalDurationNanos += timed.durationNanos();
@@ -215,6 +241,10 @@ public final class OpenAiCompatibleClient implements ModelClient {
                                 + ", format=" + (plainRecovery ? "text"
                                         : jsonSchemaSupported ? "json_schema" : "json_object")
                                 + ", messageFields=" + fieldNames(message)
+                                // A thinking model that spent the whole budget reasoning leaves
+                                // the answer empty and the reasoning long. The field name alone
+                                // did not say which of those happened; the size does.
+                                + ", reasoningChars=" + reasoningLength(message)
                                 + ", outputBudget=" + outputBudget + ")"
                 );
             }
@@ -365,6 +395,15 @@ public final class OpenAiCompatibleClient implements ModelClient {
                 || body.contains("prompt must contain") || body.contains("not allowed"));
     }
 
+    /** How much the model thought, for the two providers that report it under either name. */
+    private static int reasoningLength(JsonNode message) {
+        for (String field : new String[]{"reasoning_content", "reasoning"}) {
+            JsonNode node = message.path(field);
+            if (node.isTextual()) return node.textValue().length();
+        }
+        return 0;
+    }
+
     private static String responseContent(JsonNode content) throws IOException {
         if (content == null || content.isNull()) {
             return "";
@@ -374,11 +413,23 @@ public final class OpenAiCompatibleClient implements ModelClient {
         }
         if (content != null && content.isArray()) {
             StringBuilder text = new StringBuilder();
+            StringBuilder typesSeen = new StringBuilder();
             for (JsonNode block : content) {
                 String type = block.path("type").asText("");
-                if (type.equals("output") || type.equals("text")) {
+                // output_text is what a newer OpenAI-shaped API calls the same thing. An unknown
+                // type used to be skipped in silence, so a provider that renamed its block left an
+                // empty string and an error about empty content, naming nothing that would explain
+                // it.
+                if (type.equals("output") || type.equals("text") || type.equals("output_text")) {
                     text.append(block.path("text").asText(""));
+                } else if (!type.isEmpty()) {
+                    if (!typesSeen.isEmpty()) typesSeen.append(", ");
+                    typesSeen.append(type);
                 }
+            }
+            if (text.isEmpty() && !typesSeen.isEmpty()) {
+                throw new IOException("Provider returned only content blocks this client does not "
+                        + "read: " + typesSeen);
             }
             return text.toString();
         }
