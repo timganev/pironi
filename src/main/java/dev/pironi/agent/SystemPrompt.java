@@ -40,15 +40,25 @@ public final class SystemPrompt {
     private static String read(String resource) {
         try (InputStream stream = SystemPrompt.class.getResourceAsStream(resource)) {
             if (stream == null) {
-                throw new IllegalStateException("System prompt missing from the jar: " + resource);
+                throw new IllegalStateException("Missing from the jar: " + resource);
             }
             String text = new String(stream.readAllBytes(), StandardCharsets.UTF_8).strip();
             if (text.isEmpty()) {
-                throw new IllegalStateException("System prompt is empty: " + resource);
+                throw new IllegalStateException("Empty in the jar: " + resource);
             }
             return text;
         } catch (IOException e) {
-            throw new UncheckedIOException("System prompt could not be read: " + resource, e);
+            // Every one of these said "System prompt could not be read" whichever resource it was,
+            // and carried nothing of the cause: the trace records getMessage(), not the chain. A
+            // run of these turned up in the trace naming a file that was present the whole time,
+            // and there was no way to tell from the record what had actually failed. The usual
+            // cause is the jar being rebuilt underneath a running process, which is worth saying
+            // outright rather than leaving to be rediscovered.
+            throw new UncheckedIOException(
+                    resource + " could not be read from the jar (" + e.getClass().getSimpleName()
+                            + ": " + e.getMessage() + "). A jar replaced while it is running gives"
+                            + " exactly this; restart rather than reading it as a missing file.",
+                    e);
         }
     }
 }
