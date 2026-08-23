@@ -29,6 +29,33 @@ class PortableLauncherTest {
         assertTrue(read("dist", "unix", "pironi").contains("export PIRONI_BUNDLE_DIR"));
     }
 
+    /**
+     * The packagers copy README.md into the bundle and nothing else from the repository, so a
+     * relative link in it points at a directory that is not there. Moving three sections into
+     * docs/ put three dead links in front of everyone reading the archive, which is the copy most
+     * people read.
+     */
+    @Test
+    void theReadmeLinksNothingTheBundleDoesNotCarry() throws Exception {
+        String readme = Files.readString(Path.of("README.md"));
+        java.util.regex.Matcher relative =
+                java.util.regex.Pattern.compile("]\\((?!https?://)([^)]+)\\)").matcher(readme);
+        List<String> unreachable = new java.util.ArrayList<>();
+        while (relative.find()) {
+            String target = relative.group(1);
+            if (target.startsWith("#")) continue;
+            String top = target.split("/")[0];
+            // What the packagers put beside the README, and nothing else.
+            if (!List.of("skills", "dist", "scripts", "SOUL.example.md", "USER.example.md")
+                    .contains(top)) {
+                unreachable.add(target);
+            }
+        }
+        assertTrue(unreachable.isEmpty(),
+                "README links these from inside the bundle, where they do not exist: "
+                        + unreachable + " - use an absolute URL");
+    }
+
     @Test
     void neitherLauncherMovesTheHome() throws Exception {
         // A release keeps its skills and memory in ~/.pironi like any other run, so upgrading is

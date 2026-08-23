@@ -231,7 +231,7 @@ x64 release on an ARM64 machine.
 
 A measured comparison against another harness on the same machine, and the
 script that reproduces it, is in
-[docs/harness-baseline.md](docs/harness-baseline.md).
+[docs/harness-baseline.md](https://github.com/timganev/pironi/blob/main/docs/harness-baseline.md).
 
 ## Requirements for building from source
 
@@ -402,7 +402,7 @@ java -jar target/pironi-0.1.0-SNAPSHOT.jar \
 ```
 
 A tuned large-context Ollama profile from one dated session, with the GPU and
-toolchain it needed, is in [docs/ollama-large-context.md](docs/ollama-large-context.md).
+toolchain it needed, is in [docs/ollama-large-context.md](https://github.com/timganev/pironi/blob/main/docs/ollama-large-context.md).
 
 ## OpenAI-compatible APIs
 
@@ -935,7 +935,7 @@ timeout still returns what it printed. A non-zero exit is reported as
 `exitCode=N`, with the cause named for the signal codes on Unix.
 
 Why each of those is the way it is - the runs that produced them - is in
-[docs/design-notes.md](docs/design-notes.md).
+[docs/design-notes.md](https://github.com/timganev/pironi/blob/main/docs/design-notes.md).
 ### Microsoft Office documents on Windows
 
 `xlsx_create`, `docx_create`, and `pptx_create` build real Office Open XML ZIP
