@@ -240,18 +240,24 @@ class RunCommandToolTest {
 
     @Test
     void aCommandThatAnsweredThroughItsExitCodeIsNotAFailedToolCall() throws Exception {
-        // Observed twice in one run: findstr and grep answered "nothing matched", the call came
-        // back as failed, and the agent rewrote a script that had been working.
-        org.junit.jupiter.api.Assumptions.assumeFalse(isWindows());
+        // Observed twice in one run: grep answered "nothing matched", the call came back as
+        // failed, and the agent rewrote a script that had been working.
+        //
+        // Deliberately not skipped on Windows. The first version of this test was Unix-only and
+        // passed here by being skipped, then broke both other runners - the fourth such test in
+        // three days. Each platform gets a command that prints and exits non-zero.
         RunCommandTool tool = new RunCommandTool(
                 new Workspace(workspaceRoot), Duration.ofSeconds(5), 1_000);
+        String command = isWindows()
+                ? "dir C:\\definitely-not-here-9f3a"
+                : "printf 'a\\n' > f.txt; grep -c zzz f.txt";
 
-        ToolResult result = tool.execute(new ObjectMapper().readTree("""
-                {"command":"printf 'a\n' > f.txt; grep -c zzz f.txt"}
-                """));
+        ToolResult result = tool.execute(
+                new ObjectMapper().createObjectNode().put("command", command));
 
         assertTrue(result.success(), result.output());
         assertTrue(result.output().startsWith("exitCode=1"), result.output());
+        assertTrue(result.output().contains("the command ran and printed output"), result.output());
     }
 
     @Test
