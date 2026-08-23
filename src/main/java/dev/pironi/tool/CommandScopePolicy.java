@@ -17,6 +17,15 @@ final class CommandScopePolicy {
     );
     /** A UNC path leaves the machine entirely and matches neither of the patterns above. */
     private static final Pattern UNC = Pattern.compile("(^|[\\s'\"=])\\\\\\\\[^\\\\\\s]");
+    /**
+     * A single leading backslash is rooted at the current drive, so {@code \Users\me\out.txt} is
+     * as absolute as {@code C:\Users\me\out.txt} - and matched neither pattern above, because one
+     * wants a drive letter and the other wants two backslashes. The Unix rule is not applied on
+     * Windows (every cmd.exe switch would read as a path), so nothing caught it: at workspace
+     * scope the write landed outside the workspace and was reported as done.
+     */
+    private static final Pattern WINDOWS_DRIVE_RELATIVE =
+            Pattern.compile("(^|[\\s'\"=])\\\\(?![\\\\\\s])");
     /** Windows expansions that reach outside the workspace, the counterparts of ~ and $HOME. */
     private static final java.util.List<String> WINDOWS_EXPANSIONS = java.util.List.of(
             "%userprofile%", "%homedrive%", "%homepath%", "%appdata%", "%localappdata%",
@@ -65,6 +74,7 @@ final class CommandScopePolicy {
         if (PARENT.matcher(command).find()
                 || (!windows && UNIX_ABSOLUTE.matcher(command).find())
                 || WINDOWS_ABSOLUTE.matcher(command).find()
+                || (windows && WINDOWS_DRIVE_RELATIVE.matcher(command).find())
                 || UNC.matcher(command).find()
                 || command.contains("~")
                 || lower.contains("$home")

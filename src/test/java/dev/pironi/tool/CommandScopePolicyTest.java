@@ -21,6 +21,26 @@ class CommandScopePolicyTest {
         assertNotNull(CommandScopePolicy.rejection("cd subdir", ShellScope.WORKSPACE));
     }
 
+    /**
+     * A path rooted at the current drive is as absolute as one with a drive letter, and matched
+     * neither Windows rule: one wants {@code C:}, the other wants two backslashes. At workspace
+     * scope the write landed outside the workspace and the run reported it as done.
+     */
+    @Test
+    void workspaceBlocksAPathRootedAtTheCurrentDrive() {
+        assertNotNull(CommandScopePolicy.rejection(
+                "echo out > \\Users\\me\\escaped.txt", ShellScope.WORKSPACE, "Windows 11"));
+        assertNotNull(CommandScopePolicy.rejection(
+                "copy build.log \\temp\\", ShellScope.WORKSPACE, "Windows 11"));
+        // The rule is Windows-only: on Unix a lone backslash is an escape character, not a root.
+        assertNull(CommandScopePolicy.rejection(
+                "grep -rn 'a\\.b' src", ShellScope.WORKSPACE, "Linux"));
+        // cmd.exe switches still are not paths, and a relative write is still allowed.
+        assertNull(CommandScopePolicy.rejection("dir /b", ShellScope.WORKSPACE, "Windows 11"));
+        assertNull(CommandScopePolicy.rejection(
+                "echo out > build\\out.txt", ShellScope.WORKSPACE, "Windows 11"));
+    }
+
     @Test
     void broaderScopesAreExplicit() {
         assertNull(CommandScopePolicy.rejection("cat /home/tim/file", ShellScope.USER));
