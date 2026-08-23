@@ -8,10 +8,12 @@ import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
@@ -93,6 +95,69 @@ public final class BundledSkills {
 
         writeManifest(skillsDir, manifest);
         return List.copyOf(planted);
+    }
+
+    /**
+     * Retires skills an earlier release planted and this one no longer carries.
+     *
+     * <p>Without this, splitting or renaming a skill leaves it installed twice: the new files
+     * arrive, the old ones stay behind untouched, and both answer to the same words. Two skills
+     * scoring alike on a question tie, and a tie applies neither - so a split made to improve a
+     * skill would instead switch it off, on every machine that had the previous release.
+     *
+     * <p>Only a skill still byte-for-byte what we planted is retired, and it is archived rather
+     * than deleted so {@code restore_skill} can bring it back. One the person has edited is theirs:
+     * it stays where it is, and stays in the manifest.
+     *
+     * @return the names retired, in order, empty when there was nothing to do
+     */
+    public static List<String> retire(Path seedDir, Path skillsDir) throws IOException {
+        if (seedDir == null || !Files.isDirectory(seedDir)) return List.of();
+        if (!Files.isDirectory(skillsDir)) return List.of();
+
+        Set<String> shipped = new HashSet<>();
+        for (Path seed : seeds(seedDir)) shipped.add(seed.getFileName().toString());
+        // An empty seed directory means the release carried nothing, not that everything was
+        // withdrawn. Retiring the whole store on a packaging mistake is not a recoverable answer.
+        if (shipped.isEmpty()) return List.of();
+
+        Map<String, Record> manifest = readManifest(skillsDir);
+        List<String> retired = new ArrayList<>();
+        boolean changed = false;
+
+        for (Record known : List.copyOf(manifest.values())) {
+            String name = known.name();
+            if (shipped.contains(name)) continue;
+            Path skill = skillsDir.resolve(name);
+            Path source = skill.resolve("SKILL.md");
+            if (!Files.isRegularFile(source)) {
+                manifest.remove(name);          // already gone; stop remembering it
+                changed = true;
+                continue;
+            }
+            if (!hash(Files.readAllBytes(source)).equals(known.hash())) continue;  // theirs now
+            Path archive = freeArchivePath(skillsDir.resolve(".archive"), name);
+            Files.createDirectories(archive.getParent());
+            Files.move(skill, archive);
+            manifest.remove(name);
+            retired.add(name);
+            changed = true;
+        }
+
+        if (changed) writeManifest(skillsDir, manifest);
+        return List.copyOf(retired);
+    }
+
+    /**
+     * A name inside {@code .archive} that is not taken. Overwriting whatever was archived under
+     * this name before would destroy the one copy a person still had of it.
+     */
+    private static Path freeArchivePath(Path archiveDir, String name) {
+        Path candidate = archiveDir.resolve(name);
+        for (int suffix = 2; Files.exists(candidate) && suffix < 1_000; suffix++) {
+            candidate = archiveDir.resolve(name + "-" + suffix);
+        }
+        return candidate;
     }
 
     /**

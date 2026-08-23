@@ -1032,14 +1032,21 @@ public final class PironiMain {
         String bundle = System.getenv("PIRONI_BUNDLE_DIR");
         if (bundle == null || bundle.isBlank()) return;
         try {
+            Path seeds = Path.of(bundle).resolve("skills");
+            Path store = pironiHome.resolve("skills");
             java.util.List<String> planted = dev.pironi.session.BundledSkills.install(
-                    Path.of(bundle).resolve("skills"),
-                    pironiHome.resolve("skills"),
-                    BuildVersion.current()
+                    seeds, store, BuildVersion.current()
             );
             if (!planted.isEmpty()) {
                 System.out.println("Skills installed with this release: "
                         + String.join(", ", planted));
+            }
+            // After planting, not before: a skill this release renamed is only safe to retire once
+            // its replacement is on disk.
+            java.util.List<String> retired = dev.pironi.session.BundledSkills.retire(seeds, store);
+            if (!retired.isEmpty()) {
+                System.out.println("Skills this release no longer carries, archived: "
+                        + String.join(", ", retired));
             }
         } catch (java.io.IOException | RuntimeException e) {
             System.out.println("Bundled skills were not installed: " + e.getMessage());

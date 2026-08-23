@@ -126,6 +126,65 @@ class BundledSkillsInstallTest {
         assertFalse(BundledSkills.reset(null, store, "team-lead", "v1"));
     }
 
+    /**
+     * A release that splits or renames a skill plants the new names and leaves the old one behind,
+     * where it goes on answering to the same words. Two skills scoring alike on a question tie, and
+     * a tie applies neither - so the split that was meant to improve a skill switches it off, on
+     * every machine that had the previous release and nowhere else.
+     */
+    @Test
+    void aSkillThisReleaseNoLongerCarriesIsRetired() throws Exception {
+        ship("windows-outlook-teams", "the one skill");
+        BundledSkills.install(seed, store, "v1");
+        assertTrue(Files.isRegularFile(store.resolve("windows-outlook-teams").resolve("SKILL.md")));
+
+        Files.walk(seed.resolve("windows-outlook-teams")).sorted(java.util.Comparator.reverseOrder())
+                .forEach(path -> path.toFile().delete());
+        ship("windows-outlook", "split in two");
+        ship("windows-teams", "split in two");
+        BundledSkills.install(seed, store, "v2");
+
+        assertEquals(List.of("windows-outlook-teams"), BundledSkills.retire(seed, store));
+
+        assertFalse(Files.exists(store.resolve("windows-outlook-teams")),
+                "the retired skill must stop being listed");
+        assertTrue(Files.isRegularFile(
+                store.resolve(".archive").resolve("windows-outlook-teams").resolve("SKILL.md")),
+                "retiring archives rather than deletes, so restore_skill can bring it back");
+        assertEquals(List.of(), BundledSkills.retire(seed, store), "nothing left to retire");
+    }
+
+    @Test
+    void aSkillTheyEditedIsTheirsAndIsNotRetired() throws Exception {
+        ship("windows-outlook-teams", "shipped");
+        BundledSkills.install(seed, store, "v1");
+        Files.writeString(store.resolve("windows-outlook-teams").resolve("SKILL.md"),
+                "# windows-outlook-teams\n\ndescription: my notes\n", StandardCharsets.UTF_8);
+
+        Files.walk(seed.resolve("windows-outlook-teams")).sorted(java.util.Comparator.reverseOrder())
+                .forEach(path -> path.toFile().delete());
+        ship("windows-outlook", "split in two");
+
+        assertEquals(List.of(), BundledSkills.retire(seed, store));
+        assertTrue(stored("windows-outlook-teams").contains("my notes"));
+        assertEquals(BundledSkills.Origin.SHIPPED_EDITED,
+                BundledSkills.originOf(store, "windows-outlook-teams"));
+    }
+
+    @Test
+    void anEmptyBundleRetiresNothing() throws Exception {
+        ship("team-lead", "shipped");
+        BundledSkills.install(seed, store, "v1");
+        Files.walk(seed.resolve("team-lead")).sorted(java.util.Comparator.reverseOrder())
+                .forEach(path -> path.toFile().delete());
+
+        // A packaging mistake that ships no skills at all must not empty the store: "the release
+        // carried nothing" and "the release withdrew everything" are not the same statement.
+        assertEquals(List.of(), BundledSkills.retire(seed, store));
+        assertTrue(Files.isRegularFile(store.resolve("team-lead").resolve("SKILL.md")));
+        assertEquals(List.of(), BundledSkills.retire(null, store));
+    }
+
     @Test
     void aPlantedSkillIsOneTheStoreListsAndTheManifestIsNot() throws Exception {
         ship("team-lead", "shipped");
