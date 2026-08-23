@@ -27,6 +27,9 @@ public final class OpenAiCompatibleClient implements ModelClient {
     private volatile boolean jsonSchemaSupported;
     /** How far the retry may raise the output budget when reasoning ate all of it. */
     static final int MAX_OUTPUT_BUDGET = 32_768;
+    /** Attempts at getting an answer out of the transport, before the protocol is even read. */
+    private static final int MAX_TRANSPORT_ATTEMPTS = 4;
+    private static final long RETRY_BACKOFF_MILLIS = 1_000;
 
     public OpenAiCompatibleClient(
             URI baseUri,
@@ -293,8 +296,44 @@ public final class OpenAiCompatibleClient implements ModelClient {
                 .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(payload)))
                 .build();
         long started = System.nanoTime();
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = sendWithRetry(request, started);
         return new TimedResponse(response, System.nanoTime() - started);
+    }
+
+    /**
+     * A rate limit or a bad gateway is not an answer, and this had no retry at all: one 429 from
+     * OpenRouter ended the turn, while the same failure against Ollama was retried four times.
+     * Nothing has been streamed at this point, so sending the request again is safe.
+     *
+     * <p>Only 429 and 5xx are retried. A 400 or 422 is the provider saying it dislikes the request
+     * itself, which is how the structured-output fallback finds out to stop asking for a schema -
+     * repeating it would only spend the same rejection three more times.
+     */
+    private HttpResponse<String> sendWithRetry(HttpRequest request, long startNanos)
+            throws IOException, InterruptedException {
+        long backoffMillis = RETRY_BACKOFF_MILLIS;
+        for (int attempt = 1; ; attempt++) {
+            boolean lastAttempt = attempt >= MAX_TRANSPORT_ATTEMPTS;
+            try {
+                HttpResponse<String> response =
+                        httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                if (!retryable(response.statusCode()) || lastAttempt) return response;
+            } catch (IOException e) {
+                if (lastAttempt) {
+                    throw new IOException(
+                            "Provider request failed after " + attempt + " attempts over "
+                                    + ((System.nanoTime() - startNanos) / 1_000_000_000L)
+                                    + "s: " + e.getMessage(), e);
+                }
+            }
+            Thread.sleep(backoffMillis);
+            backoffMillis *= 2;
+        }
+    }
+
+    /** Transient on the server side: worth sending the same request again. */
+    private static boolean retryable(int statusCode) {
+        return statusCode / 100 == 5 || statusCode == 429;
     }
 
     private record TimedResponse(HttpResponse<String> response, long durationNanos) {
