@@ -8,8 +8,9 @@ import java.util.Set;
 
 /**
  * Turns placeholder headers such as {@code "Bearer PIRONI_API_KEY"} into the real key, and decides
- * which hosts may receive an {@code Authorization} header at all. The resolved value goes only
- * into the outgoing request, never into the {@code ToolResult}.
+ * which hosts may receive a resolved secret at all - under any header name, not only
+ * {@code Authorization}. The resolved value goes only into the outgoing request, never into the
+ * {@code ToolResult}.
  */
 public final class HeaderResolver {
     /** Soft cap on any header value so a placeholder substitution cannot blow the request. */
@@ -48,8 +49,12 @@ public final class HeaderResolver {
             if (!trimmed.contains(entry.getKey())) {
                 continue;
             }
-            // Secrets only travel to explicitly trusted API hosts.
-            if (authorization && !authorizationHosts.contains(host.toLowerCase(Locale.ROOT))) {
+            // The allowlist used to be checked only when the header was named Authorization, so
+            // "X-Api-Key: Bearer PIRONI_API_KEY" resolved the real key for any host at all - and
+            // http_get is not a mutation, so it never reaches an approval prompt. A page the agent
+            // was summarising only had to ask for one fetch. What decides is the value carrying a
+            // secret, never the name someone put in front of it.
+            if (!authorizationHosts.contains(host.toLowerCase(Locale.ROOT))) {
                 return Optional.empty();
             }
             String resolved = entry.getValue();
