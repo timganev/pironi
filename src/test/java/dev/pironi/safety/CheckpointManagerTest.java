@@ -96,4 +96,31 @@ class CheckpointManagerTest {
                 checkpoint.directory().toString());
         assertEquals("data.txt", checkpoint.relativePath());
     }
+
+    /**
+     * Undo is a stack and this one had no bottom. Every mutation copies the file whole, so an
+     * automatic session editing the same file over and over filled .pironi/checkpoints with
+     * copies nobody would roll back to, bounded by nothing but the length of the run - the orphan
+     * sweep only reaches sessions that have already ended.
+     */
+    @Test
+    void theUndoStackHasABottom() throws Exception {
+        Workspace workspace = new Workspace(temporaryDirectory);
+        Path file = Files.writeString(temporaryDirectory.resolve("data.txt"), "0");
+        CheckpointManager manager = new CheckpointManager(workspace);
+
+        for (int edit = 1; edit <= CheckpointManager.MAX_CHECKPOINTS + 15; edit++) {
+            manager.create(file);
+            Files.writeString(file, String.valueOf(edit));
+        }
+
+        assertEquals(CheckpointManager.MAX_CHECKPOINTS,
+                countIn(temporaryDirectory.resolve(".pironi/checkpoints")),
+                "checkpoints on disk should stop at the ceiling, not follow the run");
+        // The newest is still the one an undo reaches, which is the point of dropping the oldest.
+        assertTrue(manager.latest().isPresent());
+        manager.rollbackLatest();
+        assertEquals(String.valueOf(CheckpointManager.MAX_CHECKPOINTS + 14),
+                Files.readString(file));
+    }
 }

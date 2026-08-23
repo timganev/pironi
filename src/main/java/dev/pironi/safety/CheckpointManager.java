@@ -11,8 +11,13 @@ import java.util.Optional;
 import java.util.UUID;
 
 public final class CheckpointManager {
+    /** How many undo steps a session keeps, and how much disk they may hold between them. */
+    static final int MAX_CHECKPOINTS = 40;
+    static final long MAX_RETAINED_BYTES = 64L * 1024 * 1024;
+
     private final Workspace workspace;
     private final Deque<Checkpoint> checkpoints = new ArrayDeque<>();
+    private long retainedBytes;
 
     public CheckpointManager(Workspace workspace) {
         this.workspace = workspace;
@@ -39,7 +44,36 @@ public final class CheckpointManager {
                 directory
         );
         checkpoints.push(checkpoint);
+        retainedBytes += existed ? Files.size(directory.resolve("content")) : 0;
+        dropOldestBeyondTheCeiling();
         return checkpoint;
+    }
+
+    /**
+     * Undo is a stack, and this one had no bottom. Every mutation copies the file whole, so a long
+     * automatic session editing a large file repeatedly filled {@code .pironi/checkpoints} with
+     * copies nobody would ever roll back to - bounded by nothing but the length of the run. The
+     * orphan sweep only reaches sessions that have already ended.
+     *
+     * <p>Bounded by weight as well as by count, because forty checkpoints of a one-line file and
+     * forty of a large document are not the same amount of disk.
+     */
+    private void dropOldestBeyondTheCeiling() {
+        while (checkpoints.size() > MAX_CHECKPOINTS
+                || (retainedBytes > MAX_RETAINED_BYTES && checkpoints.size() > 1)) {
+            Checkpoint oldest = checkpoints.pollLast();
+            if (oldest == null) return;
+            try {
+                Path content = oldest.directory().resolve("content");
+                if (Files.exists(content)) retainedBytes -= Files.size(content);
+                deleteCheckpointDirectory(oldest);
+            } catch (IOException unreadable) {
+                // A checkpoint that cannot be removed is still off the stack, which is what
+                // bounds the memory; the orphan sweep collects what is left on disk.
+                retainedBytes = 0;
+            }
+        }
+        if (checkpoints.isEmpty()) retainedBytes = 0;
     }
 
     public Optional<Checkpoint> latest() {
