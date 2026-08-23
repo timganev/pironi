@@ -103,6 +103,17 @@ occurrences — necessary for "when was I busy", wrong for "how many distinct me
 `ConversationTopic` groups a thread; `Store`, `SenderName`, `ReceivedTime`, `SentOn`, `Duration`
 and `BodyPreview` are the fields most questions need.
 
+**A conversation is not a subject and not a topic of work.** Grouping on the literal `Subject`
+splits every thread in two, because the first message has no `RE:` — use `ConversationTopic`,
+which is the subject with the prefixes already stripped. And a question about clients, projects
+or workstreams is a level above that again: one engagement runs across many conversations, so a
+top five of conversations answers a question nobody asked. `email-triage` says what does carry
+the grouping.
+
+`ConversationTopic` can also mislead in the other direction: it is matched on text, so two
+unrelated threads both called "Status" merge into one. Where a grouping looks wrong, say so
+rather than reporting it.
+
 ### Four things that will waste your time
 
 **`RPC_E_CALL_REJECTED` means two different things.** Outlook returns it while it is busy, and

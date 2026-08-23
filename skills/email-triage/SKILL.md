@@ -48,6 +48,31 @@ Threading itself is unreliable. Subject lines get edited, replies arrive with `R
 people start a new mail rather than reply, and Outlook's `ConversationTopic` groups by subject text
 so two unrelated "Status" threads merge into one. Where the grouping looks wrong, say so.
 
+## A project is not a field, and one thread is not one project
+
+Nothing in a mailbox says which project a message belongs to. There is no category, no folder, no
+header. Asked to group by project, the temptation is to group by whatever *is* a field — the
+subject line, or the conversation — and report that instead. The numbers come out right and the
+answer is to a different question.
+
+What actually carries the project:
+
+- **The client's domain**, in the sender and the recipients. Every thread with someone at
+  `northwind.example` is probably one engagement, whatever each thread is called.
+- **A system or product named in the body** — a migration, a cluster, an invoicing run.
+- **Who recurs.** One or two colleagues own each piece of work and turn up throughout it.
+- **What the meetings are called**, if a calendar is available. Meeting titles name projects far
+  more often than mail subjects do.
+
+The failure this prevents, measured on a seeded week of 156 messages: the largest project held 42
+of them across five separate conversations — a cutover window, an escalation, a DNS fault, a
+close-out and a post-mortem, all for one client. Grouped by conversation it never appeared in a
+top five at all, while single threads from smaller projects did. **If a project is being reported,
+say which threads were folded into it**, so the grouping can be argued with.
+
+When the grouping genuinely cannot be inferred, say so and show the threads — but say it after
+trying, not instead of trying.
+
 ## What a count of messages is worth
 
 Not much on its own. Fifty messages on one project can be two people arguing about a variable name,
