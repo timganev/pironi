@@ -335,3 +335,15 @@ give them a timeout and expect to have to say why nothing came back.
 
 `read_leveldb` is the exception: it is a read, needs no shell and no approval beyond read scope,
 and does not care whether Teams is running. Reach for it before any PowerShell against Teams.
+
+**Do not build delimited output by hand.** PowerShell's escape character is the backtick, so
+`"$count`t$address"` means a tab — until the string reaches PowerShell through a file or a
+command line that has already eaten the backtick, at which point it prints as a literal backtick
+followed by `t`, and the `t` glues itself to the next field. That is how a run reported
+`trada@ourcompany.example` and `tivan@ourcompany.example` as the two people who wrote most: the
+counts were all exactly right and two of the addresses did not exist. Nothing in the output looked
+wrong.
+
+Use `Export-Csv`, or `ConvertTo-Json -Depth 3`, or `-join "|"` — anything whose separator is a
+character rather than an escape sequence. And when reporting a name, an address or an id, take it
+from a parsed field, never from a line that was split on something hand-written.
