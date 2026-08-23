@@ -153,12 +153,29 @@ while ($job.State -eq 'Running') {
 because the button is drawn rather than a real control. Expect one or two dialogs per Outlook
 launch, and expect a new one whenever Outlook restarts mid-run.
 
-**The profile cannot be repaired from COM.** `RemoveStore` refuses the folder of a store that
-never opened ("Type mismatch"), `AddStoreEx` on the missing path answers "failed to load for this
-session" even after a restart, and editing the profile keys in the registry broke the working
-account and had to be rolled back from a backup. Removing the entry is Control Panel → Mail →
-Data Files → Remove, which needs a person and works while Outlook itself will not start. Say that
-plainly rather than trying; then close the dialog and get on with the reachable stores.
+**The profile cannot be repaired from COM, but it can be repaired.** What does not work:
+`RemoveStore` refuses the folder of a store that never opened ("Type mismatch"), `AddStoreEx` on
+the missing path answers "failed to load for this session" even after a restart, and editing the
+profile keys in the registry broke the working account and had to be rolled back from a backup.
+
+What does work is letting Outlook create the file it is looking for. The Mail applet runs without
+Outlook, so it works even when Outlook closes on startup:
+
+```powershell
+Start-Process control.exe -ArgumentList '"C:\Program Files\Microsoft Office\root\Office16\mlcfg32.cpl"'
+```
+
+Then, through UI Automation: **Data Files…** → the error dialog appears, click **OK** → a
+**Create/Open Outlook Data File** picker appears → put the *exact missing path* in `File name:`
+and click **Open** → an empty password dialog, click **OK**. Outlook creates a fresh empty `.pst`
+where the profile expects one, the entry resolves, and the dialog stops for good. Verified on
+2026-08-23: `default store` went from empty to a name, all three stores opened, and no dialog
+appeared on the next launch.
+
+The controls answer to `InvokePattern` and `ValuePattern`; find them by `Name` under the window,
+`AutomationElement.RootElement` → children by `ClassName = "#32770"`. Clicking through the error
+without giving the picker a path just loops: error, picker, error, and the settings window never
+opens.
 
 **`RPC_E_CALL_REJECTED` means two different things.** Outlook returns it while it is busy, and
 also while it is showing a modal dialog. The first clears itself; the second never will, and no
