@@ -33,6 +33,45 @@ class BundledSkillsTest {
         }
     }
 
+    /**
+     * The table in README naming what a release carries was hand-maintained and said three while
+     * six shipped, then said three while seven shipped - and one of its rows described a skill
+     * that had since been split in two. A reader has no way to tell a stale table from a true one,
+     * and the packagers ship whatever is in {@code skills/} regardless of what the table claims.
+     */
+    @Test
+    void theReadmeNamesTheSkillsThatActuallyShip() throws Exception {
+        Path readme = Path.of("README.md");
+        if (!Files.isRegularFile(readme)) return;
+        String text = Files.readString(readme, StandardCharsets.UTF_8);
+        List<String> missing = new ArrayList<>();
+        for (Path skill : bundled()) {
+            String name = skill.getFileName().toString();
+            if (!text.contains("`" + name + "`")) missing.add(name);
+        }
+        assertTrue(missing.isEmpty(),
+                "README does not name these shipped skills: " + missing);
+
+        int shipped = bundled().size();
+        assertTrue(text.contains("This release ships " + numberWord(shipped)),
+                "README should say the release ships " + numberWord(shipped)
+                        + "; " + shipped + " skill directories are in skills/");
+    }
+
+    private static String numberWord(int count) {
+        return switch (count) {
+            case 3 -> "three";
+            case 4 -> "four";
+            case 5 -> "five";
+            case 6 -> "six";
+            case 7 -> "seven";
+            case 8 -> "eight";
+            case 9 -> "nine";
+            case 10 -> "ten";
+            default -> String.valueOf(count);
+        };
+    }
+
     @Test
     void everyBundledSkillIsOneTheStoreWillLoad() throws Exception {
         List<String> problems = new ArrayList<>();

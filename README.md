@@ -689,12 +689,16 @@ shipped and untouched, shipped and since edited here, or written here. A later
 release replaces only the untouched ones; an edited skill is left alone, and one
 deleted here is not planted again.
 
-This release ships three:
+This release ships seven:
 
 | Skill | What it is for |
 | --- | --- |
+| `windows-outlook` | where Outlook keeps mail and calendar on Windows, how to reach it, and which answers lie |
+| `windows-teams` | the Teams client's own store, read directly with `read_leveldb` and no shell |
+| `email-triage` | reading a pile of correspondence for what needs a decision, and how that reading goes wrong |
+| `action-items` | pulling decisions, commitments and owners out of a transcript without inventing any |
+| `weekly-reset` | the weekly review: what moved, what stalled, and what is still waiting on someone |
 | `team-lead` | Planner/Teams CSV reconciliation, status reports, calendar drafts, Office artifacts |
-| `windows-outlook` | where Outlook and Teams keep data on Windows, how to reach it, and which answers lie |
 | `weather-forecast` | forecasts without an API key, and working out which place was meant |
 
 Selection weighs a word matching a skill's name or its `triggers:` as worth the
