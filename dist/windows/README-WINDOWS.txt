@@ -58,8 +58,15 @@ PIRONI PORTABLE ЗА WINDOWS 11
      --personal-context allow `
      --workspace "$env:USERPROFILE"
 
-Обратната наклонена черта на края на реда е продължение в PowerShell. На един
-ред работи също.
+Обратният апостроф на края на реда е продължение в PowerShell. Ако копирането
+през няколко реда се разваля — а през чат прозорец обикновено се разваля —
+това е същата команда на един ред:
+
+   .\pironi.bat --provider deepseek --model deepseek-v4-flash --approval auto --shell-scope unrestricted --read-scope unrestricted --personal-context allow --workspace "$env:USERPROFILE"
+
+В Command Prompt, не в PowerShell, същото е:
+
+   pironi.bat --provider deepseek --model deepseek-v4-flash --approval auto --shell-scope unrestricted --read-scope unrestricted --personal-context allow --workspace "%USERPROFILE%"
 
 Какво прави всеки от тях:
 
@@ -70,6 +77,8 @@ PIRONI PORTABLE ЗА WINDOWS 11
    --approval ask               пита преди всяка промяна. На подканата
                                 отговаряш y, N или a — "a" значи "не питай
                                 повече за този инструмент до края на сесията".
+                                Работят и "да" и "винаги". Всичко останало се
+                                чете като отказ.
 
    --shell-scope unrestricted   шелът достига цялата машина, включително UNC
                                 пътища към други машини. По подразбиране е

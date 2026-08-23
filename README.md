@@ -84,7 +84,7 @@ No installer, elevation, Maven, `JAVA_HOME`, or system `PATH` change is used.
 confirmation in the Windows portable default. Use it only on a backed-up user
 profile and review the requested task carefully.
 
-`pironi.bat` sets almost nothing. A release reads `%USERPROFILE%.pironi` like
+`pironi.bat` sets almost nothing. A release reads `%USERPROFILE%\.pironi` like
 every other way of running Pironi, so upgrading is unzipping a new folder and
 the skills, sessions and memory carry over. The working directory is the one
 you are standing in — except when the launcher is double-clicked, where it
@@ -92,7 +92,7 @@ would otherwise be the program's own folder, and `%USERPROFILE%` is used
 instead so an agent does not write into its own installation.
 
 On first run the skills in `skills` beside the launcher are copied into
-`%USERPROFILE%.pironiskills` and marked as shipped. `/skills` tells a shipped
+`%USERPROFILE%\.pironi\skills` and marked as shipped. `/skills` tells a shipped
 skill from one written here, and from one that was shipped and then edited; a
 later release replaces only the untouched ones, and one deleted here stays
 deleted.
@@ -100,7 +100,7 @@ deleted.
 `--portable` keeps everything inside the bundle instead, for a copy on a stick
 that leaves nothing behind.
 
-Personal context is layered from `%USERPROFILE%.pironi` through `.pironi`
+Personal context is layered from `%USERPROFILE%\.pironi` through `.pironi`
 directories down to the workspace; nearer layers override conflicting
 instructions from broader ones. `CLAUDE.md` cascades the same way but sits
 directly in the directories rather than under `.pironi`. Both are sent to the
@@ -117,7 +117,7 @@ Pironi is cautious by default: it reads freely, asks before every change, and
 confines the shell to the workspace. To let it work unattended:
 
 ```powershell
-.pironi.bat --provider deepseek --model deepseek-v4-flash `
+.\pironi.bat --provider deepseek --model deepseek-v4-flash `
   --approval auto `
   --shell-scope unrestricted `
   --read-scope unrestricted `
@@ -227,69 +227,11 @@ There is currently no published Linux ARM64 portable bundle. It can be built
 locally by running `scripts/package-unix.sh` with an ARM64 JDK 25; do not use an
 x64 release on an ARM64 machine.
 
-## Harness baseline: Pironi vs Hermes
+## Harness baseline
 
-This baseline was repeated on 2026-08-09 with Pironi `v0.1.10` and Hermes
-`0.20.0 (2026.8.3)`, using the same
-machine, direct DeepSeek endpoint, and `deepseek-v4-flash`. Each
-harness ran five times in alternating order with a fresh workspace and disabled
-personal context. The neutral prompt was
-`Отговори на български само с: Здравей`; all ten runs returned exactly
-`Здравей`. Wall time includes startup, provider latency, validation,
-output and shutdown.
-
-| Metric | Pironi | Hermes |
-| --- | ---: | ---: |
-| Wall time, median (range) | 2.92 s (2.70–3.62) | 5.28 s (4.86–6.05) |
-| Peak RSS, median (range) | 133.7 MiB (132.0–138.5) | 168.1 MiB (167.5–168.6) |
-| Provider input tokens, median (range) | 4,338 (4,337–4,338) | 20,340 (20,340–23,924) |
-| Provider output tokens, median (range) | 68 (53–76) | 28 (21–54) |
-| API calls | 1 | 1 |
-| Exact requested result | 5/5 | 5/5 |
-
-For this deliberately tiny request, Pironi used about 79% fewer input tokens,
-about 20% less peak process memory, and finished about 45% sooner at the
-median. This measures harness overhead for one controlled request, not general
-agent quality. Hermes intentionally includes a much broader built-in
-environment, while Pironi optimizes for a small, selectively loaded harness.
-Provider output accounting can include reasoning differently, so input tokens,
-wall time and verified task outcomes are the most useful comparison here.
-
-The measured software footprints differ substantially:
-
-| Artifact measured on the benchmark host | Pironi | Hermes |
-| --- | ---: | ---: |
-| Standalone application | 3.9 MiB shaded JAR | n/a |
-| Runnable environment | 97 MiB unpacked Linux portable | 880 MiB checkout excluding `.git` |
-| Compressed portable | 34 MiB Linux archive | n/a |
-| Source tree without dependency/runtime directories | below 1 MiB | 186 MiB |
-
-The footprints are not feature-equivalent. Hermes additionally provides
-gateways, messaging integrations, plugins, browser/desktop features and a much
-larger bundled skill environment. Sanitized per-run measurements are committed
-in `docs/benchmarks/2026-08-09-pironi-v0.1.10-vs-hermes-v0.20.0.csv`.
-
-### Reproduce the harness comparison
-
-On Linux, `scripts/benchmark-harnesses.sh` performs five alternating runs of
-each harness. Every run receives a fresh workspace and Pironi home. The script
-records exact command versions, the Pironi Git commit, host metadata, raw
-stdout/stderr, `/usr/bin/time` measurements, Pironi JSONL traces, Hermes usage
-JSON, and a summary CSV. It never reads or writes an API key itself; configure
-both harnesses for the selected provider before running it.
-
-```bash
-mvn clean package
-BENCH_PROVIDER=deepseek \
-BENCH_MODEL=deepseek-v4-flash \
-scripts/benchmark-harnesses.sh
-```
-
-Results are written below `build/benchmarks`, which is not a release artifact.
-Compare median wall time and peak RSS together with provider-reported prompt,
-cache-read, output-token, and API-call fields. Alternate ordering reduces the
-effect of warm provider caches, but a five-run local sample remains a startup
-and request baseline rather than a general model-quality ranking.
+A measured comparison against another harness on the same machine, and the
+script that reproduces it, is in
+[docs/harness-baseline.md](docs/harness-baseline.md).
 
 ## Requirements for building from source
 
@@ -459,51 +401,8 @@ java -jar target/pironi-0.1.0-SNAPSHOT.jar \
   --task "Inspect the project and report the most important build problem."
 ```
 
-### Empirically tuned large-context Ollama run
-
-The following profile was tuned on 2026-07-28/29 for log-heavy automation
-with `qwen3.6:35b-a3b`:
-
-```bash
-java -jar /path/to/pironi/target/pironi-0.1.0-SNAPSHOT.jar \
-  --workspace "$repo_root" \
-  --model qwen3.6:35b-a3b \
-  --context 131072 \
-  --max-output-tokens 16384 \
-  --max-turns 30 \
-  --approval auto \
-  --deny-tools read_file,list_files \
-  --no-interactive \
-  --status never \
-  --personal-context deny \
-  --trace "$trace" \
-  --task "$(cat "$prompt_file")"
-```
-
-`--context 131072` is the critical setting: measured prompts peaked around
-82–84k tokens and a single large tool-output pull was about 8k. The profile
-also disables interactive input, status rendering and personal instructions,
-and permits unattended mutating tool calls. Use `--approval auto` only in a
-workspace where that risk is acceptable.
-
-`--deny-tools` removes the named tools from the registry and model prompt.
-Unknown names fail startup, and the setting is stored in the last-session
-profile. It is not a general shell sandbox: an enabled `run_command` can still
-read workspace files. Deny `run_command` too when shell access is not required.
-
-A wrapper may expose these defaults:
-
-```bash
-PIRONI_MODEL=qwen3.6:35b-a3b
-PIRONI_CONTEXT=131072
-PIRONI_MAX_TURNS=30
-PIRONI_MAX_OUTPUT_TOKENS=16384
-```
-
-The measured 131k profile needs OpenJDK 25, Maven 3.9+, Ollama with
-`qwen3.6:35b-a3b`, and roughly 21–24 GB of free GPU memory. The associated log
-wrapper additionally needs `jq`, `tools/allure-digest`, `tools/kibana-logs`,
-and Kibana credentials in `~/.config/kibana_ui_cred`.
+A tuned large-context Ollama profile from one dated session, with the GPU and
+toolchain it needed, is in [docs/ollama-large-context.md](docs/ollama-large-context.md).
 
 ## OpenAI-compatible APIs
 
@@ -812,7 +711,25 @@ Sending personal context to a cloud provider requires the explicit
 --shell-scope workspace|user|unrestricted
 --read-scope workspace|user|unrestricted
 --search-roots PATH,PATH
+--no-tui
+--portable
+--max-subagents N
+--subagent-timeout-seconds N
+--version
 ```
+
+`--no-tui` keeps the interactive shell's terminal rendering out of the output,
+for a run whose stdout is a pipe or a CI log rather than a screen. It was
+accepted and ignored until v0.9.10, so a script that passed it got the full
+terminal UI and had no way to tell.
+
+`--portable` keeps the home inside the bundle, which is what a release unzipped
+onto a machine that must leave nothing behind wants; both launchers set
+`PIRONI_BUNDLE_DIR` so it has something to point at.
+
+`--max-subagents` and `--subagent-timeout-seconds` bound `spawn_subagent`: how
+many children may run at once, and how long one may take before it is stopped.
+Sub-agents are offered only on cloud providers.
 
 `--continue` reopens the newest resumable session that ran in this workspace and
 `--resume SESSION-ID` reopens one by name, so a headless run that died mid-task
@@ -953,139 +870,72 @@ to later sessions without changing prompts, agent identity, or trace content.
 - `xlsx_create`
 - `docx_create`
 - `pptx_create`
+- `read_leveldb`
+- `read_skill`
+- `save_skill`
+- `delete_skill`
+- `restore_skill`
+- `switch_workspace`
+- `spawn_subagent`
 - `run_command`
 
-Reading and writing both follow the workspace, which `/workspace PATH` moves;
-directories taken earlier in the session stay readable, and `--search-roots`
-adds read-only roots at startup. `apply_patch` requires
-one exact old-text match, shows a diff before approval, creates a checkpoint,
-and writes atomically. When the text is not found it names the closest line and
-the first character that differs, with both codepoints: a Latin `d` typed for a
-Cyrillic `д`, or a non-breaking space read as an ordinary one, is invisible on
-screen, and "oldText was not found" sends the model to rewrite the whole file
-instead of retrying the line. It matches the file's own line endings: a Git for Windows
-checkout is CRLF while a model writes LF, and an exact match then failed on text
-that was plainly there and reported it as missing. Before a final answer after a
-mutation, Pironi runs the verification command given by `--verify-command`, and
-nothing at all when none was given. Detecting a build from a `pom.xml` or a
-`gradlew` was worse than it sounds: every mutation paid for the project's whole
-test suite, including ones no test can judge.
-`list_files` accepts workspace-relative directories and absolute directories
-below configured search roots. It omits common generated/private directories such as `.git`,
-`.pironi`, `.idea`, `target`, `build`, `.gradle`, and `node_modules`. When a
-listing is too large to send, it returns a profile of the tree instead of the
-first N paths: file count and total size, counts by extension, the largest
-directories, and the newest and largest files. An alphabetical prefix answers
-none of the questions that matter in an unfamiliar tree.
-`--deny-tools` removes exact tool names from this set and rejects unknown names
-at startup. It does not restrict filesystem access through `run_command`.
-`run_command` requires mutation approval when present, but does not trigger a
-second automatic build after a successful command. It is absent from default
-auto/workspace sessions. Source changes must use
-`apply_patch`, which does trigger automatic verification.
+`read_leveldb` reads a Chromium IndexedDB store directly - Teams, the new
+Outlook, Edge - with no shell, no approval beyond read scope, and without asking
+the owning application to close. It is the only route to a Teams meeting that
+never reached Exchange, and `windows-teams` says where those files are.
 
-`app_control` provides allowlisted desktop actions without exposing arbitrary
-shell input. Supported applications are Firefox, Chrome, Edge, Obsidian,
-VS Code, Notepad, Slack, the system image viewer, and system Settings;
-supported actions are `status`, `launch`, `new-window`,
-and graceful `close`. It never force-terminates a process. If graceful close
-does not complete within five seconds, Pironi reports the remaining processes
-instead of escalating. Availability still depends on an active desktop session
-and an executable in a known platform location.
+`spawn_subagent` runs a child with the same tools and a smaller turn budget, on
+cloud providers only; `--max-subagents` and `--subagent-timeout-seconds` bound
+it. `switch_workspace` moves the sandbox itself and is always asked about, in
+every approval mode, because it changes what the other tools are allowed to
+reach.
 
-`process_inspect` provides a bounded process inventory sorted by resident memory,
-accumulated CPU, uptime, or PID. It deliberately excludes command-line arguments
-and environment data because those often contain secrets. `process_control`
-targets one PID plus the exact executable name observed by `process_inspect`,
-guards against PID reuse, refuses critical/system/Pironi processes, and always
-requires explicit interactive approval—even with `--approval auto`. Normal GUI
-application closure should use `app_control`; `force-kill` is only for a confirmed
-disposable or unresponsive process after the impact is understood.
+Every tool that produces a file - `write_file`, `apply_patch`, `csv_merge`,
+`csv_sanitize`, `ics_create` and the three Office tools - snapshots an existing
+target before replacing it and writes through a temporary file, so an overwrite
+can be undone with `rollback_checkpoint` and an interrupted write cannot leave
+half a document. The undo stack is bounded by count and by total size; past that
+the oldest is dropped.
 
-Commands and automatic verification inherit the Java runtime that launched
-Pironi: `JAVA_HOME` is set from the active JVM and its `bin` directory is
-prepended to `PATH`. Starting Pironi with Java 25 therefore also makes Maven
-use Java 25, even when the parent shell still defaults to Java 17.
-Shell commands use Bash on Linux/macOS and `cmd.exe` on Windows. Wrapper-based
-verification selects `mvnw`/`gradlew` on Unix and their `.cmd`/`.bat`
-counterparts on Windows.
+Reading and writing follow the workspace, which `/workspace PATH` moves;
+directories opened earlier in the session stay readable, and `--search-roots`
+adds read-only roots at startup. `apply_patch` needs one exact old-text match,
+shows a diff before approval and matches the file's own line endings; when the
+text is not found it names the closest line and the first differing character
+with both codepoints. `move_file` stays inside the workspace, refuses to
+overwrite and verifies SHA-256 afterwards. There is no delete tool: deleting
+goes through `run_command`, which asks first. `find_files` and `list_files` say
+when they stopped at a bound rather than reporting no matches, and a listing too
+large to send comes back as a profile of the tree instead of its first N paths.
 
-Bash runs without `pipefail`. It reported the honest failure of `false | tail -1`,
-but `producer | head` is the ordinary way to sample a large output and exits 141
-(SIGPIPE) under `pipefail`; inside a substitution such as
-`f=$(find . | head -1) && ...` that status short-circuits the whole command line,
-so nothing after it runs. The cost of that outweighed the benefit.
+`app_control` offers allowlisted desktop actions - `status`, `launch`,
+`new-window`, graceful `close` - for Firefox, Chrome, Edge, Obsidian, VS Code,
+Notepad, Slack, the image viewer and Settings. It never force-terminates.
+`process_inspect` lists processes without their command lines or environment,
+because those carry secrets; `process_control` targets one PID plus its expected
+executable name and always asks, even under `--approval auto`.
 
-A command that runs out of time is stopped, and what it printed up to that point
-comes back with the timeout notice. Killing the process closes its output stream,
-so the bytes already read are still good - a command stopped halfway through
-18,000 files is worth far more as the half it finished than as the bare fact that
-it timed out.
+`http_get` is HTTPS only, follows no redirects, rejects credentials and
+local/private destinations, and caps bodies at 64 KiB. Secrets are substituted
+into a header only for hosts on the allowlist, whatever the header is called.
 
-A non-zero exit is reported as `exitCode=N` with the cause named when the shell
-is reporting a signal: 137 (SIGKILL, usually out of memory), 139 (SIGSEGV), 143
-(SIGTERM), 130 (SIGINT), 141 (SIGPIPE), plus 126 and 127. Codes 1-125 belong to
-the program that produced them and are passed through, with one note added when
-such a code comes with output: some programs answer through the exit status.
-`grep` exits 1 when it matches nothing and `diff` exits 1 when files differ,
-having printed exactly what was asked for; read as failures, two of three
-"failed" calls in one run were commands that had worked. The status itself is
-left alone, because sometimes it really is a failure. On cmd.exe
-none of that applies - an exit code there is whatever the program chose, so
-naming a cause would invent one; only 9009 is named, as cmd's own "command not
-found".
+`--shell-scope workspace` is the default and rejects absolute paths, parent
+traversal, home shortcuts, directory changes and elevation, in either shell's
+spelling. It is a lexical guardrail, not an OS sandbox; prefer the scoped file
+tools. `user` allows paths the OS user can reach but still blocks elevation;
+`unrestricted` removes the checks and belongs in an isolated environment only.
+`--deny-tools` removes exact names from the set and rejects unknown ones at
+startup. Before a batch runs, arguments and approvals are validated together: a
+failed preflight stops the rest, and a mixed batch is reported as
+`partial_success` rather than as success.
 
-`--shell-scope workspace` is the default and rejects explicit absolute paths,
-parent traversal, home shortcuts, directory-changing commands and `sudo`.
-A slash counts as a path only when a path character follows it, so `sed -n
-'/^## x/p'` and `awk '/^## /{print}'` are patterns rather than references to the
-root directory - refusing those sent one run to read a 143 KB file whole instead
-of cutting out the section it wanted, at ten times the tokens.
-This is a conservative lexical guardrail, not an operating-system sandbox;
-prefer `read_file`, `find_files`, `move_file` and the other scoped tools.
-`--shell-scope user` permits paths available to the current OS user but still
-blocks elevation; `unrestricted` removes the lexical checks and must be used only
-in an isolated environment.
+Commands inherit the JVM that launched Pironi, so starting with Java 25 also
+gives Maven Java 25. Bash runs without `pipefail`. A command stopped by its
+timeout still returns what it printed. A non-zero exit is reported as
+`exitCode=N`, with the cause named for the signal codes on Unix.
 
-The guard reads the same escapes in either shell's spelling: UNC paths
-(`\\server\share`), the Windows environment expansions (`%USERPROFILE%`,
-`%APPDATA%`, `%TEMP%` and the rest) and `runas`/`gsudo` alongside `sudo`. The
-Unix absolute-path rule applies only where "/" starts a path - on Windows it read
-every cmd switch as one, so `dir /b`, `findstr /s` and `tasklist /FO CSV` were
-all rejected under the workspace scope.
-
-`move_file` operates only inside the workspace, refuses overwrite, creates
-checkpoints and verifies SHA-256 after the move. There is no delete tool:
-deleting goes through `run_command` (`rm`, `del`), which asks before it runs.
-`write_file` creates missing parent directories safely, and checkpoints a file
-before replacing it - `apply_patch` and `move_file` always did, so the safe
-tools could be undone and the destructive one could not. It also says when it
-replaced a file that already existed: rewriting a whole file to change a few
-lines is the expensive way to edit, and one run spent 4,001 of its 9,952 output
-tokens retyping the same script three times. The result points at `apply_patch`
-instead. `find_files` does not follow
-results outside an allowed real root and bounds visited files, result count and
-content size. When it stops at either bound it says so, instead of reporting no
-matches: "did not find it" and "stopped looking" are different answers, and a
-search that gives up quietly invites the wrong conclusion. Results are relative
-to the search root, which is named once at the top: paths under one root share a
-long prefix, and repeating it cost 23,000 characters for a hundred results in a
-real tree.
-
-Before a multi-tool batch starts, Pironi validates known file-tool arguments
-and approval decisions. A failed preflight prevents the other calls from
-running. Runtime mixtures are labelled `partial_success` in the model feedback,
-so the agent cannot safely describe the whole batch as successful.
-The regression suite covers external-root reads, hidden traces, Unicode output
-paths, parent creation, batch preflight, and symlink escape rejection for scoped
-file reads.
-
-`http_get` retrieves bounded current information directly through Java and
-does not depend on curl or a shell. It accepts HTTPS only, does not follow
-redirects, rejects credentials and local/private/link-local destinations, and
-caps response bodies at 64 KiB. The generated Runtime capabilities section
-tells the model which tools, shell and network path are actually available.
-
+Why each of those is the way it is - the runs that produced them - is in
+[docs/design-notes.md](docs/design-notes.md).
 ### Microsoft Office documents on Windows
 
 `xlsx_create`, `docx_create`, and `pptx_create` build real Office Open XML ZIP
