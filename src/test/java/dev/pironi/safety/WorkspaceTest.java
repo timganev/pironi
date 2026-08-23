@@ -115,6 +115,46 @@ class WorkspaceTest {
         assertThrows(IOException.class, () -> workspace.resolveForWrite("escape/file.txt"));
     }
 
+    /**
+     * The directory case above was covered; the file itself was not. Only the parent was resolved
+     * through the file system, so a link sitting in the workspace under the requested name passed
+     * every check - lexically it was inside - and the write followed it out. Nothing distinguished
+     * that call from an ordinary write to a file in the workspace, at any approval mode.
+     */
+    @Test
+    void rejectsAWriteThroughALinkStandingWhereTheFileShouldBe() throws Exception {
+        Path root = Files.createDirectory(temporaryDirectory.resolve("workspace"));
+        Path outside = Files.createDirectory(temporaryDirectory.resolve("outside"));
+        Path target = Files.writeString(outside.resolve("authorized_keys"), "original");
+        try {
+            Files.createSymbolicLink(root.resolve("notes.txt"), target);
+        } catch (IOException | UnsupportedOperationException e) {
+            org.junit.jupiter.api.Assumptions.abort(
+                    "symbolic links are not available to this account: " + e.getMessage());
+        }
+        Workspace workspace = new Workspace(root);
+
+        assertThrows(IOException.class, () -> workspace.resolveForWrite("notes.txt"));
+        assertThrows(IOException.class,
+                () -> workspace.resolveForWriteCreatingParents("notes.txt"));
+        assertEquals("original", Files.readString(target));
+    }
+
+    @Test
+    void aLinkThatStaysInsideTheWorkspaceIsStillWritable() throws Exception {
+        Path root = Files.createDirectory(temporaryDirectory.resolve("workspace"));
+        Path real = Files.writeString(root.resolve("real.txt"), "original");
+        try {
+            Files.createSymbolicLink(root.resolve("alias.txt"), real);
+        } catch (IOException | UnsupportedOperationException e) {
+            org.junit.jupiter.api.Assumptions.abort(
+                    "symbolic links are not available to this account: " + e.getMessage());
+        }
+        Workspace workspace = new Workspace(root);
+
+        assertEquals(real.toRealPath(), workspace.resolveForWrite("alias.txt"));
+    }
+
     @Test
     void aTildePathIsRefusedAsOutsideRatherThanGluedOn() throws Exception {
         // It used to become <workspace>/~/..., a directory that has never existed, so the refusal

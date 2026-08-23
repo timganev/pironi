@@ -50,7 +50,7 @@ public final class Workspace {
         }
         Path realParent = parent.toRealPath();
         ensureInside(realParent);
-        return realParent.resolve(candidate.getFileName());
+        return ensureLeafStaysInside(realParent.resolve(candidate.getFileName()));
     }
 
     public Path resolveForWriteCreatingParents(String relativePath) throws IOException {
@@ -58,7 +58,31 @@ public final class Workspace {
         Path parent = candidate.getParent();
         Files.createDirectories(parent);
         ensureInside(parent.toRealPath());
-        return parent.resolve(candidate.getFileName());
+        return ensureLeafStaysInside(parent.resolve(candidate.getFileName()));
+    }
+
+    /**
+     * Only the parent was ever resolved through the file system, so a link sitting in the
+     * workspace under the requested name pointed the write wherever it liked - and every check
+     * above still read "inside the workspace", because lexically it was. Writing follows a link;
+     * {@code resolveExisting} has always resolved the whole path, and this is the same rule on
+     * the way out.
+     *
+     * <p>A name that does not exist yet cannot be a link, so the ordinary case costs one lstat.
+     */
+    private Path ensureLeafStaysInside(Path candidate) throws IOException {
+        if (!Files.exists(candidate, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return candidate;
+        if (!Files.isSymbolicLink(candidate)) return candidate;
+        Path real;
+        try {
+            real = candidate.toRealPath();
+        } catch (IOException dangling) {
+            // A link with no target writes nowhere until it is followed, and where it would point
+            // cannot be checked. Refusing is the only answer that is not a guess.
+            throw outside("Path is a link whose target cannot be resolved: " + candidate, candidate);
+        }
+        ensureInside(real);
+        return real;
     }
 
     public Path validateForWriteCreatingParents(String relativePath) throws IOException {
