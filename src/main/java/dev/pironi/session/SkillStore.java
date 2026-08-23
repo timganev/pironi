@@ -304,10 +304,20 @@ public final class SkillStore {
 
     // ── prune ──────────────────────────────────────────────────────────
 
+    /**
+     * Archives skills nobody has applied in a long time. Only the ones written here: a skill that
+     * came with the release is part of the product rather than something the user accumulated, and
+     * archiving one is a door that does not open again. The seeding rule reads a missing shipped
+     * skill as "they deleted it, and planting it again would be a program arguing with its user",
+     * so a skill that merely went unused for two months would disappear for good on the next
+     * launch. An unapplied skill also costs almost nothing: one skill is loaded per task, and the
+     * rest are a line each in the catalogue.
+     */
     public int pruneStale(int maxDaysUnused) throws IOException {
         int pruned = 0;
         Instant cutoff = Instant.now().minus(maxDaysUnused, ChronoUnit.DAYS);
         for (SkillEntry entry : list()) {
+            if (origin(entry.name()) != BundledSkills.Origin.LOCAL) continue;
             if (lastUsed(entry.name(), entry.mtime()).isBefore(cutoff)) {
                 if (archive(entry.name())) pruned++;
             }

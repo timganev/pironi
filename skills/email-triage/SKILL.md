@@ -79,6 +79,17 @@ spread: they cluster on the busiest project, which is the one with the most thre
 the run this is written from, five threads belonged to one client; two were grouped, two were left
 in the tail and one was filed under a different project, and the largest project came second.
 
+**A group needs one identity.** If the name you gave it joins two — a client and a system, two
+products, "X and Y" — you have merged two projects, and the counts of both are now wrong. The
+check that catches it is the participants: open each thread you put in a group and look at who is
+in it. Threads in one engagement share people. A group whose threads have no one in common, and no
+shared client domain, is two groups wearing one name.
+
+The failure this prevents, from the same seeded week: a group called "Fabrikam imaging pipeline"
+held the client's weekly status, an internal vendor argument between two colleagues, and a third
+project's thread about a client who was not Fabrikam at all. Nothing links them except that the
+subjects sounded operational.
+
 Two things pull a stray thread back where it belongs:
 
 - **A thread that follows on from another belongs with it.** A post-mortem, a close-out, a root

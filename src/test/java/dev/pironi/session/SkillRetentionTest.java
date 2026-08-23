@@ -104,4 +104,104 @@ class SkillRetentionTest {
         assertTrue(store.restore("recent"));
         assertTrue(store.exists("recent"));
     }
+
+    @Test
+    void aSkillThatCameWithTheReleaseIsNotArchivedForGoingUnused() throws Exception {
+        // The seeding rule reads a missing shipped skill as one the user deleted, so pruning one
+        // removed it permanently: two months without needing the weather and it was gone.
+        Path skillsDir = temporaryDirectory.resolve("skills");
+        Files.createDirectories(skillsDir);
+        Path seed = Files.createDirectories(temporaryDirectory.resolve("seed/weather-forecast"));
+        Files.writeString(seed.resolve("SKILL.md"), "---\ndescription: Forecasts\n---\nBody");
+        BundledSkills.install(seed.getParent(), skillsDir, "v1");
+        SkillStore store = new SkillStore(temporaryDirectory);
+        age(skillsDir.resolve("weather-forecast"), 400);
+
+        assertEquals(0, store.pruneStale(60), "a shipped skill must survive going unused");
+        assertTrue(Files.isRegularFile(skillsDir.resolve("weather-forecast/SKILL.md")));
+    }
+
+    @Test
+    void aShippedSkillTheUserEditedIsNotArchivedEither() throws Exception {
+        // Their edit is work, and archiving it loses that as well as the skill.
+        Path skillsDir = temporaryDirectory.resolve("skills");
+        Files.createDirectories(skillsDir);
+        Path seed = Files.createDirectories(temporaryDirectory.resolve("seed/team-lead"));
+        Files.writeString(seed.resolve("SKILL.md"), "---\ndescription: Lead\n---\nBody");
+        BundledSkills.install(seed.getParent(), skillsDir, "v1");
+        Files.writeString(skillsDir.resolve("team-lead/SKILL.md"),
+                "---\ndescription: Lead\n---\nMy own wording");
+        SkillStore store = new SkillStore(temporaryDirectory);
+        age(skillsDir.resolve("team-lead"), 400);
+
+        assertEquals(0, store.pruneStale(60));
+        assertTrue(Files.readString(skillsDir.resolve("team-lead/SKILL.md"))
+                .contains("My own wording"));
+    }
+
+    @Test
+    void aSkillWrittenHereIsStillArchivedWhenNobodyAppliesIt() throws Exception {
+        SkillStore store = new SkillStore(temporaryDirectory);
+        store.save("one-off", "---\ndescription: Written here\n---\nBody");
+        age(temporaryDirectory.resolve("skills/one-off"), 400);
+
+        assertEquals(1, store.pruneStale(60), "local skills are what the prune is for");
+    }
+
+    /** Backdates a skill so it looks unused, both by its stamp and by its file times. */
+    private static void age(Path skill, int days) throws Exception {
+        java.time.Instant when = java.time.Instant.now().minus(days, java.time.temporal.ChronoUnit.DAYS);
+        Files.writeString(skill.resolve(".used"), when.toString());
+        Files.setLastModifiedTime(skill.resolve("SKILL.md"), java.nio.file.attribute.FileTime.from(when));
+    }
+
+    @Test
+    void aShippedSkillTheUserDeletedStaysDeletedAcrossReleases() throws Exception {
+        Path skillsDir = temporaryDirectory.resolve("skills");
+        Files.createDirectories(skillsDir);
+        Path seed = Files.createDirectories(temporaryDirectory.resolve("seed/weather-forecast"));
+        Files.writeString(seed.resolve("SKILL.md"), "---\ndescription: Forecasts\n---\nBody");
+        BundledSkills.install(seed.getParent(), skillsDir, "v1");
+        SkillStore store = new SkillStore(temporaryDirectory);
+
+        assertTrue(store.archive("weather-forecast"));
+        Files.writeString(seed.resolve("SKILL.md"), "---\ndescription: Forecasts\n---\nNewer body");
+        BundledSkills.install(seed.getParent(), skillsDir, "v2");
+
+        // Planting it again would be the program arguing with the person who removed it.
+        assertFalse(Files.exists(skillsDir.resolve("weather-forecast/SKILL.md")));
+    }
+
+    @Test
+    void restoringAShippedSkillPutsItBackUnderTheReleasesCare() throws Exception {
+        Path skillsDir = temporaryDirectory.resolve("skills");
+        Files.createDirectories(skillsDir);
+        Path seed = Files.createDirectories(temporaryDirectory.resolve("seed/weather-forecast"));
+        Files.writeString(seed.resolve("SKILL.md"), "---\ndescription: Forecasts\n---\nBody");
+        BundledSkills.install(seed.getParent(), skillsDir, "v1");
+        SkillStore store = new SkillStore(temporaryDirectory);
+        store.archive("weather-forecast");
+
+        assertTrue(store.restore("weather-forecast"));
+        Files.writeString(seed.resolve("SKILL.md"), "---\ndescription: Forecasts\n---\nNewer body");
+        BundledSkills.install(seed.getParent(), skillsDir, "v2");
+
+        // Back in the store and unedited, so a later release may update it again.
+        assertTrue(Files.readString(skillsDir.resolve("weather-forecast/SKILL.md"))
+                .contains("Newer body"));
+        assertEquals(BundledSkills.Origin.SHIPPED, store.origin("weather-forecast"));
+    }
+
+    @Test
+    void restoringRefreshesTheUsageStampSoThePruneDoesNotTakeItBack() throws Exception {
+        SkillStore store = new SkillStore(temporaryDirectory);
+        store.save("one-off", "---\ndescription: Written here\n---\nBody");
+        age(temporaryDirectory.resolve("skills/one-off"), 400);
+        assertEquals(1, store.pruneStale(60));
+
+        assertTrue(store.restore("one-off"));
+
+        assertEquals(0, store.pruneStale(60),
+                "a skill just asked for is not a skill nobody applies");
+    }
 }
