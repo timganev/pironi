@@ -75,7 +75,7 @@ public final class AppControlTool implements Tool {
             request(arguments);
             return ToolResult.success("validated");
         } catch (IllegalArgumentException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         }
     }
 
@@ -109,7 +109,7 @@ public final class AppControlTool implements Tool {
                 default -> throw new IllegalStateException("unreachable action");
             };
         } catch (IllegalArgumentException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         } catch (Exception e) {
             return ToolResult.failure("Application control failed: " + e.getMessage());
         }

@@ -70,7 +70,7 @@ public final class InspectFileTool implements Tool {
                     + "\nclassification=" + classification(sample, sampleLength, validUtf8, hasNull)
                     + "\nlfCount=" + lf + "\ncrlfCount=" + crlf + "\nsampleBytesExamined=" + sampleLength;
             return ToolResult.success(output);
-        } catch (IllegalArgumentException | IOException | NoSuchAlgorithmException e) { return ToolResult.failure(e.getMessage()); }
+        } catch (IllegalArgumentException | IOException | NoSuchAlgorithmException e) { return ToolResult.failure(e); }
     }
 
     /**

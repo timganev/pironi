@@ -64,7 +64,7 @@ public final class WriteFileTool implements Tool {
             workspace.validateForWriteCreatingParents(path);
             return ToolResult.success("validated");
         } catch (IllegalArgumentException | IOException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         }
     }
 
@@ -96,7 +96,7 @@ public final class WriteFileTool implements Tool {
                     + (checkpoint.isEmpty() ? "" : "; checkpoint=" + checkpoint)
                     + (overwrote ? OVERWRITE_HINT : ""));
         } catch (IllegalArgumentException | IOException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         }
     }
 

@@ -33,7 +33,7 @@ public final class RestoreSkillTool implements Tool {
             ToolArguments.requiredText(arguments, "name");
             return ToolResult.success("validated");
         } catch (IllegalArgumentException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         }
     }
 

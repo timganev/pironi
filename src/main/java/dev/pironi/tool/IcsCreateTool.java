@@ -25,7 +25,7 @@ public final class IcsCreateTool implements Tool {
             JsonNode events = arguments.get("events");
             if (events == null || !events.isArray() || events.isEmpty()) throw new IllegalArgumentException("events must be a non-empty array");
             return ToolResult.success("validated");
-        } catch (IllegalArgumentException | IOException e) { return ToolResult.failure(e.getMessage()); }
+        } catch (IllegalArgumentException | IOException e) { return ToolResult.failure(e); }
     }
     @Override public ToolResult execute(JsonNode arguments) {
         ToolResult validation = validate(arguments); if (!validation.success()) return validation;
@@ -44,7 +44,7 @@ public final class IcsCreateTool implements Tool {
             String saved = Files.readString(output, StandardCharsets.UTF_8);
             if (occurrences(saved, "BEGIN:VEVENT") != count || !saved.endsWith("END:VCALENDAR\r\n")) throw new IOException("iCalendar validation failed");
             return ToolResult.success("Created and validated " + workspace.root().relativize(output) + " with " + count + " events");
-        } catch (IOException | IllegalArgumentException e) { return ToolResult.failure(e.getMessage()); }
+        } catch (IOException | IllegalArgumentException e) { return ToolResult.failure(e); }
     }
     private static String required(JsonNode node, String field) { String value = node.path(field).asText(""); if (value.isBlank()) throw new IllegalArgumentException(field + " is required"); return value; }
     private static String date(String value) { if (!value.matches("\\d{8}T\\d{6}Z")) throw new IllegalArgumentException("UTC date must match yyyyMMddTHHmmssZ: " + value); return value; }

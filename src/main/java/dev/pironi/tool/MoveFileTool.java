@@ -44,7 +44,7 @@ public final class MoveFileTool implements Tool {
             if (source.equals(destination)) throw new IOException("Source and destination are identical");
             return ToolResult.success("validated");
         } catch (IllegalArgumentException | IOException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         }
     }
 
@@ -71,7 +71,7 @@ public final class MoveFileTool implements Tool {
             return ToolResult.success("Moved " + workspace.root().relativize(source) + " to "
                     + workspace.root().relativize(destination) + " (sha256=" + after + ")");
         } catch (IllegalArgumentException | IOException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         }
     }
 

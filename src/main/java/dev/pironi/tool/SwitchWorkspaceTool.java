@@ -58,7 +58,7 @@ public final class SwitchWorkspaceTool implements Tool {
             check(requested(arguments));
             return ToolResult.success("validated");
         } catch (IllegalArgumentException | IOException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         }
     }
 
@@ -74,7 +74,7 @@ public final class SwitchWorkspaceTool implements Tool {
                     + ". Reading, writing and run_command act there now; " + previous
                     + " stays readable. Paths are relative to the new workspace.");
         } catch (IllegalArgumentException | IOException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         }
     }
 

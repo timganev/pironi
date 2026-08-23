@@ -50,7 +50,7 @@ public final class SaveSkillTool implements Tool {
             strings(arguments, "exclusions", false, 8);
             return ToolResult.success("validated");
         } catch (IllegalArgumentException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         }
     }
 

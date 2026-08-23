@@ -54,7 +54,7 @@ public final class OfficeOpenXmlTool implements Tool {
             }
             return ToolResult.success("validated");
         } catch (IllegalArgumentException | IOException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         }
     }
 
@@ -77,7 +77,7 @@ public final class OfficeOpenXmlTool implements Tool {
             return ToolResult.success("Created and validated " + workspace.root().relativize(target)
                     + " (" + Files.size(target) + " bytes)");
         } catch (IOException | RuntimeException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         } finally {
             if (temporary != null) try { Files.deleteIfExists(temporary); } catch (IOException ignored) { }
         }

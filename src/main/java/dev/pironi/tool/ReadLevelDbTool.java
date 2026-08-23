@@ -104,7 +104,7 @@ public final class ReadLevelDbTool implements Tool {
             }
             return ToolResult.success(header(scan, matched, omitted, needle, maxRecords) + body);
         } catch (IllegalArgumentException | IOException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         }
     }
 

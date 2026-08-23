@@ -158,7 +158,7 @@ public final class FindFilesTool implements Tool {
             return ToolResult.success(results.isEmpty()
                     ? "No matches." : header + String.join("\n", results));
         } catch (IllegalArgumentException | IOException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         }
     }
 

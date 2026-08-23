@@ -61,7 +61,7 @@ public final class ApplyPatchTool implements Tool {
             prepare(arguments);
             return ToolResult.success("validated");
         } catch (IllegalArgumentException | IOException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         }
     }
 
@@ -76,7 +76,7 @@ public final class ApplyPatchTool implements Tool {
                             + "; checkpoint=" + checkpoint.id()
             );
         } catch (IllegalArgumentException | IOException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         }
     }
 

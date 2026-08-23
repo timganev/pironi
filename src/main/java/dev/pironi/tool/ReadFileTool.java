@@ -132,7 +132,7 @@ public final class ReadFileTool implements Tool {
             }
             return ToolResult.success(content);
         } catch (IllegalArgumentException | IOException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         }
     }
 

@@ -153,7 +153,7 @@ public final class RunCommandTool implements Tool {
                     ? ToolResult.success(result)
                     : ToolResult.failure(result);
         } catch (IllegalArgumentException | IOException | ExecutionException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return ToolResult.failure("Command interrupted");

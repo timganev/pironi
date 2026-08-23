@@ -122,7 +122,7 @@ public final class ListFilesTool implements Tool {
             }
             return ToolResult.success(profile(directory, files));
         } catch (IllegalArgumentException | IOException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         }
     }
 

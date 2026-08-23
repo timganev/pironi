@@ -115,7 +115,7 @@ public final class HttpGetTool implements Tool {
                     + (htmlTruncated ? "\n[HTML excerpt truncated after " + MAX_HTML_BYTES
                     + " bytes; use a compact data endpoint]" : ""));
         } catch (IllegalArgumentException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         } catch (Exception e) {
             return ToolResult.failure("HTTP request failed: " + e.getMessage());
         }

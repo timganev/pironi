@@ -69,7 +69,7 @@ public final class NetworkSpeedTool implements Tool {
             megabytes(arguments);
             return ToolResult.success("validated");
         } catch (IllegalArgumentException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         }
     }
 
@@ -93,7 +93,7 @@ public final class NetworkSpeedTool implements Tool {
                     mbps, result.firstByteNanos() / 1_000_000.0, result.bytes(),
                     result.durationNanos() / 1_000_000.0));
         } catch (IllegalArgumentException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         } catch (Exception e) {
             return ToolResult.failure("Network speed probe failed: " + e.getMessage());
         }

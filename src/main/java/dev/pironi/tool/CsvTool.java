@@ -39,7 +39,7 @@ public final class CsvTool implements Tool {
                 for (JsonNode input : inputs) workspace.resolveExisting(input.asText());
             } else workspace.resolveExisting(ToolArguments.requiredText(arguments, "input"));
             return ToolResult.success("validated");
-        } catch (IllegalArgumentException | IOException e) { return ToolResult.failure(e.getMessage()); }
+        } catch (IllegalArgumentException | IOException e) { return ToolResult.failure(e); }
     }
 
     @Override public ToolResult execute(JsonNode arguments) {
@@ -53,7 +53,7 @@ public final class CsvTool implements Tool {
             if (!roundTrip.equals(result)) throw new IOException("CSV round-trip validation failed");
             return ToolResult.success("Created and validated " + workspace.root().relativize(output)
                     + " with " + Math.max(0, result.size() - 1) + " data rows");
-        } catch (IOException | IllegalArgumentException e) { return ToolResult.failure(e.getMessage()); }
+        } catch (IOException | IllegalArgumentException e) { return ToolResult.failure(e); }
     }
 
     private List<List<String>> merge(JsonNode arguments) throws IOException {

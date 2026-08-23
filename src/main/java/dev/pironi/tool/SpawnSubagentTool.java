@@ -59,7 +59,7 @@ public final class SpawnSubagentTool implements Tool {
                             "Агент «" + name + "» е стартиран във фонов режим; "
                                     + "резултатът ще пристигне по-късно, продължи разговора.");
         } catch (IllegalArgumentException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         }
     }
 }

@@ -50,7 +50,7 @@ public final class ProcessControlTool implements Tool {
             Request request = request(arguments);
             return validateIdentity(request);
         } catch (IllegalArgumentException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         }
     }
 
@@ -69,7 +69,7 @@ public final class ProcessControlTool implements Tool {
                     : ToolResult.failure("PID " + request.pid() + " (" + request.expectedName()
                     + ") is still running after " + request.action());
         } catch (IllegalArgumentException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         } catch (Exception e) {
             return ToolResult.failure("Process control failed: " + e.getMessage());
         }

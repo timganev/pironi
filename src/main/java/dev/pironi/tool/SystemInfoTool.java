@@ -38,7 +38,7 @@ public final class SystemInfoTool implements Tool {
                     + "\nworkspace=" + workspace.root() + "\nworkspaceUsableBytes=" + store.getUsableSpace()
                     + "\njava=" + System.getProperty("java.version") + " " + System.getProperty("java.vendor")
                     + "\nshell=" + PlatformShell.name());
-        } catch (IOException e) { return ToolResult.failure(e.getMessage()); }
+        } catch (IOException e) { return ToolResult.failure(e); }
     }
     private static String value(long value) { return value < 0 ? "unknown" : Long.toString(value); }
 }

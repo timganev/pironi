@@ -59,7 +59,7 @@ public final class ProcessInspectTool implements Tool {
             snapshots.stream().limit(limit).forEach(process -> output.append(process.render()).append('\n'));
             return ToolResult.success(output.toString().stripTrailing());
         } catch (IllegalArgumentException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         } catch (Exception e) {
             return ToolResult.failure("Process inspection failed: " + e.getMessage());
         }

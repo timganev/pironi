@@ -49,7 +49,7 @@ public final class RollbackCheckpointTool implements Tool {
                             + " from checkpoint " + checkpoint.id()
             );
         } catch (IOException e) {
-            return ToolResult.failure(e.getMessage());
+            return ToolResult.failure(e);
         }
     }
 }
