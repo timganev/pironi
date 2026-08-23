@@ -12,7 +12,12 @@ import java.util.Set;
 
 public final class IcsCreateTool implements Tool {
     private final Workspace workspace;
-    public IcsCreateTool(Workspace workspace) { this.workspace = workspace; }
+    private final dev.pironi.safety.CheckpointManager checkpointManager;
+    public IcsCreateTool(Workspace workspace) { this(workspace, null); }
+    public IcsCreateTool(Workspace workspace, dev.pironi.safety.CheckpointManager checkpointManager) {
+        this.workspace = workspace;
+        this.checkpointManager = checkpointManager;
+    }
     @Override public String name() { return "ics_create"; }
     @Override public String description() { return "Create and validate an iCalendar file without Outlook or sending invitations."; }
     @Override public String argumentSchema() { return "{\"path\":\"relative .ics\",\"events\":[{\"uid\":\"stable id\",\"startUtc\":\"yyyyMMddTHHmmssZ\",\"endUtc\":\"yyyyMMddTHHmmssZ\",\"summary\":\"text\",\"description\":\"text, optional\"}]}"; }
@@ -40,10 +45,13 @@ public final class IcsCreateTool implements Tool {
                 value.append("END:VEVENT\r\n"); count++;
             }
             value.append("END:VCALENDAR\r\n");
-            Path output = workspace.resolveForWriteCreatingParents(arguments.path("path").asText()); Files.writeString(output, value, StandardCharsets.UTF_8);
+            Path output = workspace.resolveForWriteCreatingParents(arguments.path("path").asText());
+            String checkpoint = SafeWrite.snapshot(checkpointManager, output);
+            SafeWrite.write(output, value.toString());
             String saved = Files.readString(output, StandardCharsets.UTF_8);
             if (occurrences(saved, "BEGIN:VEVENT") != count || !saved.endsWith("END:VCALENDAR\r\n")) throw new IOException("iCalendar validation failed");
-            return ToolResult.success("Created and validated " + workspace.root().relativize(output) + " with " + count + " events");
+            return ToolResult.success("Created and validated " + workspace.root().relativize(output)
+                    + " with " + count + " events" + SafeWrite.checkpointNote(checkpoint));
         } catch (IOException | IllegalArgumentException e) { return ToolResult.failure(e); }
     }
     private static String required(JsonNode node, String field) { String value = node.path(field).asText(""); if (value.isBlank()) throw new IllegalArgumentException(field + " is required"); return value; }

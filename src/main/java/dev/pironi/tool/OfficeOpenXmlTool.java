@@ -20,8 +20,17 @@ public final class OfficeOpenXmlTool implements Tool {
 
     private final Workspace workspace;
     private final Format format;
+    private final dev.pironi.safety.CheckpointManager checkpointManager;
+
+    public OfficeOpenXmlTool(Workspace workspace, Format format,
+            dev.pironi.safety.CheckpointManager checkpointManager) {
+        this.workspace = workspace;
+        this.format = format;
+        this.checkpointManager = checkpointManager;
+    }
 
     public OfficeOpenXmlTool(Workspace workspace, Format format) {
+        this.checkpointManager = null;
         this.workspace = workspace;
         this.format = format;
     }
@@ -73,9 +82,16 @@ public final class OfficeOpenXmlTool implements Tool {
                 }
             }
             validatePackage(temporary);
-            Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+            String checkpoint = SafeWrite.snapshot(checkpointManager, target);
+            try {
+                Files.move(temporary, target,
+                        StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException acrossFilesystems) {
+                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+            }
             return ToolResult.success("Created and validated " + workspace.root().relativize(target)
-                    + " (" + Files.size(target) + " bytes)");
+                    + " (" + Files.size(target) + " bytes)"
+                    + SafeWrite.checkpointNote(checkpoint));
         } catch (IOException | RuntimeException e) {
             return ToolResult.failure(e);
         } finally {

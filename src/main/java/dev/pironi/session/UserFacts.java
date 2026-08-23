@@ -55,8 +55,7 @@ public final class UserFacts {
         int insertAt = nextHeading < 0 ? content.length() : nextHeading;
         String before = content.substring(0, insertAt).stripTrailing();
         String after = content.substring(insertAt);
-        Files.writeString(userFile, before + "\n- " + cleaned + "\n" + after,
-                StandardCharsets.UTF_8);
+        AtomicFile.writeString(userFile, before + "\n- " + cleaned + "\n" + after);
         return cleaned;
     }
 
@@ -76,7 +75,7 @@ public final class UserFacts {
             }
             out.add(line);
         }
-        Files.writeString(userFile, String.join("\n", out) + "\n", StandardCharsets.UTF_8);
+        AtomicFile.writeString(userFile, String.join("\n", out) + "\n");
         return target;
     }
 }

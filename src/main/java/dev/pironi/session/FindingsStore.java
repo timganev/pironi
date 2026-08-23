@@ -83,10 +83,10 @@ public final class FindingsStore {
         }
         try {
             Files.createDirectories(directory);
-            Files.write(fileFor(workspace), kept.stream()
+            AtomicFile.writeLines(fileFor(workspace), kept.stream()
                     .map(finding -> finding.date() + SEPARATOR + finding.session()
                             + SEPARATOR + finding.text())
-                    .toList(), StandardCharsets.UTF_8);
+                    .toList());
         } catch (IOException ignored) {
             // losing the carry-over must never fail a run
         }

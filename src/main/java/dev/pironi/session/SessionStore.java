@@ -112,9 +112,8 @@ public final class SessionStore {
         if (currentMeta == null) return;
         try {
             JsonNode checkpoint = mapper.readTree(compressedJson);
-            Files.writeString(sessionsDir.resolve(currentMeta.id() + ".ckpt.json"),
-                    mapper.writeValueAsString(SecretRedactor.redact(checkpoint)),
-                    StandardCharsets.UTF_8);
+            AtomicFile.writeString(sessionsDir.resolve(currentMeta.id() + ".ckpt.json"),
+                    mapper.writeValueAsString(SecretRedactor.redact(checkpoint)));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -288,7 +287,7 @@ public final class SessionStore {
                 }
             }
             if (!found) lines.add(entry + " " + meta.id());
-            Files.write(index, lines, StandardCharsets.UTF_8);
+            AtomicFile.writeLines(index, lines);
         } catch (IOException ignored) { }
     }
 
@@ -302,7 +301,7 @@ public final class SessionStore {
 
     private void writeJson(Path path, JsonNode node) {
         try {
-            Files.writeString(path, mapper.writeValueAsString(node), StandardCharsets.UTF_8);
+            AtomicFile.writeString(path, mapper.writeValueAsString(node));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
