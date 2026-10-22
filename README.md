@@ -244,7 +244,14 @@ script that reproduces it, is in
 ```bash
 mvn clean verify
 java -jar target/pironi-0.1.0-SNAPSHOT.jar --help
+java -jar target/pironi-0.1.0-SNAPSHOT.jar --test-keys
 ```
+
+`--test-keys` replays real UTF-8 keystrokes through JLine - slash completion,
+the model and theme pickers, Cyrillic input, Backspace, history and the reserved
+status row - and prints a pass or fail per scenario. Exit code 0 is not enough
+for a UI change; look for shifted lines, a repeated prompt or broken Cyrillic.
+A script file after the flag replaces the built-in scenarios.
 
 The shaded executable JAR is written to:
 
@@ -320,7 +327,7 @@ DeepSeek and OpenRouter use their live `/models` catalogs. `/model MODEL`
 remains a shortcut and automatically switches the
 provider for recognized DeepSeek IDs and OpenRouter vendor/model slugs. A model switch
 clears the bounded conversation history and is saved as part of the
-last-session profile. `/help`, `/context`, `/clear`, and `/exit` are also
+last-session profile. `/provider`, `/help`, `/context`, `/clear`, and `/exit` are also
 available. `/capabilities` shows the authoritative live tool/platform report,
 while `/doctor` checks Java, workspace permissions, shell and network access.
 
@@ -367,10 +374,12 @@ Moving takes the file tools, `run_command` and the verification command with
 it, and is stored in the last-session profile. Directories taken earlier in the
 session stay readable, and `/workspace` lists them. Checkpoints taken before a
 move still roll back to where those files actually are; the trace stays where
-the session started. Only the shell can move the workspace - no tool can, and
-no state persists it across sessions: a document the model was asked to read
-must not be able to talk it into writing elsewhere, and a directory taken once
-must not silently come back next time.
+the session started. The model cannot move the workspace on its own -
+`switch_workspace` only asks, in every approval mode - and directories taken
+during a session are not carried into the next one: a document the model was
+asked to read must not be able to talk it into writing elsewhere, and a
+directory taken once must not silently come back next time. Only the current
+workspace is kept, in the last-session profile, like the other startup settings.
 Pironi also injects the live provider, model, workspace, approval, context and
 status values into every agent task as authoritative runtime metadata, so the
 model does not need to inspect source or configuration files to answer those
@@ -488,7 +497,8 @@ which means it is shown and confirmed like any other command instead of being
 one auto-approved tool call.
 
 Interactive sessions are persisted under `~/.pironi/sessions`. `/sessions`
-lists them, `/resume [ID]` schedules a saved checkpoint for the next request,
+lists them, `/search TEXT` finds one by content, `/delete-session ID` removes one,
+`/resume [ID]` schedules a saved checkpoint for the next request,
 and `/compress now` schedules semantic compression for the next request.
 If there is not yet any older eligible history, the request remains visibly
 pending instead of being discarded.
@@ -557,7 +567,8 @@ request rather than a review.
 `delete_skill` removes one by name. Without it an agent asked to delete a skill
 could only explain that it had no way to, while holding write access to the
 folder it had just written into. The folder moves to `.archive` rather than
-disappearing, which is where a replaced version already went.
+disappearing, which is where a replaced version already went. `/forget-skill NAME`
+does the same from the prompt.
 
 `restore_skill` and `/restore-skill NAME` bring one back out of `.archive`.
 
@@ -635,6 +646,11 @@ Pironi can load layered context without requiring one monolithic memory file:
 - `USER.md` for personal preferences;
 - `CLAUDE.md` for project instructions.
 
+`/remember PREFERENCE` adds a one-line preference to `USER.md` in the Pironi home without
+touching the sections written by hand; `/remember` lists them and
+`/remember forget N` removes one. Entries pass through the same secret redaction
+as the trace.
+
 For `SOUL.md` and `USER.md`, Pironi starts with
 `%USERPROFILE%\.pironi` on Windows or `~/.pironi` on Unix, then loads the
 configured `--pironi-home`, followed by `.pironi` directories from the user
@@ -679,15 +695,16 @@ The example templates are tracked in the public repo, so treat them as
 names, machines, employers, or projects out of them. Personal context lives
 only in your local `~/.pironi/SOUL.md` and `~/.pironi/USER.md`.
 
-The default `--personal-context auto` behavior is deliberately different by
-provider:
+`--personal-context` decides where `SOUL.md` and `USER.md` go:
 
-- Ollama loads `SOUL.md` and `USER.md`.
-- Cloud/OpenAI-compatible providers do not load them.
-- `CLAUDE.md` is loaded for every provider.
+- `allow`, the default, loads them for every provider, hosted ones included.
+- `auto` loads them only for Ollama, so they stay on the machine.
+- `deny` never loads them.
+- `CLAUDE.md` is loaded for every provider in every mode.
 
-Sending personal context to a cloud provider requires the explicit
-`--personal-context allow` option. Review these files before enabling it.
+With the default, a hosted provider receives these files on every turn. Review
+them, or start with `--personal-context auto`, before pointing Pironi at one.
+`PIRONI_DEFAULT_PERSONAL_CONTEXT` changes the default for every start.
 
 ## Other options
 
@@ -704,6 +721,7 @@ Sending personal context to a cloud provider requires the explicit
 --pironi-home PATH
 --personal-context auto|allow|deny
 --status auto|always|never
+--verify-command COMMAND
 --deny-tools NAME,NAME
 --allow-tools NAME,NAME
 --continue
@@ -969,9 +987,13 @@ loading a model back into memory, and the request itself - one turn reported 79
 seconds against 766 seconds of real waiting. `wallClockNanos` records what the
 call actually took, measured around the request, so a run can be accounted for.
 
-After a successful mutating file tool, Pironi owns automatic verification. The
-agent prompt tells the model not to repeat the same build through `run_command`
-unless automatic verification fails and targeted diagnostics are needed.
+With `--verify-command COMMAND` (for example `--verify-command "mvn -q test"`),
+Pironi owns verification: after a successful mutating file tool it runs that
+command in the workspace before accepting a final answer, and a failure goes back
+to the model instead of becoming the answer. Nothing is detected automatically;
+without the option no verification runs. The agent prompt tells the model not to
+repeat the same build through `run_command` unless verification fails and
+targeted diagnostics are needed.
 
 For Ollama, Pironi currently sends `think: false`, uses the requested context
 window and caps generation with `--max-output-tokens`.

@@ -699,7 +699,7 @@ public final class InteractiveShell {
                 new Command("/compress", "Manage context compression (on|off|now|0.0-1.0)"),
                 new Command("/skills", "List installed skills"),
                 new Command("/skill", "Load a skill by name"),
-                new Command("/save-skill", "Propose last turn as a skill draft"),
+                new Command("/save-skill", "Save the last turn as a skill"),
                 new Command("/forget-skill", "Archive a skill"),
                 new Command("/restore-skill", "Restore an archived skill"),
                 new Command("/prune-skills", "Remove stale skills"),

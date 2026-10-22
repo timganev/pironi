@@ -2,6 +2,8 @@ Pironi - small Java 25 coding agent harness
 
 Info:
   --version, -v                                 print the release and exit
+  --help, -h                                    print this help and exit
+  --test-keys [FILE]                            replay the keyboard regression scenarios and exit
 
 Required:
   --model MODEL                                 default: last used; initially qwen3.6:35b-a3b
@@ -20,6 +22,7 @@ Agent:
   --no-interactive                             one-shot; requires --task or --task-file
   --task TEXT                                  optional initial interactive task
   --task-file PATH                             read the task as UTF-8; conflicts with --task
+  --no-tui                                     interactive without terminal rendering
   --continue                                   reopen the newest session in this workspace
   --resume SESSION-ID                          reopen that session
   --max-turns N                                 default: 8
@@ -28,14 +31,17 @@ Agent:
   --timeout-seconds N                           model request timeout, default: 600
   --trace PATH                                  default: WORKSPACE/.pironi/trace.jsonl
   --pironi-home PATH                            default: ~/.pironi
-  --personal-context auto|allow|deny            auto: Ollama only
+  --portable                                   keep home, sessions and skills inside the bundle
+  --personal-context auto|allow|deny            default: allow; auto: Ollama only
   --status auto|always|never                    default: auto
-  --verify-command COMMAND                     auto-detect Maven/Gradle
+  --verify-command COMMAND                     run after file changes; none by default
   --deny-tools NAME,NAME                        remove named tools; unknown names fail startup
   --allow-tools NAME,NAME                       enable only named tools; conflicts with --deny-tools
   --shell-scope workspace|user|unrestricted    default: workspace lexical guardrail
   --read-scope workspace|user|unrestricted     default: unrestricted; writing stays in the workspace
   --search-roots PATH,PATH                      allowed roots for find_files; default: workspace
+  --max-subagents N                             cloud providers only; default: 2
+  --subagent-timeout-seconds N                  default: 120
 
 Examples:
   java -jar pironi.jar
