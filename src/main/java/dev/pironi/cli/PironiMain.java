@@ -124,6 +124,9 @@ public final class PironiMain {
      *  child cannot burn tokens indefinitely. Enforced together with the manager's deadline. */
     private static final int MAX_SUBAGENT_TURNS = 6;
 
+    /** Unparseable or unknown-tool replies in a row before a run gives up. */
+    private static final int MAX_PROTOCOL_ERRORS = 4;
+
     /**
      * What the console actually hands us, which is not the default charset. On this Windows
      * install {@code file.encoding} is UTF-8 while {@code stdin.encoding} is cp850, so decoding
@@ -475,15 +478,17 @@ public final class PironiMain {
                             Duration.ofSeconds(300)
                     ),
                     options.maxTurns(),
-                    4,
-                    interactive ? new FinalAnswerStreamer(System.out, terminal, theme) : null,
-                    memory,
-                    capabilityReport,
-                    finalSubagentManager,
-                    Duration.ofSeconds(
-                            finalSubagentManager == null ? 120 : options.subagentTimeoutSeconds()
-                    ),
-                    interactive
+                    MAX_PROTOCOL_ERRORS,
+                    AgentLoop.Settings.defaults()
+                            .withLiveOutput(interactive
+                                    ? new FinalAnswerStreamer(System.out, terminal, theme) : null)
+                            .withMemory(memory)
+                            .withCapabilities(capabilityReport)
+                            .withSubagents(
+                                    finalSubagentManager,
+                                    Duration.ofSeconds(finalSubagentManager == null
+                                            ? 120 : options.subagentTimeoutSeconds()),
+                                    interactive)
             );
 
             if (interactive) {
@@ -716,7 +721,7 @@ public final class PironiMain {
                 new NoOpStatusReporter(),
                 new NoOpVerificationGate(),
                 childTurns,
-                4
+                MAX_PROTOCOL_ERRORS
         );
         try {
             AgentResult result = childLoop.run(subtask);

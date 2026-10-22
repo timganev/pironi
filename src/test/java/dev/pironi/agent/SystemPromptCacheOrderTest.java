@@ -46,8 +46,8 @@ class SystemPromptCacheOrderTest {
                 context,
                 new NoOpStatusReporter(),
                 new NoOpVerificationGate(),
-                5, 2, null, AgentMemory.none(), null, null,
-                java.time.Duration.ofSeconds(5), false
+                5, 2,
+                AgentLoop.Settings.defaults()
         );
 
         assertTrue(loop.run("task").success());

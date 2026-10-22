@@ -64,7 +64,8 @@ class DeepSeekProtocolRecoveryTest {
                     model, new DecisionParser(mapper), mapper, new ToolRegistry(List.of()),
                     (tool, arguments) -> ApprovalDecision.ALLOW, new NoOpTraceWriter(),
                     new AgentContext("", "", ""), new NoOpStatusReporter(),
-                    new NoOpVerificationGate(), 4, 2, visible::append, AgentMemory.none()
+                    new NoOpVerificationGate(), 4, 2,
+                    AgentLoop.Settings.defaults().withLiveOutput(visible::append)
             );
 
             AgentResult result = loop.run("find note");
@@ -106,7 +107,8 @@ class DeepSeekProtocolRecoveryTest {
                     model, new DecisionParser(mapper), mapper, new ToolRegistry(List.of()),
                     (tool, arguments) -> ApprovalDecision.ALLOW, new NoOpTraceWriter(),
                     new AgentContext("", "", ""), new NoOpStatusReporter(),
-                    new NoOpVerificationGate(), 4, 2, visible::append, AgentMemory.none()
+                    new NoOpVerificationGate(), 4, 2,
+                    AgentLoop.Settings.defaults().withLiveOutput(visible::append)
             );
 
             AgentResult result = loop.run("find note");

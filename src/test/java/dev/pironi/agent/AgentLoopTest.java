@@ -188,12 +188,7 @@ class AgentLoopTest {
                 new NoOpVerificationGate(),
                 4,
                 2,
-                null,
-                AgentMemory.none(),
-                null,
-                gateway,
-                java.time.Duration.ofSeconds(120),
-                false
+                AgentLoop.Settings.defaults().withSubagents(gateway, java.time.Duration.ofSeconds(120), false)
         );
 
         AgentResult result = loopWithDrain.run("test");
@@ -1030,8 +1025,7 @@ class AgentLoopTest {
                 verificationGate,
                 maxTurns,
                 2,
-                null,
-                memory
+                AgentLoop.Settings.defaults().withMemory(memory)
         );
     }
 

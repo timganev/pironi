@@ -11,20 +11,28 @@ import dev.pironi.status.StatusReporter;
 import dev.pironi.tool.Tool;
 import dev.pironi.tool.ToolRegistry;
 import dev.pironi.tool.ToolResult;
+import dev.pironi.tool.SubagentGateway;
 import dev.pironi.tool.SubagentResult;
 import dev.pironi.trace.TraceWriter;
 import dev.pironi.verification.VerificationGate;
 import dev.pironi.verification.VerificationResult;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
 import java.time.Duration;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
-import java.util.stream.Collectors;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 public final class AgentLoop {
     private static final int MAX_HISTORY = 40;
@@ -59,20 +67,20 @@ public final class AgentLoop {
     private final Consumer<String> liveOutput;
     private final AgentMemory memory;
     private final CapabilityReport capabilities;
-    private final dev.pironi.tool.SubagentGateway subagentGateway;
-    private final java.time.Duration subagentTimeout;
+    private final SubagentGateway subagentGateway;
+    private final Duration subagentTimeout;
     private final boolean subagentEligible;
     private final boolean asyncSubagents;
-    private final java.util.Map<String, Approach> approaches = new java.util.LinkedHashMap<>();
+    private final Map<String, Approach> approaches = new LinkedHashMap<>();
 
     /** One class of attempt and whether it still yields anything unseen. */
     private static final class Approach {
         private int attempts;
         private boolean spent;
         private String lastError = "";
-        private final java.util.Set<String> seenOutputs = new java.util.HashSet<>();
-        private final java.util.Map<String, Integer> bodyCounts = new java.util.HashMap<>();
-        private final java.util.Deque<Boolean> recent = new java.util.ArrayDeque<>();
+        private final Set<String> seenOutputs = new HashSet<>();
+        private final Map<String, Integer> bodyCounts = new HashMap<>();
+        private final Deque<Boolean> recent = new ArrayDeque<>();
 
         /**
          * Both sets are capped. They exist to notice repetition, and an approach that has produced
@@ -109,6 +117,36 @@ public final class AgentLoop {
         }
     }
 
+    /** The optional parts of a loop; every one has a working default. */
+    public record Settings(
+            Consumer<String> liveOutput,
+            AgentMemory memory,
+            CapabilityReport capabilities,
+            SubagentGateway subagentGateway,
+            Duration subagentTimeout,
+            boolean asyncSubagents
+    ) {
+        public static Settings defaults() {
+            return new Settings(null, AgentMemory.none(), null, null, null, false);
+        }
+
+        public Settings withLiveOutput(Consumer<String> output) {
+            return new Settings(output, memory, capabilities, subagentGateway, subagentTimeout, asyncSubagents);
+        }
+
+        public Settings withMemory(AgentMemory agentMemory) {
+            return new Settings(liveOutput, agentMemory, capabilities, subagentGateway, subagentTimeout, asyncSubagents);
+        }
+
+        public Settings withCapabilities(CapabilityReport report) {
+            return new Settings(liveOutput, memory, report, subagentGateway, subagentTimeout, asyncSubagents);
+        }
+
+        public Settings withSubagents(SubagentGateway gateway, Duration timeout, boolean async) {
+            return new Settings(liveOutput, memory, capabilities, gateway, timeout, async);
+        }
+    }
+
     public AgentLoop(
             ModelClient modelClient,
             DecisionParser decisionParser,
@@ -124,7 +162,7 @@ public final class AgentLoop {
     ) {
         this(modelClient, decisionParser, objectMapper, toolRegistry, approvalPolicy,
                 traceWriter, agentContext, statusReporter, verificationGate, maxTurns,
-                maxProtocolErrors, null, AgentMemory.none());
+                maxProtocolErrors, Settings.defaults());
     }
 
     public AgentLoop(
@@ -139,72 +177,7 @@ public final class AgentLoop {
             VerificationGate verificationGate,
             int maxTurns,
             int maxProtocolErrors,
-            Consumer<String> liveOutput
-    ) {
-        this(modelClient, decisionParser, objectMapper, toolRegistry, approvalPolicy,
-                traceWriter, agentContext, statusReporter, verificationGate, maxTurns,
-                maxProtocolErrors, liveOutput, AgentMemory.none());
-    }
-
-    public AgentLoop(
-            ModelClient modelClient,
-            DecisionParser decisionParser,
-            ObjectMapper objectMapper,
-            ToolRegistry toolRegistry,
-            ApprovalPolicy approvalPolicy,
-            TraceWriter traceWriter,
-            AgentContext agentContext,
-            StatusReporter statusReporter,
-            VerificationGate verificationGate,
-            int maxTurns,
-            int maxProtocolErrors,
-            Consumer<String> liveOutput,
-            AgentMemory memory
-    ) {
-        this(modelClient, decisionParser, objectMapper, toolRegistry, approvalPolicy,
-                traceWriter, agentContext, statusReporter, verificationGate, maxTurns,
-                maxProtocolErrors, liveOutput, memory, null);
-    }
-
-    public AgentLoop(
-            ModelClient modelClient,
-            DecisionParser decisionParser,
-            ObjectMapper objectMapper,
-            ToolRegistry toolRegistry,
-            ApprovalPolicy approvalPolicy,
-            TraceWriter traceWriter,
-            AgentContext agentContext,
-            StatusReporter statusReporter,
-            VerificationGate verificationGate,
-            int maxTurns,
-            int maxProtocolErrors,
-            Consumer<String> liveOutput,
-            AgentMemory memory,
-            CapabilityReport capabilityReport
-    ) {
-        this(modelClient, decisionParser, objectMapper, toolRegistry, approvalPolicy,
-                traceWriter, agentContext, statusReporter, verificationGate, maxTurns,
-                maxProtocolErrors, liveOutput, memory, capabilityReport, null, null, false);
-    }
-
-    public AgentLoop(
-            ModelClient modelClient,
-            DecisionParser decisionParser,
-            ObjectMapper objectMapper,
-            ToolRegistry toolRegistry,
-            ApprovalPolicy approvalPolicy,
-            TraceWriter traceWriter,
-            AgentContext agentContext,
-            StatusReporter statusReporter,
-            VerificationGate verificationGate,
-            int maxTurns,
-            int maxProtocolErrors,
-            Consumer<String> liveOutput,
-            AgentMemory memory,
-            CapabilityReport capabilityReport,
-            dev.pironi.tool.SubagentGateway subagentGateway,
-            java.time.Duration subagentTimeout,
-            boolean asyncSubagents
+            Settings settings
     ) {
         this.modelClient = modelClient;
         this.decisionParser = decisionParser;
@@ -217,14 +190,15 @@ public final class AgentLoop {
         this.verificationGate = verificationGate;
         this.maxTurns = maxTurns;
         this.maxProtocolErrors = maxProtocolErrors;
-        this.liveOutput = liveOutput;
-        this.memory = memory == null ? AgentMemory.none() : memory;
-        this.capabilities = capabilityReport == null
-                ? new CapabilityReport(toolRegistry, agentContext) : capabilityReport;
-        this.subagentGateway = subagentGateway;
-        this.subagentTimeout = subagentTimeout == null ? java.time.Duration.ofSeconds(120) : subagentTimeout;
+        this.liveOutput = settings.liveOutput();
+        this.memory = settings.memory() == null ? AgentMemory.none() : settings.memory();
+        this.capabilities = settings.capabilities() == null
+                ? new CapabilityReport(toolRegistry, agentContext) : settings.capabilities();
+        this.subagentGateway = settings.subagentGateway();
+        this.subagentTimeout = settings.subagentTimeout() == null
+                ? Duration.ofSeconds(120) : settings.subagentTimeout();
         this.subagentEligible = subagentGateway != null;
-        this.asyncSubagents = asyncSubagents;
+        this.asyncSubagents = settings.asyncSubagents();
     }
 
     public AgentResult run(String task) throws IOException, InterruptedException {
@@ -232,208 +206,185 @@ public final class AgentLoop {
         approaches.clear();
         int activeTurn = 0;
         try {
-        messages.addAll(memory.begin(task));
-        List<String> skillDecision = memory.lastSkillDecision();
-        if (!skillDecision.isEmpty()) {
-            traceWriter.skillDecision(
-                    memory.activeSkillName(),
-                    skillDecision.getFirst(),
-                    skillDecision.subList(1, skillDecision.size()));
-        }
-        if (!memory.activeSkillName().isBlank()) {
-            statusReporter.skill(memory.activeSkillName());
-        }
-        if (messages.isEmpty()) {
-            messages.add(ChatMessage.system(buildSystemPrompt()));
-        } else if (messages.getFirst().role().equals("system")) {
-            messages.set(0, ChatMessage.system(buildSystemPrompt()));
-        } else {
-            messages.addFirst(ChatMessage.system(buildSystemPrompt()));
-        }
-        messages.add(ChatMessage.user(task));
-        memory.record(ChatMessage.user(task), 0, 0);
-        if (subagentEligible) {
-            drainSubagentResults(messages);
-        }
-
-        int protocolErrors = 0;
-        int unknownToolErrors = 0;
-        List<String> successfulMutations = new ArrayList<>();
-        List<String> recentToolOutcomes = new ArrayList<>();
-        List<String> findings = new ArrayList<>();
-        // Earlier runs against this workspace already paid for these conclusions.
-        List<String> inherited = List.copyOf(memory.priorFindings());
-        findings.addAll(inherited);
-        int pinnedFindings = findings.size();
-        String lastFinding = "";
-        int repeatedFindings = 0;
-        for (int turn = 1; turn <= maxTurns; turn++) {
-            activeTurn = turn;
-            int remainingTurns = maxTurns - turn + 1;
-            if (remainingTurns <= 3) {
-                traceWriter.harnessNote(turn, "turn_budget", turnBudgetMessage(remainingTurns));
-                appendBudgetWarning(messages, remainingTurns);
+            messages.addAll(memory.begin(task));
+            List<String> skillDecision = memory.lastSkillDecision();
+            if (!skillDecision.isEmpty()) {
+                traceWriter.skillDecision(
+                        memory.activeSkillName(),
+                        skillDecision.getFirst(),
+                        skillDecision.subList(1, skillDecision.size()));
             }
+            if (!memory.activeSkillName().isBlank()) {
+                statusReporter.skill(memory.activeSkillName());
+            }
+            if (messages.isEmpty()) {
+                messages.add(ChatMessage.system(buildSystemPrompt()));
+            } else if (messages.getFirst().role().equals("system")) {
+                messages.set(0, ChatMessage.system(buildSystemPrompt()));
+            } else {
+                messages.addFirst(ChatMessage.system(buildSystemPrompt()));
+            }
+            messages.add(ChatMessage.user(task));
+            memory.record(ChatMessage.user(task), 0, 0);
             if (subagentEligible) {
                 drainSubagentResults(messages);
             }
-            compressIfNeeded(messages, task, successfulMutations, findings);
-            truncateHistory(messages);
-            ModelResponse response;
-            try (var ignored = statusReporter.thinking(turn, List.copyOf(messages))) {
-                response = modelClient.chat(List.copyOf(messages));
-            }
-            statusReporter.modelResponse(response);
-            memory.addTokens(response);
-            traceWriter.modelResponse(turn, response);
-            messages.add(ChatMessage.assistant(response.content()));
-            memory.record(ChatMessage.assistant(response.content()),
-                    response.promptTokens(), response.outputTokens());
-            // Checkpoint every turn, not only on the exit paths: a dropped connection used to
-            // discard the whole run because the crash never reached them.
-            memory.checkpoint(messages, task);
 
-            AgentDecision decision;
-            try {
-                if (response.truncated()) {
-                    throw new ProtocolException(
-                            "Provider truncated the response (finish reason: "
-                                    + response.finishReason() + ")"
-                    );
+            int protocolErrors = 0;
+            int unknownToolErrors = 0;
+            List<String> successfulMutations = new ArrayList<>();
+            List<String> recentToolOutcomes = new ArrayList<>();
+            List<String> findings = new ArrayList<>();
+            // Earlier runs against this workspace already paid for these conclusions.
+            List<String> inherited = List.copyOf(memory.priorFindings());
+            findings.addAll(inherited);
+            int pinnedFindings = findings.size();
+            String lastFinding = "";
+            int repeatedFindings = 0;
+            for (int turn = 1; turn <= maxTurns; turn++) {
+                activeTurn = turn;
+                int remainingTurns = maxTurns - turn + 1;
+                if (remainingTurns <= 3) {
+                    traceWriter.harnessNote(turn, "turn_budget", turnBudgetMessage(remainingTurns));
+                    appendBudgetWarning(messages, remainingTurns);
                 }
-                decision = decisionParser.parse(response.content());
-                String trailing = decisionParser.trailingContent(response.content());
-                if (!trailing.isEmpty()) traceWriter.protocolWarning(turn, trailing);
-                protocolErrors = 0;
-            } catch (ProtocolException e) {
-                // Unbalanced closers cost a whole turn to ask again for, and this model produces
-                // them often enough to be worth repairing in place.
-                AgentDecision salvaged = null;
-                String balanced = decisionParser.withBalancedClosers(response.content());
-                if (!balanced.isEmpty()) {
-                    try {
-                        salvaged = decisionParser.parse(balanced);
-                    } catch (ProtocolException stillBroken) {
-                        salvaged = null;
-                    }
+                if (subagentEligible) {
+                    drainSubagentResults(messages);
                 }
-                if (salvaged != null) {
-                    traceWriter.protocolWarning(turn,
-                            "closers rebuilt by the harness, response used as repaired: "
-                                    + e.getMessage());
-                    decision = salvaged;
-                    protocolErrors = 0;
-                } else {
-                    protocolErrors++;
-                    traceWriter.protocolError(turn, e.getMessage());
-                    if (protocolErrors > maxProtocolErrors) {
-                        statusReporter.idle();
-                        memory.checkpoint(messages, task);
-                        memory.finished(false);
-                        return new AgentResult(false, "Protocol error limit exceeded: " + e.getMessage(), turn);
-                    }
-                    String repair = protocolRepairMessage(e) + FindingsLedger.findingsLedger(findings)
-                            + exhaustedApproachLedger();
-                    traceWriter.harnessNote(turn, "protocol_repair", repair);
-                    messages.add(ChatMessage.user(repair));
-                    continue;
-                }
-            }
+                compressIfNeeded(messages, task, successfulMutations, findings);
+                truncateHistory(messages);
+                ModelResponse response = callModel(turn, messages);
+                messages.add(ChatMessage.assistant(response.content()));
+                memory.record(ChatMessage.assistant(response.content()),
+                        response.promptTokens(), response.outputTokens());
+                // Checkpoint every turn, not only on the exit paths: a dropped connection used to
+                // discard the whole run because the crash never reached them.
+                memory.checkpoint(messages, task);
 
-            boolean findingSupplied = !decision.finding().isBlank();
-            FindingsLedger.recordFinding(findings, decision.finding(), pinnedFindings);
-            // Only what this turn nominated as durable is written down, and clipped on the way:
-            // a finding is capped and this was not, so a pasted document nominated as worth
-            // remembering was persisted whole and then rode on every later session against this
-            // workspace. That is the incident the findings ledger was capped for, one field over.
-            if (!decision.remember().isBlank()) {
-                memory.rememberFindings(List.of(FindingsLedger.clip(decision.remember().strip())));
-            }
-            String thisFinding = decision.finding().strip();
-            repeatedFindings = !thisFinding.isEmpty() && thisFinding.equals(lastFinding)
-                    ? repeatedFindings + 1 : 0;
-            lastFinding = thisFinding;
-
-            if (!decision.toolCalls().isEmpty()) {
-                List<ToolCall> batch = decision.toolCalls();
-                int dropped = 0;
-                if (batch.size() > MAX_TOOL_CALLS_PER_TURN) {
-                    dropped = batch.size() - MAX_TOOL_CALLS_PER_TURN;
-                    batch = batch.subList(0, MAX_TOOL_CALLS_PER_TURN);
-                }
-                var result = executeTools(turn, batch);
-                successfulMutations.addAll(result.successfulMutations());
-                recentToolOutcomes.clear();
-                recentToolOutcomes.addAll(result.outcomes());
-                String stuckFinding = repeatedFindings < REPEATED_FINDING_THRESHOLD ? ""
-                        : System.lineSeparator()
-                        + "Note: you have reported the same finding " + (repeatedFindings + 1)
-                        + " turns running. Nothing has been learned since. Change what you are "
-                        + "trying, or state what is missing and finish.";
-                String missingFinding = findingSupplied ? "" : System.lineSeparator()
-                        + "Note: finding was missing, so nothing was recorded for this turn. "
-                        + "Set finding to keep what you established.";
-                String overflow = dropped == 0 ? "" : System.lineSeparator()
-                        + "Note: " + dropped + " further tool calls in that batch were not run. "
-                        + "Send at most " + MAX_TOOL_CALLS_PER_TURN
-                        + " tool calls per response and read the results before asking for more.";
-                // The tool output is already traced; only the harness's own words are new.
-                String guidance = missingFinding + stuckFinding + overflow
-                        + FindingsLedger.findingsLedger(findings, pinnedFindings) + exhaustedApproachLedger();
-                if (!guidance.isBlank()) traceWriter.harnessNote(turn, "guidance", guidance);
-                messages.add(ChatMessage.user(result.userMessage() + guidance));
-                if (subagentEligible && !asyncSubagents && subagentGateway.activeCount() > 0) {
-                    awaitSubagentBarrier(turn, messages);
-                }
-                if (result.unknownCount() > 0) {
-                    unknownToolErrors++;
-                    if (unknownToolErrors > maxProtocolErrors) {
-                        statusReporter.idle();
-                        memory.checkpoint(messages, task);
-                        memory.finished(false);
-                        return new AgentResult(
-                                false,
-                                "Unknown tool limit exceeded after " + unknownToolErrors + " attempts",
-                                turn
+                AgentDecision decision;
+                try {
+                    if (response.truncated()) {
+                        throw new ProtocolException(
+                                "Provider truncated the response (finish reason: "
+                                        + response.finishReason() + ")"
                         );
                     }
-                } else {
-                    unknownToolErrors = 0;
+                    decision = decisionParser.parse(response.content());
+                    String trailing = decisionParser.trailingContent(response.content());
+                    if (!trailing.isEmpty()) traceWriter.protocolWarning(turn, trailing);
+                    protocolErrors = 0;
+                } catch (ProtocolException e) {
+                    // Unbalanced closers cost a whole turn to ask again for, and this model produces
+                    // them often enough to be worth repairing in place.
+                    AgentDecision salvaged = null;
+                    String balanced = decisionParser.withBalancedClosers(response.content());
+                    if (!balanced.isEmpty()) {
+                        try {
+                            salvaged = decisionParser.parse(balanced);
+                        } catch (ProtocolException stillBroken) {
+                            salvaged = null;
+                        }
+                    }
+                    if (salvaged != null) {
+                        traceWriter.protocolWarning(turn,
+                                "closers rebuilt by the harness, response used as repaired: "
+                                        + e.getMessage());
+                        decision = salvaged;
+                        protocolErrors = 0;
+                    } else {
+                        protocolErrors++;
+                        traceWriter.protocolError(turn, e.getMessage());
+                        if (protocolErrors > maxProtocolErrors) {
+                            return fail(messages, task, "Protocol error limit exceeded: " + e.getMessage(), turn);
+                        }
+                        String repair = protocolRepairMessage(e) + FindingsLedger.findingsLedger(findings)
+                                + exhaustedApproachLedger();
+                        traceWriter.harnessNote(turn, "protocol_repair", repair);
+                        messages.add(ChatMessage.user(repair));
+                        continue;
+                    }
                 }
-                continue;
-            }
 
-            if (decision.isFinished()) {
-                VerificationResult verification = verifyChanges(turn);
-                if (!verification.success()) {
-                    String failure = verificationFailureMessage(verification);
-                    traceWriter.harnessNote(turn, "verification_failed", failure);
-                    messages.add(ChatMessage.user(failure));
+                boolean findingSupplied = !decision.finding().isBlank();
+                FindingsLedger.recordFinding(findings, decision.finding(), pinnedFindings);
+                // Only what this turn nominated as durable is written down, and clipped on the way:
+                // a finding is capped and this was not, so a pasted document nominated as worth
+                // remembering was persisted whole and then rode on every later session against this
+                // workspace. That is the incident the findings ledger was capped for, one field over.
+                if (!decision.remember().isBlank()) {
+                    memory.rememberFindings(List.of(FindingsLedger.clip(decision.remember().strip())));
+                }
+                String thisFinding = decision.finding().strip();
+                repeatedFindings = !thisFinding.isEmpty() && thisFinding.equals(lastFinding)
+                        ? repeatedFindings + 1 : 0;
+                lastFinding = thisFinding;
+
+                if (!decision.toolCalls().isEmpty()) {
+                    List<ToolCall> batch = decision.toolCalls();
+                    int dropped = 0;
+                    if (batch.size() > MAX_TOOL_CALLS_PER_TURN) {
+                        dropped = batch.size() - MAX_TOOL_CALLS_PER_TURN;
+                        batch = batch.subList(0, MAX_TOOL_CALLS_PER_TURN);
+                    }
+                    var result = executeTools(turn, batch);
+                    successfulMutations.addAll(result.successfulMutations());
+                    recentToolOutcomes.clear();
+                    recentToolOutcomes.addAll(result.outcomes());
+                    String stuckFinding = repeatedFindings < REPEATED_FINDING_THRESHOLD ? ""
+                            : System.lineSeparator()
+                            + "Note: you have reported the same finding " + (repeatedFindings + 1)
+                            + " turns running. Nothing has been learned since. Change what you are "
+                            + "trying, or state what is missing and finish.";
+                    String missingFinding = findingSupplied ? "" : System.lineSeparator()
+                            + "Note: finding was missing, so nothing was recorded for this turn. "
+                            + "Set finding to keep what you established.";
+                    String overflow = dropped == 0 ? "" : System.lineSeparator()
+                            + "Note: " + dropped + " further tool calls in that batch were not run. "
+                            + "Send at most " + MAX_TOOL_CALLS_PER_TURN
+                            + " tool calls per response and read the results before asking for more.";
+                    // The tool output is already traced; only the harness's own words are new.
+                    String guidance = missingFinding + stuckFinding + overflow
+                            + FindingsLedger.findingsLedger(findings, pinnedFindings) + exhaustedApproachLedger();
+                    if (!guidance.isBlank()) traceWriter.harnessNote(turn, "guidance", guidance);
+                    messages.add(ChatMessage.user(result.userMessage() + guidance));
+                    if (subagentEligible && !asyncSubagents && subagentGateway.activeCount() > 0) {
+                        awaitSubagentBarrier(turn, messages);
+                    }
+                    if (result.unknownCount() > 0) {
+                        unknownToolErrors++;
+                        if (unknownToolErrors > maxProtocolErrors) {
+                            return fail(messages, task,
+                                    "Unknown tool limit exceeded after " + unknownToolErrors + " attempts", turn);
+                        }
+                    } else {
+                        unknownToolErrors = 0;
+                    }
                     continue;
                 }
-                traceWriter.completed(turn, decision.finalAnswer());
-                memory.completed(task, decision.finalAnswer());
-                memory.checkpoint(messages, task);
-                memory.finished(true);
-                boolean streamedThisTurn = emitValidatedAnswer(decision.finalAnswer());
-                statusReporter.idle();
-                return new AgentResult(true, decision.finalAnswer(), turn, streamedThisTurn);
+
+                if (decision.isFinished()) {
+                    VerificationResult verification = verifyChanges(turn);
+                    if (!verification.success()) {
+                        String failure = verificationFailureMessage(verification);
+                        traceWriter.harnessNote(turn, "verification_failed", failure);
+                        messages.add(ChatMessage.user(failure));
+                        continue;
+                    }
+                    return complete(turn, messages, task, decision.finalAnswer());
+                }
+
+                // No tool calls and no final answer — should be caught by DecisionParser
             }
 
-            // No tool calls and no final answer — should be caught by DecisionParser
-        }
-
-        statusReporter.idle();
-        AgentResult finalized = finalizeAfterTurnLimit(
-                messages, task, successfulMutations, recentToolOutcomes
-        );
-        if (finalized != null) return finalized;
-        memory.checkpoint(messages, task);
-        memory.finished(false);
-        String partial = successfulMutations.isEmpty() ? "" :
-                ". Successful mutating tool results before the limit: "
-                        + String.join("; ", successfulMutations);
-        return new AgentResult(false, "Maximum turns exceeded without finalAnswer" + partial, maxTurns);
+            statusReporter.idle();
+            AgentResult finalized = finalizeAfterTurnLimit(
+                    messages, task, successfulMutations, recentToolOutcomes
+            );
+            if (finalized != null) return finalized;
+            String partial = successfulMutations.isEmpty() ? "" :
+                    ". Successful mutating tool results before the limit: "
+                            + String.join("; ", successfulMutations);
+            return fail(messages, task, "Maximum turns exceeded without finalAnswer" + partial, maxTurns);
         } catch (IOException | InterruptedException | RuntimeException e) {
             statusReporter.idle();
             traceWriter.modelError(activeTurn,
@@ -475,24 +426,45 @@ public final class AgentLoop {
                 + ". Do not call tools. Return a compact finalAnswer that accurately reports what exists "
                 + "and any remaining limitation."));
         try {
-            ModelResponse response;
-            try (var ignored = statusReporter.thinking(finalTurn, List.copyOf(messages))) {
-                response = modelClient.chat(List.copyOf(messages));
-            }
-            statusReporter.modelResponse(response); memory.addTokens(response);
-            traceWriter.modelResponse(finalTurn, response);
+            ModelResponse response = callModel(finalTurn, messages);
             AgentDecision decision = decisionParser.parse(response.content());
             if (!decision.toolCalls().isEmpty() || !decision.isFinished()) return null;
             VerificationResult verification = verifyChanges(finalTurn);
             if (!verification.success()) return null;
-            traceWriter.completed(finalTurn, decision.finalAnswer());
-            memory.completed(task, decision.finalAnswer()); memory.checkpoint(messages, task); memory.finished(true);
-            boolean streamed = emitValidatedAnswer(decision.finalAnswer()); statusReporter.idle();
-            return new AgentResult(true, decision.finalAnswer(), finalTurn, streamed);
+            return complete(finalTurn, messages, task, decision.finalAnswer());
         } catch (IOException | ProtocolException | RuntimeException e) {
             traceWriter.modelError(finalTurn, "Finalization grace failed: " + e.getMessage());
             return null;
         }
+    }
+
+    private ModelResponse callModel(int turn, List<ChatMessage> messages)
+            throws IOException, InterruptedException {
+        ModelResponse response;
+        try (var ignored = statusReporter.thinking(turn, List.copyOf(messages))) {
+            response = modelClient.chat(List.copyOf(messages));
+        }
+        statusReporter.modelResponse(response);
+        memory.addTokens(response);
+        traceWriter.modelResponse(turn, response);
+        return response;
+    }
+
+    private AgentResult complete(int turn, List<ChatMessage> messages, String task, String answer) {
+        traceWriter.completed(turn, answer);
+        memory.completed(task, answer);
+        memory.checkpoint(messages, task);
+        memory.finished(true);
+        boolean streamed = emitValidatedAnswer(answer);
+        statusReporter.idle();
+        return new AgentResult(true, answer, turn, streamed);
+    }
+
+    private AgentResult fail(List<ChatMessage> messages, String task, String output, int turn) {
+        statusReporter.idle();
+        memory.checkpoint(messages, task);
+        memory.finished(false);
+        return new AgentResult(false, output, turn);
     }
 
     private boolean emitValidatedAnswer(String answer) {
@@ -596,7 +568,7 @@ public final class AgentLoop {
             }
             statusReporter.toolFinished(
                     call.name(), result.success(),
-                    java.time.Duration.ofNanos(System.nanoTime() - toolStarted).toMillis(),
+                    Duration.ofNanos(System.nanoTime() - toolStarted).toMillis(),
                     result.success() ? "" : result.output()
             );
             if (result.success()) successCount++;
@@ -725,7 +697,7 @@ public final class AgentLoop {
 
     /** Non-blocking peek at finished children; injects their results as synthetic context. */
     private void drainSubagentResults(List<ChatMessage> messages) {
-        java.util.List<SubagentResult> ready = subagentGateway.drainCompleted();
+        List<SubagentResult> ready = subagentGateway.drainCompleted();
         if (!ready.isEmpty()) {
             messages.add(ChatMessage.user(subagentNotificationMessage(ready)));
             traceSubagentResults(0, ready);
@@ -733,7 +705,7 @@ public final class AgentLoop {
     }
 
     /** Finished sub-agent results as context, marked as not coming from the user. */
-    private static String subagentNotificationMessage(java.util.List<SubagentResult> ready) {
+    private static String subagentNotificationMessage(List<SubagentResult> ready) {
         StringBuilder builder = new StringBuilder(
                 "[системно известие, не е от потребителя]\n");
         for (SubagentResult r : ready) {
@@ -753,9 +725,9 @@ public final class AgentLoop {
             ready = subagentGateway.awaitCompleted(subagentTimeout);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            ready = java.util.List.of();
+            ready = List.of();
         }
-        long elapsed = java.time.Duration.ofNanos(System.nanoTime() - started).toMillis();
+        long elapsed = Duration.ofNanos(System.nanoTime() - started).toMillis();
         statusReporter.toolFinished("await_subagent", true, elapsed);
         if (!ready.isEmpty() || subagentGateway.activeCount() > 0) {
             messages.add(ChatMessage.user(subagentDeliveryBarrierMessage(
@@ -765,7 +737,7 @@ public final class AgentLoop {
     }
 
     private static String subagentDeliveryBarrierMessage(
-            java.util.List<SubagentResult> ready, java.util.List<String> stillRunning, long timeoutSeconds
+            List<SubagentResult> ready, List<String> stillRunning, long timeoutSeconds
     ) {
         StringBuilder builder = new StringBuilder("Sub-agent status:\n<tool_output untrusted>\n");
         for (SubagentResult result : ready) {
@@ -796,7 +768,7 @@ public final class AgentLoop {
         builder.append("</subagent_result>\n");
     }
 
-    private void traceSubagentResults(int turn, java.util.List<SubagentResult> results) {
+    private void traceSubagentResults(int turn, List<SubagentResult> results) {
         for (SubagentResult result : results) {
             ObjectNode node = objectMapper.createObjectNode()
                     .put("id", result.id())
@@ -805,7 +777,7 @@ public final class AgentLoop {
             var activityArr = node.putArray("activity");
             result.activity().forEach(activityArr::add);
             traceWriter.toolResult(turn, "subagent_result", node,
-                    dev.pironi.tool.ToolResult.success(result.output()));
+                    ToolResult.success(result.output()));
         }
     }
 

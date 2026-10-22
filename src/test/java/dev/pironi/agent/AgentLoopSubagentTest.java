@@ -138,7 +138,7 @@ class AgentLoopSubagentTest {
                 new AgentContext("", "", ""),
                 new NoOpStatusReporter(),
                 new NoOpVerificationGate(),
-                5, 2, null, AgentMemory.none(), null, gateway, java.time.Duration.ofSeconds(5), false
+                5, 2, AgentLoop.Settings.defaults().withSubagents(gateway, java.time.Duration.ofSeconds(5), false)
         );
         assertTrue(withoutTool.run("t").success());
         org.junit.jupiter.api.Assertions.assertFalse(
@@ -176,12 +176,7 @@ class AgentLoopSubagentTest {
                 new NoOpVerificationGate(),
                 5,
                 2,
-                null,
-                AgentMemory.none(),
-                null,
-                gateway,
-                timeout,
-                false
+                AgentLoop.Settings.defaults().withSubagents(gateway, timeout, false)
         );
     }
 

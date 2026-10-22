@@ -159,8 +159,7 @@ class AgentLoopAsyncSubagentTest {
                 new AgentContext("", "", ""),
                 new NoOpStatusReporter(),
                 new NoOpVerificationGate(),
-                5, 2, null, AgentMemory.none(), null, gateway,
-                java.time.Duration.ofSeconds(120), true
+                5, 2, AgentLoop.Settings.defaults().withSubagents(gateway, java.time.Duration.ofSeconds(120), true)
         );
     }
 
