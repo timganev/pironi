@@ -19,7 +19,7 @@ import java.util.HexFormat;
 import java.util.List;
 
 /** Bounded, content-free diagnostics for binary and large files. */
-public final class InspectFileTool implements Tool {
+public final class InspectFileTool implements Tool, GrantAware {
     private volatile AccessGrants grants = new AccessGrants();
     private static final int SAMPLE_BYTES = 4096;
     private final Workspace workspace;
@@ -105,6 +105,7 @@ public final class InspectFileTool implements Tool {
     }
 
     /** Lets the interactive shell widen this tool's reach without a restart. */
+    @Override
     public void useGrants(AccessGrants sessionGrants) {
         if (sessionGrants != null) this.grants = sessionGrants;
     }

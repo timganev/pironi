@@ -1,75 +1,110 @@
 package dev.pironi.cli;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.pironi.agent.AgentContext;
 import dev.pironi.agent.AgentLoop;
 import dev.pironi.agent.AgentResult;
-import dev.pironi.agent.AgentContext;
-import dev.pironi.agent.ContextFileLoader;
-import dev.pironi.agent.PersonalContextMode;
-import dev.pironi.agent.DecisionParser;
 import dev.pironi.agent.CapabilityReport;
-import dev.pironi.agent.SystemPrompt;
+import dev.pironi.agent.ContextFileLoader;
+import dev.pironi.agent.DecisionParser;
 import dev.pironi.agent.FinalAnswerStreamer;
+import dev.pironi.agent.InteractiveSubagentEvents;
+import dev.pironi.agent.MarkdownAnswer;
+import dev.pironi.agent.PersonalContextMode;
+import dev.pironi.agent.SubagentEvents;
+import dev.pironi.agent.SystemPrompt;
+import dev.pironi.model.ModelClient;
 import dev.pironi.model.ProviderConfig;
 import dev.pironi.model.ProviderType;
 import dev.pironi.model.SwitchableModelClient;
 import dev.pironi.safety.AccessGrants;
-import dev.pironi.safety.ConsoleApprovalPolicy;
-import dev.pironi.safety.ApprovalMode;
 import dev.pironi.safety.ApprovalDecision;
+import dev.pironi.safety.ApprovalMode;
+import dev.pironi.safety.ApprovalPolicy;
 import dev.pironi.safety.CheckpointManager;
+import dev.pironi.safety.ConsoleApprovalPolicy;
 import dev.pironi.safety.Workspace;
-import dev.pironi.tool.ApplyPatchTool;
+import dev.pironi.session.BundledSkills;
+import dev.pironi.session.ContextCompressor;
+import dev.pironi.session.FindingsStore;
+import dev.pironi.session.PersistentAgentMemory;
+import dev.pironi.session.SessionStore;
+import dev.pironi.session.SkillStore;
+import dev.pironi.session.UserFacts;
+import dev.pironi.status.AlternateCharset;
+import dev.pironi.status.NoOpStatusReporter;
+import dev.pironi.status.StatusMode;
+import dev.pironi.status.StatusReporter;
+import dev.pironi.status.TerminalStatusReporter;
+import dev.pironi.status.ThemeSettings;
 import dev.pironi.tool.AppControlTool;
-import dev.pironi.tool.ListFilesTool;
-import dev.pironi.tool.ToolOutput;
+import dev.pironi.tool.ApplyPatchTool;
+import dev.pironi.tool.CsvTool;
+import dev.pironi.tool.DeleteSkillTool;
+import dev.pironi.tool.FindFilesTool;
+import dev.pironi.tool.GrantAware;
 import dev.pironi.tool.HeaderResolver;
 import dev.pironi.tool.HttpGetTool;
-import dev.pironi.tool.FindFilesTool;
+import dev.pironi.tool.IcsCreateTool;
+import dev.pironi.tool.InspectFileTool;
+import dev.pironi.tool.ListFilesTool;
 import dev.pironi.tool.MoveFileTool;
 import dev.pironi.tool.NetworkSpeedTool;
+import dev.pironi.tool.OfficeOpenXmlTool;
+import dev.pironi.tool.PlatformShell;
+import dev.pironi.tool.ProcessControlTool;
+import dev.pironi.tool.ProcessInspectTool;
 import dev.pironi.tool.ReadFileTool;
-import dev.pironi.tool.SaveSkillTool;
-import dev.pironi.tool.RunCommandTool;
+import dev.pironi.tool.ReadLevelDbTool;
+import dev.pironi.tool.ReadSkillTool;
+import dev.pironi.tool.RestoreSkillTool;
 import dev.pironi.tool.RollbackCheckpointTool;
+import dev.pironi.tool.RunCommandTool;
+import dev.pironi.tool.SaveSkillTool;
+import dev.pironi.tool.ShellScope;
 import dev.pironi.tool.SpawnSubagentTool;
 import dev.pironi.tool.SubagentManager;
 import dev.pironi.tool.SubagentResult;
+import dev.pironi.tool.SwitchWorkspaceTool;
+import dev.pironi.tool.SystemInfoTool;
 import dev.pironi.tool.Tool;
+import dev.pironi.tool.ToolOutput;
 import dev.pironi.tool.ToolRegistry;
 import dev.pironi.tool.WriteFileTool;
-import dev.pironi.tool.CsvTool;
-import dev.pironi.tool.IcsCreateTool;
-import dev.pironi.tool.OfficeOpenXmlTool;
-import dev.pironi.tool.InspectFileTool;
-import dev.pironi.tool.SystemInfoTool;
+import dev.pironi.trace.CollectingTraceWriter;
 import dev.pironi.trace.JsonlTraceWriter;
-import dev.pironi.status.NoOpStatusReporter;
-import dev.pironi.status.StatusReporter;
-import dev.pironi.status.StatusMode;
-import dev.pironi.status.TerminalStatusReporter;
-import dev.pironi.verification.ProjectVerificationGate;
-import dev.pironi.verification.VerificationGate;
 import dev.pironi.verification.NoOpVerificationGate;
-import dev.pironi.session.SessionStore;
-import dev.pironi.session.SkillStore;
-import dev.pironi.session.PersistentAgentMemory;
-import dev.pironi.session.ContextCompressor;
+import dev.pironi.verification.ProjectVerificationGate;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
 
 import java.io.BufferedReader;
+import java.io.Console;
+import java.io.FileDescriptor;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.PrintStream;
 import java.net.URI;
+import java.net.http.HttpClient;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.List;
-import java.util.Set;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 public final class PironiMain {
@@ -99,8 +134,8 @@ public final class PironiMain {
      * <p>Only the fallback reader is affected. With a real terminal JLine reads the answer through
      * the console API and never goes near this, which is why it survived every interactive run.
      */
-    static java.nio.charset.Charset consoleCharset() {
-        java.io.Console console = System.console();
+    static Charset consoleCharset() {
+        Console console = System.console();
         if (console != null) {
             try {
                 return console.charset();
@@ -110,11 +145,11 @@ public final class PironiMain {
         }
         String named = System.getProperty("stdin.encoding", System.getProperty("native.encoding", ""));
         try {
-            if (!named.isBlank()) return java.nio.charset.Charset.forName(named);
+            if (!named.isBlank()) return Charset.forName(named);
         } catch (RuntimeException unknownName) {
             // An unusable name is the same problem as an absent one.
         }
-        return java.nio.charset.Charset.defaultCharset();
+        return Charset.defaultCharset();
     }
 
     /**
@@ -126,18 +161,18 @@ public final class PironiMain {
      * written beside it holds the same answer intact.
      */
     static void useUtf8Console() {
-        System.setOut(new java.io.PrintStream(
-                new java.io.FileOutputStream(java.io.FileDescriptor.out), true,
-                java.nio.charset.StandardCharsets.UTF_8));
-        System.setErr(new java.io.PrintStream(
-                new java.io.FileOutputStream(java.io.FileDescriptor.err), true,
-                java.nio.charset.StandardCharsets.UTF_8));
+        System.setOut(new PrintStream(
+                new FileOutputStream(FileDescriptor.out), true,
+                StandardCharsets.UTF_8));
+        System.setErr(new PrintStream(
+                new FileOutputStream(FileDescriptor.err), true,
+                StandardCharsets.UTF_8));
     }
 
     public static void main(String[] args) {
         int exitCode;
         useUtf8Console();
-        dev.pironi.status.AlternateCharset.disableWhereUnsupported();
+        AlternateCharset.disableWhereUnsupported();
         try {
             if (List.of(args).contains("--version") || List.of(args).contains("-V")
                     || List.of(args).contains("-v")) {
@@ -190,14 +225,13 @@ public final class PironiMain {
         // Copies left by runs that never got to discard theirs - a crash, a closed terminal, or any
         // build before this existed.
         checkpoints.pruneOrphans(Duration.ofDays(7));
-        lastSession.save(options);
 
         // Memory stores (L2, L3, L4)
         SessionStore sessions = new SessionStore(options.pironiHome(), objectMapper);
         // Transcripts and traces hold whatever the agent read on the way, so they are kept for a
         // window rather than for ever.
         sessions.pruneOlderThan(RETENTION);
-        dev.pironi.trace.JsonlTraceWriter.pruneOlderThan(
+        JsonlTraceWriter.pruneOlderThan(
                 options.tracePath(), RETENTION, objectMapper);
         ContextCompressor compressor = new ContextCompressor(options.contextSize(), objectMapper);
         SkillStore skills = new SkillStore(options.pironiHome());
@@ -209,26 +243,18 @@ public final class PironiMain {
         PersistentAgentMemory memory = new PersistentAgentMemory(
                 sessions, compressor, skills, objectMapper, options.model(),
                 options.workspace(), options.contextSize(), options.maxTurns(),
-                new dev.pironi.session.FindingsStore(options.pironiHome())
+                new FindingsStore(options.pironiHome())
         );
         memory.useWorkspaceSource(workspace::root);
-        ProviderConfig provider = new ProviderConfig(
-                options.provider(),
-                options.baseUri(),
-                options.model(),
-                options.apiKey(),
-                options.modelTimeout(),
-                options.contextSize(),
-                options.maxOutputTokens()
-        );
         SwitchableModelClient modelClient = new SwitchableModelClient(
                 options.model(),
-                provider.createClient()
+                providerConfig(options).createClient()
         );
         AtomicReference<CliOptions> currentOptions = new AtomicReference<>(options);
         ProviderModelCatalog modelCatalog = new ProviderModelCatalog(
-                java.net.http.HttpClient.newHttpClient(), objectMapper
+                HttpClient.newHttpClient(), objectMapper
         );
+        boolean interactive = options.interactive() && !options.noTui();
 
         Set<Path> hiddenAgentPaths = Set.of(options.tracePath().toAbsolutePath().normalize());
         List<Path> readRoots = readRoots(options.searchRoots(), options.readScope());
@@ -240,15 +266,15 @@ public final class PironiMain {
                         hiddenAgentPaths
                 ),
                 new InspectFileTool(workspace, readRoots),
-                new dev.pironi.tool.ReadLevelDbTool(workspace, readRoots),
+                new ReadLevelDbTool(workspace, readRoots),
                 new SystemInfoTool(workspace),
                 new AppControlTool(),
-                new dev.pironi.tool.ProcessInspectTool(),
-                new dev.pironi.tool.ProcessControlTool(),
-                new dev.pironi.tool.ReadSkillTool(skills),
+                new ProcessInspectTool(),
+                new ProcessControlTool(),
+                new ReadSkillTool(skills),
                 new SaveSkillTool(memory),
-                new dev.pironi.tool.DeleteSkillTool(memory),
-                new dev.pironi.tool.RestoreSkillTool(memory),
+                new DeleteSkillTool(memory),
+                new RestoreSkillTool(memory),
                 new WriteFileTool(workspace, checkpoints),
                 new ApplyPatchTool(workspace, checkpoints),
                 new MoveFileTool(workspace, checkpoints),
@@ -269,26 +295,22 @@ public final class PironiMain {
         ));
 
         // Only where a prompt can be answered; see SwitchWorkspaceTool.
-        dev.pironi.tool.SwitchWorkspaceTool switchWorkspaceTool =
-                options.interactive() ? new dev.pironi.tool.SwitchWorkspaceTool(workspace) : null;
+        SwitchWorkspaceTool switchWorkspaceTool =
+                options.interactive() ? new SwitchWorkspaceTool(workspace) : null;
         if (switchWorkspaceTool != null) availableTools.add(switchWorkspaceTool);
 
         // Cloud-only sub-agent support.
-        dev.pironi.model.ProviderType providerType = options.provider();
         SubagentManager subagentManager = null;
         // Held so the child's read tools can be given the live grants once the parent registry
         // exists.
         List<Tool> childReadTools = List.of();
-        // Mutable printer cell: in interactive mode it is re-pointed to the JLine shell's
-        // printAbove once that shell exists (later in startup); before that and in batch mode it
-        // writes to stderr so stdout stays machine-clean.
-        boolean interactiveNow = options.interactive() && !options.noTui();
-        final java.util.function.Consumer<String>[] subPrinter = new java.util.function.Consumer[]{
-                interactiveNow ? System.out::println : System.err::println};
-        dev.pironi.agent.SubagentEvents subEvents = interactiveNow
-                ? new dev.pironi.agent.InteractiveSubagentEvents(s -> subPrinter[0].accept(s))
-                : dev.pironi.agent.SubagentEvents.NOOP;
-        if (providerType != dev.pironi.model.ProviderType.OLLAMA) {
+        // Re-pointed to the shell's printAbove once it exists; until then, and in batch mode, stderr keeps stdout clean.
+        AtomicReference<Consumer<String>> subPrinter = new AtomicReference<>(
+                interactive ? System.out::println : System.err::println);
+        SubagentEvents subEvents = interactive
+                ? new InteractiveSubagentEvents(s -> subPrinter.get().accept(s))
+                : SubagentEvents.NOOP;
+        if (options.provider() != ProviderType.OLLAMA) {
             // inspect_file belongs here: sizing or hashing a file is exactly the kind of bounded
             // survey a child is spawned for, and without it a child asked to measure a tree can
             // only read whole files into a context that cannot hold them.
@@ -306,7 +328,7 @@ public final class PironiMain {
             // grandchild, so nested delegation (parent waits child waits grandchild) cannot
             // deadlock.
             ToolRegistry childRegistry = new ToolRegistry(readOnlyTools);
-            dev.pironi.safety.ApprovalPolicy childPolicy = (ignoredTool, ignoredArgs) -> ApprovalDecision.ALLOW;
+            ApprovalPolicy childPolicy = (ignoredTool, ignoredArgs) -> ApprovalDecision.ALLOW;
             subagentManager = new SubagentManager(
                     options.maxSubagents(),
                     Duration.ofSeconds(options.subagentTimeoutSeconds()),
@@ -327,16 +349,11 @@ public final class PironiMain {
                 availableTools, effectiveDeniedTools, options.allowTools()
         );
         ToolRegistry tools = toolsForApproval(configuredRegistry, options.approvalMode());
-        for (Tool childTool : childReadTools) {
-            if (childTool instanceof ReadFileTool read) read.useGrants(tools.grants());
-            if (childTool instanceof ListFilesTool list) list.useGrants(tools.grants());
-            if (childTool instanceof FindFilesTool find) find.useGrants(tools.grants());
-            if (childTool instanceof InspectFileTool inspect) inspect.useGrants(tools.grants());
-        }
+        useGrants(childReadTools, tools.grants());
         // Lets a refused write say whether the path was merely readable, which is the difference
         // between "grant it" and "you are in the wrong workspace".
         workspace.useReadableRoots(() -> {
-            java.util.List<Path> roots = new java.util.ArrayList<>(options.searchRoots());
+            List<Path> roots = new ArrayList<>(options.searchRoots());
             roots.addAll(tools.grants().grantedRoots());
             roots.add(workspace.root());
             return roots;
@@ -348,9 +365,8 @@ public final class PironiMain {
                 System.getProperty("os.name", ""),
                 System.getenv("WT_SESSION") != null
         );
-        boolean interactive = options.interactive() && !options.noTui();
         ThemeStore themeStore = new ThemeStore(options.pironiHome());
-        dev.pironi.status.ThemeSettings theme = themeStore.load();
+        ThemeSettings theme = themeStore.load();
 
         Terminal terminal = null;
         if (interactive) {
@@ -364,10 +380,8 @@ public final class PironiMain {
             terminal = builder.build();
         }
 
-        StatusReporter status;
-        if (statusEnabled) {
-            if (terminal != null) {
-                status = new TerminalStatusReporter(
+        StatusReporter status = statusEnabled
+                ? new TerminalStatusReporter(
                         options.model(),
                         options.workspace(),
                         options.contextSize(),
@@ -375,20 +389,8 @@ public final class PironiMain {
                         System.out,
                         terminal,
                         theme
-                );
-            } else {
-                status = new TerminalStatusReporter(
-                        options.model(),
-                        options.workspace(),
-                        options.contextSize(),
-                        options.maxTurns(),
-                        System.out,
-                        theme
-                );
-            }
-        } else {
-            status = new NoOpStatusReporter();
-        }
+                )
+                : new NoOpStatusReporter();
 
         if (status instanceof TerminalStatusReporter statusTerminal && finalSubagentManager != null) {
             statusTerminal.setSubagentCounts(() -> new int[]{
@@ -411,7 +413,7 @@ public final class PironiMain {
             agentContext.updateRuntimeSession(
                     runtimeSessionDescription(options, tools.grants()));
             warnAboutSkippedPersonalContext(options, agentContext, interactive);
-            java.util.Map<String, String> disabledReasons = new java.util.HashMap<>();
+            Map<String, String> disabledReasons = new HashMap<>();
             for (Tool tool : availableTools) {
                 if (tools.find(tool.name()).isPresent()) continue;
                 String reason;
@@ -419,7 +421,7 @@ public final class PironiMain {
                     reason = "disabled by approval=read-only";
                 } else if (tool.name().equals("run_command")
                         && options.approvalMode() == ApprovalMode.AUTO
-                        && options.shellScope() == dev.pironi.tool.ShellScope.WORKSPACE
+                        && options.shellScope() == ShellScope.WORKSPACE
                         && options.allowTools().isEmpty()
                         && !options.denyTools().contains("run_command")) {
                     reason = "blocked in a non-interactive auto run, where no command could be "
@@ -477,9 +479,7 @@ public final class PironiMain {
                     interactive ? new FinalAnswerStreamer(System.out, terminal, theme) : null,
                     memory,
                     capabilityReport,
-                    finalSubagentManager == null
-                            ? null
-                            : finalSubagentManager,
+                    finalSubagentManager,
                     Duration.ofSeconds(
                             finalSubagentManager == null ? 120 : options.subagentTimeoutSeconds()
                     ),
@@ -501,53 +501,25 @@ public final class PironiMain {
                             }
 
                             @Override
-                            public void switchModel(String model) throws java.io.IOException {
-                                CliOptions previous = currentOptions.get();
-                                CliOptions updated = switchedOptions(
-                                        previous,
-                                        model,
-                                        System.getenv(),
-                                        Path.of(
-                                                System.getProperty("user.home"),
-                                                ".hermes",
-                                                ".env"
-                                        )
-                                );
-                                ProviderConfig updatedProvider = new ProviderConfig(
-                                        updated.provider(),
-                                        updated.baseUri(),
-                                        updated.model(),
-                                        updated.apiKey(),
-                                        updated.modelTimeout(),
-                                        updated.contextSize(),
-                                        updated.maxOutputTokens()
-                                );
-                                modelClient.switchTo(model, updatedProvider.createClient());
-                                currentOptions.set(updated);
-                                lastSession.save(updated);
-                                agentContext.updateRuntimeSession(
-                                        runtimeSessionDescription(updated)
-                                );
-                                status.configurationChanged(model, updated.contextSize());
-                                memory.clearCarryOver();
+                            public void switchModel(String model) throws IOException {
+                                switchTo(switchedOptions(
+                                        currentOptions.get(), model, System.getenv(),
+                                        hermesEnvironmentFile()
+                                ));
                             }
 
                             @Override
                             public void switchModel(String provider, String model)
-                                    throws java.io.IOException {
+                                    throws IOException {
                                 switchTo(switchedOptions(
                                         currentOptions.get(), provider, model, System.getenv(),
-                                        Path.of(System.getProperty("user.home"), ".hermes", ".env")
+                                        hermesEnvironmentFile()
                                 ));
                             }
 
-                            private void switchTo(CliOptions updated) throws java.io.IOException {
-                                ProviderConfig updatedProvider = new ProviderConfig(
-                                        updated.provider(), updated.baseUri(), updated.model(),
-                                        updated.apiKey(), updated.modelTimeout(), updated.contextSize(),
-                                        updated.maxOutputTokens()
-                                );
-                                modelClient.switchTo(updated.model(), updatedProvider.createClient());
+                            private void switchTo(CliOptions updated) throws IOException {
+                                modelClient.switchTo(updated.model(),
+                                        providerConfig(updated).createClient());
                                 currentOptions.set(updated);
                                 lastSession.save(updated);
                                 agentContext.updateRuntimeSession(runtimeSessionDescription(updated));
@@ -562,10 +534,8 @@ public final class PironiMain {
                             }
 
                             @Override
-                            public void switchApproval(String approval)
-                                    throws java.io.IOException {
-                                dev.pironi.safety.ApprovalMode mode =
-                                        dev.pironi.safety.ApprovalMode.parse(approval);
+                            public void switchApproval(String approval) throws IOException {
+                                ApprovalMode mode = ApprovalMode.parse(approval);
                                 CliOptions updated = currentOptions.get()
                                         .withApprovalMode(mode);
                                 lastSession.save(updated);
@@ -580,7 +550,7 @@ public final class PironiMain {
 
                             @Override
                             public List<String> availableModels() {
-                                var models = new java.util.LinkedHashSet<String>();
+                                var models = new LinkedHashSet<String>();
                                 models.add(modelClient.model());
                                 models.add("deepseek-v4-flash");
                                 models.add("qwen3.6:35b-a3b");
@@ -590,12 +560,11 @@ public final class PironiMain {
 
                             @Override
                             public List<InteractiveShell.ProviderChoice> availableProviders() {
-                                List<InteractiveShell.ProviderChoice> providers = new java.util.ArrayList<>();
+                                List<InteractiveShell.ProviderChoice> providers = new ArrayList<>();
                                 providers.add(new InteractiveShell.ProviderChoice("ollama", "Ollama"));
                                 providers.add(new InteractiveShell.ProviderChoice("deepseek", "DeepSeek"));
                                 providers.add(new InteractiveShell.ProviderChoice("openrouter", "OpenRouter"));
-                                if (currentOptions.get().provider()
-                                        == dev.pironi.model.ProviderType.OPENAI_COMPATIBLE) {
+                                if (currentOptions.get().provider() == ProviderType.OPENAI_COMPATIBLE) {
                                     providers.add(new InteractiveShell.ProviderChoice(
                                             "openai-compatible", "OpenAI-compatible"
                                     ));
@@ -604,24 +573,20 @@ public final class PironiMain {
                             }
 
                             @Override
-                            public List<String> availableModels(String provider)
-                                    throws java.io.IOException {
+                            public List<String> availableModels(String provider) throws IOException {
                                 CliOptions current = currentOptions.get();
                                 String seedModel = switch (provider) {
-                                    case "ollama" -> current.provider()
-                                            == dev.pironi.model.ProviderType.OLLAMA
+                                    case "ollama" -> current.provider() == ProviderType.OLLAMA
                                             ? current.model() : "qwen3.6:35b-a3b";
-                                    case "deepseek" -> current.provider()
-                                            == dev.pironi.model.ProviderType.DEEPSEEK
+                                    case "deepseek" -> current.provider() == ProviderType.DEEPSEEK
                                             ? current.model() : "deepseek-v4-flash";
-                                    case "openrouter" -> current.provider()
-                                            == dev.pironi.model.ProviderType.OPENROUTER
+                                    case "openrouter" -> current.provider() == ProviderType.OPENROUTER
                                             ? current.model() : "openrouter/auto";
                                     default -> current.model();
                                 };
                                 CliOptions catalogOptions = switchedOptions(
                                         current, provider, seedModel, System.getenv(),
-                                        Path.of(System.getProperty("user.home"), ".hermes", ".env")
+                                        hermesEnvironmentFile()
                                 );
                                 return modelCatalog.models(catalogOptions);
                             }
@@ -631,17 +596,17 @@ public final class PironiMain {
                 );
                 defaultShellCommands.useRegistry(tools);
                 defaultShellCommands.useUserFacts(
-                        new dev.pironi.session.UserFacts(options.pironiHome()),
+                        new UserFacts(options.pironiHome()),
                         !agentContext.userProfile().isBlank() || !agentContext.soul().isBlank());
                 defaultShellCommands.onAccessChanged(() -> agentContext.updateRuntimeSession(
                         runtimeSessionDescription(currentOptions.get(), tools.grants())));
                 // One callback for both routes into a move: the /workspace command and the tool the
                 // agent offers.
-                java.util.function.Consumer<Path> workspaceMoved = moved -> {
+                Consumer<Path> workspaceMoved = moved -> {
                     try {
                         // A directory you may write in is one you may read.
                         tools.grants().grantRoot(moved);
-                    } catch (java.io.IOException e) {
+                    } catch (IOException e) {
                         System.out.println("Workspace moved, but read access could not be "
                                 + "granted: " + e.getMessage());
                     }
@@ -649,7 +614,7 @@ public final class PironiMain {
                     currentOptions.set(moving);
                     try {
                         lastSession.save(moving);
-                    } catch (java.io.IOException e) {
+                    } catch (IOException e) {
                         System.out.println("Workspace moved, but the session could not be "
                                 + "saved: " + e.getMessage());
                     }
@@ -668,8 +633,7 @@ public final class PironiMain {
                 InteractiveShell.ShellCommands shellC = defaultShellCommands;
                 InteractiveShell.Runner shellRunner = new InteractiveShell.Runner() {
                     @Override
-                    public AgentResult run(String task)
-                            throws java.io.IOException, InterruptedException {
+                    public AgentResult run(String task) throws IOException, InterruptedException {
                         return loop.run(task);
                     }
 
@@ -690,10 +654,10 @@ public final class PironiMain {
                 );
                 // Re-point the sub-agent notification printer to the live JLine shell so "пускам
                 // агент…" / "агент приключи" render above the prompt.
-                subPrinter[0] = shell::printAbove;
+                subPrinter.set(shell::printAbove);
                 // Wire the auto-turn callback so completed child results trigger a model response
                 // immediately, without the user needing to press Enter.
-                if (subEvents instanceof dev.pironi.agent.InteractiveSubagentEvents ise) {
+                if (subEvents instanceof InteractiveSubagentEvents ise) {
                     ise.setAutoTurn(shell.autoTurnCallback());
                 }
                 approvalPolicy.updateInteraction(shell.approvalInteraction(
@@ -716,7 +680,7 @@ public final class PironiMain {
             AgentResult result = loop.run(options.task());
             checkpoints.discardAll();
             // No terminal here, so nothing is wrapped; a table is still worth aligning.
-            System.out.println(dev.pironi.agent.MarkdownAnswer.render(result.output(), 0));
+            System.out.println(MarkdownAnswer.render(result.output(), 0));
             System.out.println("Turns: " + result.turns());
             System.out.println("Trace: " + options.tracePath().toAbsolutePath().normalize());
             return result.success() ? 0 : 1;
@@ -728,16 +692,16 @@ public final class PironiMain {
      * anything, so it needs no approval and never interrupts the user.
      */
     private static SubagentResult runChildSubagent(
-            dev.pironi.model.ModelClient modelClient,
+            ModelClient modelClient,
             ObjectMapper objectMapper,
             ToolRegistry childRegistry,
-            dev.pironi.safety.ApprovalPolicy childPolicy,
+            ApprovalPolicy childPolicy,
             CliOptions options,
             String name,
             String subtask
     ) {
         AgentContext childContext = new AgentContext("", "", "");
-        dev.pironi.trace.CollectingTraceWriter childTrace = new dev.pironi.trace.CollectingTraceWriter();
+        CollectingTraceWriter childTrace = new CollectingTraceWriter();
         // Cap the child's turns below the parent's default so a runaway child cannot burn tokens
         // indefinitely; the manager's deadline interrupts it as a hard limit.
         int childTurns = Math.min(options.maxTurns(), MAX_SUBAGENT_TURNS);
@@ -749,7 +713,7 @@ public final class PironiMain {
                 childPolicy,
                 childTrace,
                 childContext,
-                new dev.pironi.status.NoOpStatusReporter(),
+                new NoOpStatusReporter(),
                 new NoOpVerificationGate(),
                 childTurns,
                 4
@@ -776,7 +740,7 @@ public final class PironiMain {
     static CliOptions switchedOptions(
             CliOptions previous,
             String model,
-            java.util.Map<String, String> environment,
+            Map<String, String> environment,
             Path hermesEnvironmentFile
     ) {
         String provider = inferProvider(previous, model);
@@ -787,22 +751,22 @@ public final class PironiMain {
             CliOptions previous,
             String provider,
             String model,
-            java.util.Map<String, String> environment,
+            Map<String, String> environment,
             Path hermesEnvironmentFile
     ) {
-        dev.pironi.model.ProviderType target = dev.pironi.model.ProviderType.parse(provider);
+        ProviderType target = ProviderType.parse(provider);
         if (target == previous.provider()) return previous.withModel(model);
 
-        if (target == dev.pironi.model.ProviderType.OLLAMA) {
+        if (target == ProviderType.OLLAMA) {
             return previous.withProviderModel(
                     target, URI.create("http://127.0.0.1:11434"), model,
                     null, "OPENAI_API_KEY", 131_072
             );
         }
 
-        String keyEnvironment = target == dev.pironi.model.ProviderType.DEEPSEEK
+        String keyEnvironment = target == ProviderType.DEEPSEEK
                 ? "DEEPSEEK_API_KEY" : "OPENROUTER_API_KEY";
-        if (target == dev.pironi.model.ProviderType.OPENAI_COMPATIBLE) {
+        if (target == ProviderType.OPENAI_COMPATIBLE) {
             throw new IllegalArgumentException(
                     "OpenAI-compatible provider requires startup --base-url and --api-key-env"
             );
@@ -820,13 +784,13 @@ public final class PironiMain {
         }
         return previous.withProviderModel(
                 target,
-                target == dev.pironi.model.ProviderType.DEEPSEEK
+                target == ProviderType.DEEPSEEK
                         ? URI.create("https://api.deepseek.com")
                         : URI.create("https://openrouter.ai/api/v1"),
                 model,
                 key,
                 keyEnvironment,
-                target == dev.pironi.model.ProviderType.DEEPSEEK ? 1_000_000 : 200_000
+                target == ProviderType.DEEPSEEK ? 1_000_000 : 200_000
         );
     }
 
@@ -850,10 +814,10 @@ public final class PironiMain {
             var entries = skills.list();
             if (entries.isEmpty()) return "";
             return entries.stream().map(entry -> entry.name() + " - " + entry.description())
-                    .collect(java.util.stream.Collectors.joining("; "))
+                    .collect(Collectors.joining("; "))
                     + ". They live outside the workspace, are chosen automatically from the "
                     + "request before the first turn, and are not files to look for.";
-        } catch (java.io.IOException e) {
+        } catch (IOException e) {
             return "";
         }
     }
@@ -884,7 +848,7 @@ public final class PironiMain {
         denied.add("app_control");
         // An interactive session keeps the shell and confirms each command instead (see
         // RunCommandTool.requiresExplicitApproval).
-        if (options.shellScope() == dev.pironi.tool.ShellScope.WORKSPACE
+        if (options.shellScope() == ShellScope.WORKSPACE
                 && !options.interactive()) {
             denied.add("run_command");
         }
@@ -908,7 +872,7 @@ public final class PironiMain {
         System.out.println("Capability note: SOUL.md/USER.md were not loaded because "
                 + "personal-context is auto and the provider is not local. Start with "
                 + "--personal-context allow to apply them, which sends their contents to "
-                + options.provider().name().toLowerCase(java.util.Locale.ROOT) + ".");
+                + options.provider().name().toLowerCase(Locale.ROOT) + ".");
     }
 
     /**
@@ -916,10 +880,10 @@ public final class PironiMain {
      *
      * @return the note, or empty when the shell is available
      */
-    static String runCommandDisabledNotice(java.util.Map<String, String> disabledReasons) {
+    static String runCommandDisabledNotice(Map<String, String> disabledReasons) {
         String reason = disabledReasons.get("run_command");
         if (reason == null) return "";
-        return "Capability note: host shell " + dev.pironi.tool.PlatformShell.name()
+        return "Capability note: host shell " + PlatformShell.name()
                 + " is available, but run_command is " + reason + ".";
     }
 
@@ -935,7 +899,7 @@ public final class PironiMain {
     static boolean statusEnabled(
             StatusMode mode, boolean consolePresent, String osName, boolean windowsTerminal
     ) {
-        boolean windows = osName.toLowerCase(java.util.Locale.ROOT).contains("win");
+        boolean windows = osName.toLowerCase(Locale.ROOT).contains("win");
         boolean legacyWindowsConsole = windows && !windowsTerminal;
         return mode == StatusMode.ALWAYS
                 || (mode == StatusMode.AUTO && consolePresent && !legacyWindowsConsole);
@@ -979,14 +943,30 @@ public final class PironiMain {
                     : !allowedTools.contains(tool.name());
             if (blocked) grants.disableTool(tool.name());
         }
-        for (Tool tool : availableTools) {
-            if (tool instanceof ReadFileTool readFile) readFile.useGrants(grants);
-            if (tool instanceof ListFilesTool listFiles) listFiles.useGrants(grants);
-            if (tool instanceof InspectFileTool inspect) inspect.useGrants(grants);
-            if (tool instanceof dev.pironi.tool.ReadLevelDbTool leveldb) leveldb.useGrants(grants);
-            if (tool instanceof FindFilesTool find) find.useGrants(grants);
-        }
+        useGrants(availableTools, grants);
         return new ToolRegistry(availableTools, grants);
+    }
+
+    private static void useGrants(List<Tool> tools, AccessGrants grants) {
+        for (Tool tool : tools) {
+            if (tool instanceof GrantAware aware) aware.useGrants(grants);
+        }
+    }
+
+    private static ProviderConfig providerConfig(CliOptions options) {
+        return new ProviderConfig(
+                options.provider(),
+                options.baseUri(),
+                options.model(),
+                options.apiKey(),
+                options.modelTimeout(),
+                options.contextSize(),
+                options.maxOutputTokens()
+        );
+    }
+
+    private static Path hermesEnvironmentFile() {
+        return Path.of(System.getProperty("user.home"), ".hermes", ".env");
     }
 
     private static String runtimeSessionDescription(CliOptions options) {
@@ -1034,7 +1014,7 @@ public final class PironiMain {
 
 
     /** Where the read-only file tools may look. */
-    static List<Path> readRoots(List<Path> searchRoots, dev.pironi.tool.ShellScope shellScope) {
+    static List<Path> readRoots(List<Path> searchRoots, ShellScope shellScope) {
         List<Path> roots = new ArrayList<>(searchRoots);
         switch (shellScope) {
             case WORKSPACE -> {
@@ -1043,7 +1023,7 @@ public final class PironiMain {
             case USER -> roots.add(Path.of(System.getProperty("user.home")));
             case UNRESTRICTED -> {
                 roots.add(Path.of(System.getProperty("user.home")));
-                java.nio.file.FileSystems.getDefault().getRootDirectories().forEach(roots::add);
+                FileSystems.getDefault().getRootDirectories().forEach(roots::add);
             }
         }
         return List.copyOf(roots);
@@ -1062,21 +1042,19 @@ public final class PironiMain {
         try {
             Path seeds = Path.of(bundle).resolve("skills");
             Path store = pironiHome.resolve("skills");
-            java.util.List<String> planted = dev.pironi.session.BundledSkills.install(
-                    seeds, store, BuildVersion.current()
-            );
+            List<String> planted = BundledSkills.install(seeds, store, BuildVersion.current());
             if (!planted.isEmpty()) {
                 System.out.println("Skills installed with this release: "
                         + String.join(", ", planted));
             }
             // After planting, not before: a skill this release renamed is only safe to retire once
             // its replacement is on disk.
-            java.util.List<String> retired = dev.pironi.session.BundledSkills.retire(seeds, store);
+            List<String> retired = BundledSkills.retire(seeds, store);
             if (!retired.isEmpty()) {
                 System.out.println("Skills this release no longer carries, archived: "
                         + String.join(", ", retired));
             }
-        } catch (java.io.IOException | RuntimeException e) {
+        } catch (IOException | RuntimeException e) {
             System.out.println("Bundled skills were not installed: " + e.getMessage());
         }
     }
@@ -1117,7 +1095,7 @@ public final class PironiMain {
     /** Header resolver for {@code http_get}. */
     private static HeaderResolver buildHeaderResolver(CliOptions options) {
         Set<String> authorizationHosts = new HashSet<>(Set.of("api.deepseek.com"));
-        java.util.Map<String, String> placeholders = new java.util.LinkedHashMap<>();
+        Map<String, String> placeholders = new LinkedHashMap<>();
         String apiKey = options.apiKey();
         if (apiKey != null && !apiKey.isBlank()) {
             placeholders.put("PIRONI_API_KEY", apiKey);

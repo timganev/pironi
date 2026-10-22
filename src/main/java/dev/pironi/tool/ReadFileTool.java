@@ -16,7 +16,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-public final class ReadFileTool implements Tool {
+public final class ReadFileTool implements Tool, GrantAware {
     private volatile AccessGrants grants = new AccessGrants();
     private static final int DEFAULT_RANGE_LINES = 200;
     private static final int MAX_RANGE_LINES = 10_000;
@@ -222,6 +222,7 @@ public final class ReadFileTool implements Tool {
     }
 
     /** Lets the interactive shell widen this tool's reach without a restart. */
+    @Override
     public void useGrants(AccessGrants sessionGrants) {
         if (sessionGrants != null) this.grants = sessionGrants;
     }

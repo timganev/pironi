@@ -20,7 +20,7 @@ import java.util.Locale;
  * <p>Scanning such a store from PowerShell takes minutes and looks like a hang; this takes about a
  * fifth of a second for thirty thousand records, which is the whole reason it exists as a tool.
  */
-public final class ReadLevelDbTool implements Tool {
+public final class ReadLevelDbTool implements Tool, GrantAware {
     static final int DEFAULT_MAX_RECORDS = 20_000;
     static final int DEFAULT_MAX_CHARACTERS = 20_000;
     /** Below this a run of two-byte characters is as likely to be coincidence as text. */
@@ -226,6 +226,7 @@ public final class ReadLevelDbTool implements Tool {
     }
 
     /** Lets the interactive shell widen this tool's reach without a restart. */
+    @Override
     public void useGrants(AccessGrants sessionGrants) {
         if (sessionGrants != null) this.grants = sessionGrants;
     }

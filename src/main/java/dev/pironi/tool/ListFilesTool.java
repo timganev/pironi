@@ -17,7 +17,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-public final class ListFilesTool implements Tool {
+public final class ListFilesTool implements Tool, GrantAware {
     private volatile AccessGrants grants = new AccessGrants();
     private static final Set<String> IGNORED_DIRECTORIES = Set.of(
             ".git", ".pironi", ".idea", "target", "build", ".gradle", "node_modules"
@@ -297,6 +297,7 @@ public final class ListFilesTool implements Tool {
     }
 
     /** Lets the interactive shell widen this tool's reach without a restart. */
+    @Override
     public void useGrants(AccessGrants sessionGrants) {
         if (sessionGrants != null) this.grants = sessionGrants;
     }

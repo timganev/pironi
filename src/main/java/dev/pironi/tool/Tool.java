@@ -15,7 +15,6 @@ public interface Tool {
         return mutating();
     }
 
-    /** Actions that must never be auto-approved, even under approval=auto. */
     /**
      * Whether this particular call changes anything. run_command is mutating as a tool and yet most
      * of its calls only read, and asking about those trains the user to approve without reading.
@@ -24,6 +23,7 @@ public interface Tool {
         return mutating();
     }
 
+    /** Actions that must never be auto-approved, even under approval=auto. */
     default boolean requiresExplicitApproval(JsonNode arguments) {
         return false;
     }
