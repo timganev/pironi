@@ -32,6 +32,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public final class AgentLoop {
@@ -50,6 +51,9 @@ public final class AgentLoop {
     private static final int REPEATED_RESULT_THRESHOLD = 3;
     /** Past this many spent attempts the tool stops running rather than advising. */
     private static final int APPROACH_BLOCK_THRESHOLD = 8;
+    // Our closing tags inside untrusted text would end the fence early; "<\/" still reads, and is a valid JSON escape.
+    private static final Pattern FENCE_CLOSER = Pattern.compile(
+            "(?i)<(\\s*)/(?=\\s*(?:tool_output|subagent_result|subagent_activity|output)\\b)");
 
 
 
@@ -623,8 +627,12 @@ public final class AgentLoop {
                 List.copyOf(successfulMutations),
                 List.copyOf(outcomes),
                 trustedInstruction + "\n<tool_output untrusted>\n"
-                        + envelope + "\n</tool_output untrusted>" + emptyNotice
+                        + defuseFenceClosers(envelope.toString()) + "\n</tool_output untrusted>" + emptyNotice
         );
+    }
+
+    static String defuseFenceClosers(String untrusted) {
+        return FENCE_CLOSER.matcher(untrusted).replaceAll("<$1\\\\/");
     }
 
 
@@ -736,7 +744,7 @@ public final class AgentLoop {
         }
     }
 
-    private static String subagentDeliveryBarrierMessage(
+    static String subagentDeliveryBarrierMessage(
             List<SubagentResult> ready, List<String> stillRunning, long timeoutSeconds
     ) {
         StringBuilder builder = new StringBuilder("Sub-agent status:\n<tool_output untrusted>\n");
@@ -756,15 +764,15 @@ public final class AgentLoop {
 
     private static void appendSubagentResult(StringBuilder builder, SubagentResult result) {
         builder.append("<subagent_result id=\"").append(result.id())
-                .append("\" name=\"").append(result.name())
+                .append("\" name=\"").append(defuseFenceClosers(result.name()))
                 .append("\" status=\"").append(result.status())
                 .append("\">\n");
         if (!result.activity().isEmpty()) {
             builder.append("<subagent_activity>")
-                    .append(String.join("\n", result.activity()))
+                    .append(defuseFenceClosers(String.join("\n", result.activity())))
                     .append("</subagent_activity>\n");
         }
-        builder.append("<output>").append(result.output()).append("</output>\n");
+        builder.append("<output>").append(defuseFenceClosers(result.output())).append("</output>\n");
         builder.append("</subagent_result>\n");
     }
 
