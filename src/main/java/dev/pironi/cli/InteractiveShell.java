@@ -534,7 +534,8 @@ public final class InteractiveShell {
      * the first.
      */
     private String withPastedRemainder(String first) {
-        if (terminal == null) return first;
+        // On POSIX the terminal is back in cooked mode here, so peek blocks until the next Enter.
+        if (terminal == null || !System.getProperty("os.name", "").startsWith("Windows")) return first;
         Block block = joinArrivedTogether(first, this::moreArrivedWithIt, () -> {
             try {
                 return lineReader.readLine("");
