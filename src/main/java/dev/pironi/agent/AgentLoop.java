@@ -23,6 +23,7 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -840,7 +841,10 @@ public final class AgentLoop {
     }
 
     private String stableSystemPrompt() {
+        // Sorted: the registry arrives in a different order on every start, and a reordered tool list
+        // changes the request prefix as much as a new prompt does.
         String schemas = toolRegistry.all().stream()
+                .sorted(Comparator.comparing(Tool::name))
                 .map(tool -> "- " + tool.name() + ": " + tool.description()
                         + " Arguments: " + tool.argumentSchema())
                 .collect(Collectors.joining("\n"));

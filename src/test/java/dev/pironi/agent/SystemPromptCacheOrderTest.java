@@ -116,6 +116,39 @@ class SystemPromptCacheOrderTest {
         assertFalse(second.getFirst().content().contains("second-skill-marker"));
     }
 
+    /** Tools reach the registry in a different order on every start; the prompt must not follow it. */
+    @Test
+    void toolListIsSortedByName() throws Exception {
+        CapturingModel model = new CapturingModel();
+        AgentLoop loop = new AgentLoop(
+                model,
+                new DecisionParser(objectMapper),
+                objectMapper,
+                new ToolRegistry(List.of(namedTool("zeta_tool"), namedTool("alpha_tool"))),
+                (tool, arguments) -> ApprovalDecision.ALLOW,
+                new NoOpTraceWriter(),
+                new AgentContext("", "", ""),
+                new NoOpStatusReporter(),
+                new NoOpVerificationGate(),
+                5, 2,
+                AgentLoop.Settings.defaults()
+        );
+
+        assertTrue(loop.run("task").success());
+        String prompt = model.requests.getFirst().getFirst().content();
+        assertTrue(prompt.indexOf("- alpha_tool:") < prompt.indexOf("- zeta_tool:"));
+    }
+
+    private static dev.pironi.tool.Tool namedTool(String name) {
+        return new dev.pironi.tool.Tool() {
+            public String name() { return name; }
+            public String description() { return name; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return false; }
+            public dev.pironi.tool.ToolResult execute(JsonNode arguments) { return dev.pironi.tool.ToolResult.success(""); }
+        };
+    }
+
     private static final class CarryingMemory implements AgentMemory {
         String skill = "";
         List<ChatMessage> carried = List.of();
