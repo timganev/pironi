@@ -37,6 +37,14 @@ import java.util.stream.Collectors;
 
 public final class AgentLoop {
     private static final int MAX_HISTORY = 40;
+    /**
+     * Where truncation cuts back to once MAX_HISTORY is passed. Cutting to MAX_HISTORY itself slid
+     * the window by one message every turn, so the history after the task changed on every request
+     * and a prefix cache never hit again; cutting deeper keeps it stable for the next several turns.
+     */
+    private static final int TRUNCATE_TO = 24;
+    static final String CONTEXT_UPDATE_HEADING =
+            "## Context update (replaces the skill, runtime session and time sections of the system prompt)";
     private static final int MAX_LEDGER_ENTRIES = 20;
     /** How many times one approach may be tried before staleness is worth reporting. */
     private static final int APPROACH_ATTEMPT_THRESHOLD = 5;
@@ -221,14 +229,22 @@ public final class AgentLoop {
             if (!memory.activeSkillName().isBlank()) {
                 statusReporter.skill(memory.activeSkillName());
             }
+            String taskMessage = task;
             if (messages.isEmpty()) {
                 messages.add(ChatMessage.system(buildSystemPrompt()));
             } else if (messages.getFirst().role().equals("system")) {
-                messages.set(0, ChatMessage.system(buildSystemPrompt()));
+                // The system prompt heads every request, so rewriting it for the clock or a new skill
+                // made the server re-read the whole conversation on each follow-up. While its stable
+                // part still holds, keep it and hand the volatile sections over with the task instead.
+                if (messages.getFirst().content().startsWith(stableSystemPrompt())) {
+                    taskMessage = task + "\n\n" + CONTEXT_UPDATE_HEADING + volatileContext();
+                } else {
+                    messages.set(0, ChatMessage.system(buildSystemPrompt()));
+                }
             } else {
                 messages.addFirst(ChatMessage.system(buildSystemPrompt()));
             }
-            messages.add(ChatMessage.user(task));
+            messages.add(ChatMessage.user(taskMessage));
             memory.record(ChatMessage.user(task), 0, 0);
             if (subagentEligible) {
                 drainSubagentResults(messages);
@@ -820,6 +836,10 @@ public final class AgentLoop {
     }
 
     private String buildSystemPrompt() {
+        return stableSystemPrompt() + volatileContext();
+    }
+
+    private String stableSystemPrompt() {
         String schemas = toolRegistry.all().stream()
                 .map(tool -> "- " + tool.name() + ": " + tool.description()
                         + " Arguments: " + tool.argumentSchema())
@@ -845,6 +865,11 @@ public final class AgentLoop {
         appendContext(prompt, "Identity from SOUL.md", agentContext.soul());
         appendContext(prompt, "User profile from USER.md", agentContext.userProfile());
         appendContext(prompt, "Project instructions from CLAUDE.md", agentContext.projectInstructions());
+        return prompt.toString();
+    }
+
+    private String volatileContext() {
+        StringBuilder prompt = new StringBuilder();
         appendContext(prompt, "Session skills", memory.promptContext());
         appendContext(
                 prompt,
@@ -942,7 +967,7 @@ public final class AgentLoop {
         ChatMessage taskMessage = firstUserMessage(messages);
         int reserved = taskMessage == null ? 1 : 2;
         List<ChatMessage> tail = new ArrayList<>(messages.subList(
-                messages.size() - (MAX_HISTORY - reserved), messages.size()
+                messages.size() - (TRUNCATE_TO - reserved), messages.size()
         ));
         messages.clear();
         messages.add(systemMessage);

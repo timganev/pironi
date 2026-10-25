@@ -941,10 +941,30 @@ class AgentLoopTest {
 
         AgentLoop.truncateHistory(messages);
 
-        assertEquals(40, messages.size());
+        assertEquals(24, messages.size());
         assertEquals("system", messages.getFirst().content());
         assertEquals("export the mailbox and report hours per project", messages.get(1).content());
         assertEquals("step 59", messages.getLast().content());
+    }
+
+    @Test
+    void truncationLeavesTheKeptHistoryAloneForTheNextTurns() {
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(ChatMessage.system("system"));
+        messages.add(ChatMessage.user("task"));
+        for (int i = 0; i < 60; i++) {
+            messages.add(ChatMessage.assistant("step " + i));
+        }
+        AgentLoop.truncateHistory(messages);
+        List<ChatMessage> kept = List.copyOf(messages);
+
+        // a prefix cache only hits while the start of the conversation stays the same
+        for (int i = 60; i < 70; i++) {
+            messages.add(ChatMessage.assistant("step " + i));
+            AgentLoop.truncateHistory(messages);
+        }
+
+        assertEquals(kept, messages.subList(0, kept.size()));
     }
 
     @Test
@@ -957,7 +977,7 @@ class AgentLoopTest {
 
         AgentLoop.truncateHistory(messages);
 
-        assertEquals(40, messages.size());
+        assertEquals(24, messages.size());
         assertEquals("system", messages.getFirst().content());
         assertEquals("step 59", messages.getLast().content());
     }
