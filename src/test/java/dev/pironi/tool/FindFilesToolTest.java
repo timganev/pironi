@@ -40,6 +40,32 @@ class FindFilesToolTest {
     }
 
     @Test
+    void aGlobWithADirectoryMatchesThePathUnderTheRoot() throws Exception {
+        Path inbox = Files.createDirectories(root.resolve("inbox"));
+        Files.writeString(inbox.resolve("note_03.txt"), "PROJECT-ORION");
+        Files.writeString(inbox.resolve("note_04.txt"), "nothing");
+        Files.writeString(root.resolve("top.txt"), "PROJECT-ORION");
+        FindFilesTool tool = new FindFilesTool(List.of(root));
+        var mapper = new ObjectMapper();
+
+        ToolResult inInbox = tool.execute(mapper.createObjectNode()
+                .put("name", "inbox/*.txt").put("contains", "PROJECT-ORION"));
+        ToolResult anywhere = tool.execute(mapper.createObjectNode()
+                .put("name", "**/*.txt").put("contains", "PROJECT-ORION"));
+        ToolResult byName = tool.execute(mapper.createObjectNode()
+                .put("name", "*.txt").put("contains", "PROJECT-ORION"));
+
+        // This glob used to answer "No matches." and the model then moved on as if no file held
+        // the text; it is the same search as name "*.txt" with the directory spelled out.
+        assertTrue(inInbox.output().contains(Path.of("inbox", "note_03.txt").toString()), inInbox.output());
+        assertFalse(inInbox.output().contains("note_04.txt"), inInbox.output());
+        assertFalse(inInbox.output().contains("top.txt"), inInbox.output());
+        assertTrue(anywhere.output().contains(Path.of("inbox", "note_03.txt").toString()), anywhere.output());
+        assertTrue(byName.output().contains("top.txt"), byName.output());
+        assertTrue(byName.output().contains("note_03.txt"), byName.output());
+    }
+
+    @Test
     void searchesOnlyAllowedRootsByNameAndContent() throws Exception {
         Files.writeString(root.resolve("note.md"), "marker-7319");
         Files.writeString(root.resolve("other.txt"), "marker-7319");

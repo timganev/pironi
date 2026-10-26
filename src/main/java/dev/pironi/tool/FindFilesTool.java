@@ -59,7 +59,7 @@ public final class FindFilesTool implements Tool, GrantAware {
                 + ReadReach.describe(allowedRoots);
     }
     @Override public String argumentSchema() {
-        return "{\"root\":\"allowed absolute root, optional\",\"name\":\"glob, optional\","
+        return "{\"root\":\"allowed absolute root, optional\",\"name\":\"glob on the file name, or on the path under root if it has a /; optional\","
                 + "\"contains\":\"text, optional\",\"maxResults\":\"integer, optional, max 100\"}";
     }
     @Override public boolean mutating() { return false; }
@@ -72,6 +72,10 @@ public final class FindFilesTool implements Tool, GrantAware {
             String contains = arguments.path("contains").asText("");
             int maxResults = ToolArguments.optionalPositiveInt(arguments, "maxResults", 20, 100);
             PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + name);
+            // A glob with a directory in it ("inbox/*.txt") never matched a bare file name, so it
+            // came back as "No matches" and the model concluded the files were not there. Such a
+            // glob is matched against the path under the root instead.
+            boolean pathGlob = name.contains("/") || name.contains(java.io.File.separator);
             Path realRoot = root.toRealPath();
             List<String> results = new ArrayList<>();
             Set<Object> visitedDirectories = new HashSet<>();
@@ -110,7 +114,8 @@ public final class FindFilesTool implements Tool, GrantAware {
                         return FileVisitResult.TERMINATE;
                     }
                     if (results.size() >= maxResults) return FileVisitResult.TERMINATE;
-                    if (!attributes.isRegularFile() || !matcher.matches(candidate.getFileName())) {
+                    Path subject = pathGlob ? realRoot.relativize(candidate) : candidate.getFileName();
+                    if (!attributes.isRegularFile() || !matcher.matches(subject)) {
                         return FileVisitResult.CONTINUE;
                     }
                     try {
