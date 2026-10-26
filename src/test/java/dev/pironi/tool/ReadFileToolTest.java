@@ -124,6 +124,38 @@ class ReadFileToolTest {
     }
 
     @Test
+    void aWholeFileThatDoesNotFitShowsAShortPreviewAndHowToGoOn() throws Exception {
+        Path workspaceRoot = Files.createDirectory(root.resolve("workspace"));
+        StringBuilder log = new StringBuilder();
+        for (int line = 1; line <= 3_000; line++) {
+            log.append("2026-10-26 14:00:").append(line % 60).append(" ERROR E1042 request ").append(line).append('\n');
+        }
+        Files.writeString(workspaceRoot.resolve("server.log"), log);
+        ReadFileTool tool = new ReadFileTool(new Workspace(workspaceRoot), 32_000);
+
+        ToolResult result = tool.execute(mapper.createObjectNode().put("path", "server.log"));
+
+        assertTrue(result.success());
+        // The preview, not the 32 000-character limit, bounds a file asked for whole.
+        assertTrue(result.output().length() < ReadFileTool.PREVIEW_CHARACTERS + 400, result.output());
+        assertTrue(result.output().contains("of 3000"), result.output());
+        assertTrue(result.output().contains("startLine="), result.output());
+        assertTrue(result.output().contains("grep"), result.output());
+    }
+
+    @Test
+    void aFileThatFitsIsStillReturnedWhole() throws Exception {
+        Path workspaceRoot = Files.createDirectory(root.resolve("workspace"));
+        String text = "x".repeat(10_000);
+        Files.writeString(workspaceRoot.resolve("module.py"), text);
+        ReadFileTool tool = new ReadFileTool(new Workspace(workspaceRoot), 32_000);
+
+        ToolResult result = tool.execute(mapper.createObjectNode().put("path", "module.py"));
+
+        assertEquals(text, result.output());
+    }
+
+    @Test
     void rangeOutputStillHonorsCharacterLimit() throws Exception {
         Path workspaceRoot = Files.createDirectory(root.resolve("workspace"));
         Files.writeString(workspaceRoot.resolve("rows.txt"), "12345\n67890\n");

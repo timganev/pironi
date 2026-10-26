@@ -20,6 +20,14 @@ public final class ReadFileTool implements Tool, GrantAware {
     private volatile AccessGrants grants = new AccessGrants();
     private static final int DEFAULT_RANGE_LINES = 200;
     private static final int MAX_RANGE_LINES = 10_000;
+    /**
+     * How much of a file too big to return whole is shown when it is asked for whole.
+     *
+     * <p>Showing the first 32 000 characters of a 160 KB log cost about 8 000 tokens on every such
+     * read, and the agent then counted the lines with a command anyway: the head of a file that
+     * does not fit answers almost nothing a range or a grep would not answer better.
+     */
+    static final int PREVIEW_CHARACTERS = 4_000;
     private final Workspace workspace;
     private final int maxCharacters;
     private final List<Path> allowedRoots;
@@ -126,9 +134,8 @@ public final class ReadFileTool implements Tool, GrantAware {
             }
             String content = Files.readString(file, StandardCharsets.UTF_8);
             if (content.length() > maxCharacters) {
-                return ToolResult.success(
-                        content.substring(0, maxCharacters) + shortfall(content, maxCharacters)
-                );
+                int shown = Math.min(PREVIEW_CHARACTERS, maxCharacters);
+                return ToolResult.success(content.substring(0, shown) + shortfall(content, shown));
             }
             return ToolResult.success(content);
         } catch (IllegalArgumentException | IOException e) {
@@ -197,7 +204,8 @@ public final class ReadFileTool implements Tool, GrantAware {
         return System.lineSeparator()
                 + "[truncated after " + shown + " of " + content.length() + " characters; showed "
                 + "lines 1-" + shownLines + " of " + totalLines + ". Continue with startLine="
-                + (shownLines + 1) + " and lineCount, or use tailLines for the end.]";
+                + (shownLines + 1) + " and lineCount, or use tailLines for the end. To count or "
+                + "search the whole file, run grep or a short script instead of reading it.]";
     }
 
     private Path resolve(String supplied) throws IOException {
