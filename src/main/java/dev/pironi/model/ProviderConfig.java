@@ -10,8 +10,21 @@ public record ProviderConfig(
         String apiKey,
         Duration timeout,
         int contextSize,
-        int maxOutputTokens
+        int maxOutputTokens,
+        ReasoningGuard reasoningGuard
 ) {
+    public ProviderConfig(
+            ProviderType type,
+            URI baseUri,
+            String model,
+            String apiKey,
+            Duration timeout,
+            int contextSize,
+            int maxOutputTokens
+    ) {
+        this(type, baseUri, model, apiKey, timeout, contextSize, maxOutputTokens, ReasoningGuard.OFF);
+    }
+
     public ModelClient createClient() {
         return switch (type) {
             case OLLAMA -> new OllamaClient(
@@ -33,7 +46,8 @@ public record ProviderConfig(
                     model,
                     apiKey,
                     timeout,
-                    maxOutputTokens
+                    maxOutputTokens,
+                    reasoningGuard
             );
         };
     }

@@ -30,6 +30,8 @@ record CliOptions(
         int maxTurns,
         int contextSize,
         int maxOutputTokens,
+        int thinkingBudget,
+        boolean stopRepetition,
         Duration modelTimeout,
         Path tracePath,
         Path pironiHome,
@@ -51,10 +53,10 @@ record CliOptions(
             System.getProperty("user.dir", ".")
     ).toAbsolutePath().normalize();
     private static final Set<String> BOOLEAN_FLAGS = Set.of(
-            "interactive", "no-interactive", "no-tui", "continue", "portable");
+            "interactive", "no-interactive", "no-tui", "continue", "portable", "stop-repetition");
     private static final Set<String> VALUE_OPTIONS = Set.of(
             "provider", "base-url", "api-key-env", "model", "workspace", "task", "task-file",
-            "approval", "activity", "max-turns", "context", "max-output-tokens",
+            "approval", "activity", "max-turns", "context", "max-output-tokens", "thinking-budget",
             "timeout-seconds", "trace", "pironi-home", "personal-context", "status",
             "verify-command", "deny-tools", "allow-tools", "shell-scope", "read-scope",
             "search-roots", "resume",
@@ -77,6 +79,8 @@ record CliOptions(
                 maxTurns,
                 contextSize,
                 maxOutputTokens,
+                thinkingBudget,
+                stopRepetition,
                 modelTimeout,
                 tracePath,
                 pironiHome,
@@ -116,6 +120,8 @@ record CliOptions(
                 maxTurns,
                 newContextSize,
                 maxOutputTokens,
+                thinkingBudget,
+                stopRepetition,
                 modelTimeout,
                 tracePath,
                 pironiHome,
@@ -148,6 +154,8 @@ record CliOptions(
                 maxTurns,
                 contextSize,
                 maxOutputTokens,
+                thinkingBudget,
+                stopRepetition,
                 modelTimeout,
                 tracePath,
                 pironiHome,
@@ -180,6 +188,8 @@ record CliOptions(
                 maxTurns,
                 contextSize,
                 maxOutputTokens,
+                thinkingBudget,
+                stopRepetition,
                 modelTimeout,
                 tracePath,
                 pironiHome,
@@ -329,6 +339,10 @@ record CliOptions(
                         defaultContextSize(provider)
                 ),
                 positiveInt(values, "max-output-tokens", 4_096),
+                // Off unless asked for: only a server that understands these limits may be sent
+                // them, and a vLLM serving a thinking model is the one that needs them.
+                values.containsKey("thinking-budget") ? positiveInt(values, "thinking-budget", 0) : 0,
+                values.containsKey("stop-repetition"),
                 Duration.ofSeconds(positiveInt(values, "timeout-seconds", 600)),
                 trace,
                 pironiHome,

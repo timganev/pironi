@@ -81,6 +81,110 @@ class OpenAiCompatibleClientTest {
     }
 
     @Test
+    void anUnguardedRequestCarriesNoReasoningLimits() throws Exception {
+        List<JsonNode> requests = new java.util.concurrent.CopyOnWriteArrayList<>();
+        HttpServer server = scriptedServer(requests, List.of("""
+                {"choices":[{"finish_reason":"stop","message":{"content":"{\\"finalAnswer\\":\\"ok\\"}"}}]}
+                """));
+        try {
+            client(server, ReasoningGuard.OFF).chat(List.of(ChatMessage.user("hello")));
+
+            JsonNode body = requests.getFirst();
+            assertTrue(body.path("thinking_token_budget").isMissingNode(), body.toString());
+            assertTrue(body.path("repetition_detection").isMissingNode(), body.toString());
+            assertTrue(body.path("chat_template_kwargs").isMissingNode(), body.toString());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void aThinkingLoopIsAskedOnceMoreToActWithThinkingOff() throws Exception {
+        List<JsonNode> requests = new java.util.concurrent.CopyOnWriteArrayList<>();
+        HttpServer server = scriptedServer(requests, List.of("""
+                {"choices":[{"finish_reason":"length","message":{"content":null,"reasoning":"hmm, hmm, hmm"}}],
+                 "usage":{"prompt_tokens":10,"completion_tokens":8192}}
+                """, """
+                {"choices":[{"finish_reason":"stop","message":{"content":"{\\"finalAnswer\\":\\"done\\"}"}}]}
+                """));
+        try {
+            ModelResponse response = client(server, new ReasoningGuard(4096, true))
+                    .chat(List.of(ChatMessage.user("move the files")));
+
+            assertEquals("{\"finalAnswer\":\"done\"}", response.content());
+            assertEquals(2, response.requestAttempts());
+            assertEquals("thinking-loop:length", response.fallbackFrom());
+            JsonNode first = requests.get(0);
+            assertEquals(4096, first.path("thinking_token_budget").asInt());
+            assertEquals(4, first.path("repetition_detection").path("min_count").asInt());
+            assertTrue(first.path("chat_template_kwargs").isMissingNode(), first.toString());
+            JsonNode second = requests.get(1);
+            assertEquals(false, second.path("chat_template_kwargs").path("enable_thinking").asBoolean(true));
+            // The nudge goes last so the cached prefix of the first request still matches.
+            assertEquals(first.path("messages").get(0), second.path("messages").get(0));
+            JsonNode nudge = second.path("messages").get(second.path("messages").size() - 1);
+            assertTrue(nudge.path("content").asText().contains("Stop thinking"), nudge.toString());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void anEmptyAnswerThatIsNotALoopIsNotRetried() throws Exception {
+        List<JsonNode> requests = new java.util.concurrent.CopyOnWriteArrayList<>();
+        HttpServer server = scriptedServer(requests, List.of("""
+                {"choices":[{"finish_reason":"stop","message":{"content":""}}]}
+                """, """
+                {"choices":[{"finish_reason":"stop","message":{"content":"{\\"finalAnswer\\":\\"late\\"}"}}]}
+                """));
+        try {
+            assertThrows(java.io.IOException.class, () -> client(server, new ReasoningGuard(4096, false))
+                    .chat(List.of(ChatMessage.user("hello"))));
+            assertEquals(1, requests.size());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void aSecondLoopEndsTheTurnAfterOneRescue() throws Exception {
+        List<JsonNode> requests = new java.util.concurrent.CopyOnWriteArrayList<>();
+        String loop = """
+                {"choices":[{"finish_reason":"repetition","message":{"content":"","reasoning":"again again"}}]}
+                """;
+        HttpServer server = scriptedServer(requests, List.of(loop, loop, loop));
+        try {
+            java.io.IOException error = assertThrows(java.io.IOException.class,
+                    () -> client(server, new ReasoningGuard(0, true)).chat(List.of(ChatMessage.user("hi"))));
+            assertEquals(2, requests.size());
+            assertTrue(error.getMessage().contains("finish_reason=repetition"), error.getMessage());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private HttpServer scriptedServer(List<JsonNode> requests, List<String> replies) throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            requests.add(objectMapper.readTree(exchange.getRequestBody()));
+            byte[] response = replies.get(Math.min(calls.getAndIncrement(), replies.size() - 1))
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        return server;
+    }
+
+    private static OpenAiCompatibleClient client(HttpServer server, ReasoningGuard guard) {
+        return new OpenAiCompatibleClient(
+                URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/v1"),
+                "test-model", "test-key", Duration.ofSeconds(5), 8192, guard);
+    }
+
+    @Test
     void preservesApiVersionPathWhenBuildingChatEndpoint() throws Exception {
         AtomicReference<String> requestPath = new AtomicReference<>();
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);

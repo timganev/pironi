@@ -16,6 +16,7 @@ import dev.pironi.agent.SystemPrompt;
 import dev.pironi.model.ModelClient;
 import dev.pironi.model.ProviderConfig;
 import dev.pironi.model.ProviderType;
+import dev.pironi.model.ReasoningGuard;
 import dev.pironi.model.SwitchableModelClient;
 import dev.pironi.safety.AccessGrants;
 import dev.pironi.safety.ApprovalDecision;
@@ -966,7 +967,8 @@ public final class PironiMain {
                 options.apiKey(),
                 options.modelTimeout(),
                 options.contextSize(),
-                options.maxOutputTokens()
+                options.maxOutputTokens(),
+                new ReasoningGuard(options.thinkingBudget(), options.stopRepetition())
         );
     }
 

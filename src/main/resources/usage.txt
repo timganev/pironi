@@ -28,6 +28,8 @@ Agent:
   --max-turns N                                 default: 8
   --context N                                   Ollama 8192, OpenRouter 200000, DeepSeek 1000000
   --max-output-tokens N                         default: 4096
+  --thinking-budget N                           OpenAI-compatible: end thinking after N tokens; off by default
+  --stop-repetition                            OpenAI-compatible: stop a reply whose tail repeats itself
   --timeout-seconds N                           model request timeout, default: 600
   --trace PATH                                  default: WORKSPACE/.pironi/trace.jsonl
   --pironi-home PATH                            default: ~/.pironi

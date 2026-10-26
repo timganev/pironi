@@ -46,6 +46,20 @@ class CliOptionsTest {
     }
 
     @Test
+    void reasoningLimitsAreOffUnlessAskedFor() {
+        CliOptions plain = CliOptions.parse(new String[0], Map.of());
+        assertEquals(0, plain.thinkingBudget());
+        assertEquals(false, plain.stopRepetition());
+
+        CliOptions guarded = CliOptions.parse(
+                new String[]{"--thinking-budget", "4096", "--stop-repetition"}, Map.of());
+        assertEquals(4096, guarded.thinkingBudget());
+        assertTrue(guarded.stopRepetition());
+        assertThrows(IllegalArgumentException.class,
+                () -> CliOptions.parse(new String[]{"--thinking-budget", "0"}, Map.of()));
+    }
+
+    @Test
     void interactiveDefaultsToCurrentWorkingDirectory() {
         CliOptions options = CliOptions.parse(
                 new String[]{"--model", "qwen3.6:35b-a3b"},

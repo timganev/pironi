@@ -716,6 +716,8 @@ them, or start with `--personal-context auto`, before pointing Pironi at one.
 --max-turns N
 --context N
 --max-output-tokens N
+--thinking-budget N
+--stop-repetition
 --timeout-seconds N
 --trace PATH
 --pironi-home PATH

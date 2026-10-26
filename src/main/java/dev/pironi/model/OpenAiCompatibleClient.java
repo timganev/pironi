@@ -23,6 +23,7 @@ public final class OpenAiCompatibleClient implements ModelClient {
     private final String apiKey;
     private final Duration timeout;
     private final int maxOutputTokens;
+    private final ReasoningGuard reasoningGuard;
     private final boolean deepSeekThinking;
     private volatile boolean jsonSchemaSupported;
     /**
@@ -48,6 +49,17 @@ public final class OpenAiCompatibleClient implements ModelClient {
             Duration timeout,
             int maxOutputTokens
     ) {
+        this(baseUri, model, apiKey, timeout, maxOutputTokens, ReasoningGuard.OFF);
+    }
+
+    public OpenAiCompatibleClient(
+            URI baseUri,
+            String model,
+            String apiKey,
+            Duration timeout,
+            int maxOutputTokens,
+            ReasoningGuard reasoningGuard
+    ) {
         this(
                 defaultHttpClient(),
                 new ObjectMapper(),
@@ -56,6 +68,7 @@ public final class OpenAiCompatibleClient implements ModelClient {
                 apiKey,
                 timeout,
                 maxOutputTokens,
+                reasoningGuard,
                 false
         );
     }
@@ -123,6 +136,21 @@ public final class OpenAiCompatibleClient implements ModelClient {
             int maxOutputTokens,
             boolean deepSeekThinking
     ) {
+        this(httpClient, objectMapper, endpoint, model, apiKey, timeout, maxOutputTokens,
+                ReasoningGuard.OFF, deepSeekThinking);
+    }
+
+    OpenAiCompatibleClient(
+            HttpClient httpClient,
+            ObjectMapper objectMapper,
+            URI endpoint,
+            String model,
+            String apiKey,
+            Duration timeout,
+            int maxOutputTokens,
+            ReasoningGuard reasoningGuard,
+            boolean deepSeekThinking
+    ) {
         this.httpClient = httpClient;
         this.objectMapper = objectMapper;
         this.endpoint = endpoint;
@@ -130,6 +158,7 @@ public final class OpenAiCompatibleClient implements ModelClient {
         this.apiKey = apiKey;
         this.timeout = timeout;
         this.maxOutputTokens = maxOutputTokens;
+        this.reasoningGuard = reasoningGuard;
         this.deepSeekThinking = deepSeekThinking;
         this.jsonSchemaSupported = !deepSeekThinking;
     }
@@ -160,7 +189,9 @@ public final class OpenAiCompatibleClient implements ModelClient {
     private ModelResponse chat(List<ChatMessage> messages, boolean structured)
             throws IOException, InterruptedException {
         long startNanos = System.nanoTime();
-        int maxAttempts = deepSeekThinking ? 3 : 1;
+        // A guarded local model gets one more try when it thought until it was stopped and never
+        // answered; see thinkingRescue below.
+        int maxAttempts = deepSeekThinking ? 3 : reasoningGuard.enabled() ? 2 : 1;
         int requestAttempts = 0;
         String fallbackFrom = "";
         long totalDurationNanos = 0;
@@ -168,9 +199,10 @@ public final class OpenAiCompatibleClient implements ModelClient {
         boolean offerSchema = offerSchema();
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             boolean plainRecovery = structured && deepSeekThinking && attempt == maxAttempts;
+            boolean thinkingRescue = !deepSeekThinking && attempt > 1;
             String schemaFailure = null;
             TimedResponse timed = send(messages, structured && !plainRecovery, offerSchema,
-                    plainRecovery, outputBudget);
+                    plainRecovery, thinkingRescue, outputBudget);
             requestAttempts++;
             totalDurationNanos += timed.durationNanos();
             HttpResponse<String> response = timed.response();
@@ -218,6 +250,17 @@ public final class OpenAiCompatibleClient implements ModelClient {
                 throw new IOException("Provider response has no choices[0].message object");
             }
             String content = responseContent(message.get("content"));
+            if (content.isBlank() && !deepSeekThinking && attempt < maxAttempts) {
+                // The model thought in a circle until the budget, the repetition check or the
+                // output limit stopped it, and the answer never began. Asking the same question
+                // again walks the same circle, so the retry says to stop thinking and act, with
+                // thinking switched off. Anything else empty is not a loop and is not retried.
+                if (looped(finishReason) && reasoningLength(message) > 0) {
+                    fallbackFrom = "thinking-loop:" + finishReason;
+                    continue;
+                }
+                maxAttempts = attempt;
+            }
             if (content.isBlank() && attempt < maxAttempts) {
                 // A thinking model can spend its whole output budget reasoning and never begin the
                 // answer; the response then carries reasoning_content, no content, and
@@ -274,7 +317,7 @@ public final class OpenAiCompatibleClient implements ModelClient {
             boolean plainRecovery
     )
             throws IOException, InterruptedException {
-        return send(messages, structured, jsonSchema, plainRecovery, maxOutputTokens);
+        return send(messages, structured, jsonSchema, plainRecovery, false, maxOutputTokens);
     }
 
     private TimedResponse send(
@@ -282,6 +325,7 @@ public final class OpenAiCompatibleClient implements ModelClient {
             boolean structured,
             boolean jsonSchema,
             boolean plainRecovery,
+            boolean thinkingRescue,
             int outputBudget
     )
             throws IOException, InterruptedException {
@@ -294,6 +338,18 @@ public final class OpenAiCompatibleClient implements ModelClient {
             payload.set("response_format", AgentResponseSchema.openAiResponseFormat(objectMapper));
         } else if (structured) {
             payload.putObject("response_format").put("type", "json_object");
+        }
+        if (reasoningGuard.thinkingTokenBudget() > 0) {
+            payload.put("thinking_token_budget", reasoningGuard.thinkingTokenBudget());
+        }
+        if (reasoningGuard.stopRepetition()) {
+            payload.putObject("repetition_detection")
+                    .put("min_pattern_size", ReasoningGuard.REPETITION_MIN_PATTERN)
+                    .put("max_pattern_size", ReasoningGuard.REPETITION_MAX_PATTERN)
+                    .put("min_count", ReasoningGuard.REPETITION_MIN_COUNT);
+        }
+        if (thinkingRescue) {
+            payload.putObject("chat_template_kwargs").put("enable_thinking", false);
         }
         if (deepSeekThinking) {
             payload.putObject("thinking").put("type", "enabled");
@@ -312,6 +368,14 @@ public final class OpenAiCompatibleClient implements ModelClient {
                     .put("content", "The provider returned empty structured responses. Reply now with "
                             + "one compact valid JSON object containing thought, toolCalls, and finalAnswer. "
                             + "Do not use Markdown fences.");
+        }
+        if (thinkingRescue) {
+            // Appended, not inserted: everything before it is the request the server has cached.
+            messageArray.addObject()
+                    .put("role", "user")
+                    .put("content", "You thought in a circle and never answered. Stop thinking "
+                            + "and act now: reply at once with the JSON object - call the tool you "
+                            + "need, or give the final answer.");
         }
 
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(endpoint)
@@ -393,6 +457,11 @@ public final class OpenAiCompatibleClient implements ModelClient {
         return body.contains("response_format") && (body.contains("unsupported")
                 || body.contains("not supported") || body.contains("unavailable")
                 || body.contains("prompt must contain") || body.contains("not allowed"));
+    }
+
+    /** Stopped by a limit or a repetition check rather than by finishing. */
+    private static boolean looped(String finishReason) {
+        return "length".equals(finishReason) || "repetition".equals(finishReason);
     }
 
     /** How much the model thought, for the two providers that report it under either name. */
