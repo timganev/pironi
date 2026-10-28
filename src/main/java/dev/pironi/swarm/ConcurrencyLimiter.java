@@ -42,9 +42,13 @@ public final class ConcurrencyLimiter {
     public static final int SAFETY_CEILING = 64;
     /** Where a server that tells nothing about itself starts. */
     public static final int BLIND_START = 4;
-    /** Requests finished per wave: this many, or one per slot, doubled from {@link #LARGE_LIMIT}. */
+    /**
+     * Requests finished per wave: this many, or one per slot. Every decision takes two waves, so a
+     * limit of 8 is judged on 16 answers; more would leave a thrashing server alone for minutes.
+     */
     static final int MIN_WAVE = 4;
-    static final int LARGE_LIMIT = 8;
+    /** A step down that gives this much more is followed by another at once. */
+    static final double CLEAR_GAIN = 1.2;
     /** Without /metrics, one more is kept only if it brings at least this much more throughput. */
     static final double STEP_GAIN = 1.02;
     /** Throughput below this share of the best seen means overshoot or someone else on the server. */
@@ -67,11 +71,11 @@ public final class ConcurrencyLimiter {
 
     private final int ceiling;
     private int limit;
-    /** The most the server was seen to run at once (vLLM's queue said it was full); growth stops there. */
-    private int cap;
     private Signal signal = Signal.NONE;
     private int epoch;
     private boolean frozen;
+    /** Started above the blind default, on a limit learned or told: see first whether fewer do as well. */
+    private boolean downFirst;
     /** Unsaturated answers in a row, and the most in flight among them. */
     private int idleSamples;
     private double idlePeak;
@@ -84,8 +88,11 @@ public final class ConcurrencyLimiter {
     private int from;
     private double fromThroughput;
     private int quietWaves;
-    /** Waves to discard after a cut, while requests from the wider limit still finish. */
-    private int skip;
+    /**
+     * Waves to discard: the first, whose answers include the prefill of prompts no one sent before,
+     * and the one after a cut, while requests from the wider limit still finish.
+     */
+    private int skip = 1;
     private final Map<Integer, Double> throughput = new HashMap<>();
     private final Map<Integer, Integer> waves = new HashMap<>();
     private double best;
@@ -98,8 +105,8 @@ public final class ConcurrencyLimiter {
 
     public ConcurrencyLimiter(int ceiling, int start) {
         this.ceiling = Math.max(1, ceiling);
-        this.cap = this.ceiling;
         this.limit = Math.max(1, Math.min(start, this.ceiling));
+        this.downFirst = this.limit > BLIND_START;
     }
 
     public int limit() { return limit; }
@@ -158,8 +165,7 @@ public final class ConcurrencyLimiter {
     }
 
     private int waveSize() {
-        int size = Math.max(MIN_WAVE, limit);
-        return limit >= LARGE_LIMIT ? 2 * size : size;
+        return Math.max(MIN_WAVE, limit);
     }
 
     private void resetWave() {
@@ -184,15 +190,21 @@ public final class ConcurrencyLimiter {
             boolean up = limit > from;
             boolean keep = up ? mean >= STEP_GAIN * fromThroughput : mean * STEP_GAIN >= fromThroughput;
             int back = from;
+            double was = fromThroughput;
             from = 0;
+            best = Math.max(best, mean);
             if (!keep) {
                 if (up) hold = HOLD_WAVES; else downHold = HOLD_WAVES;
                 moveTo(back);
+            } else if (!up && mean >= CLEAR_GAIN * was && limit > 1) {
+                // Far better with fewer: the server was thrashing. Keep going down.
+                stepDown();
             }
-            best = Math.max(best, Math.max(mean, fromThroughput));
             return;
         }
-        if (n >= 2 && mean < DROP * best && limit > 1) {
+        if (signal == Signal.NONE && n >= 2 && mean < DROP * best && limit > 1) {
+            // Only blind: with /metrics, a busy server shows there, and a fall in throughput alone
+            // is more often answers of another size.
             // Well below what was seen: the server is thrashing, or someone else is on it.
             // What was measured before no longer holds.
             throughput.clear();
@@ -202,7 +214,13 @@ public final class ConcurrencyLimiter {
             moveTo(limit - 1);
             return;
         }
-        best = Math.max(best, mean);
+        if (n >= 2) best = Math.max(best, mean);  // one wave is too noisy to set the bar
+        if (downFirst && signal == Signal.NONE && limit > 1 && downHold == 0 && !measuredBelow()) {
+            // Started high on what was known: first see whether fewer do as well.
+            downFirst = false;
+            stepDown();
+            return;
+        }
         if (wanted && canGrow()) {
             // With a green light one more is safe and kept; without one it is on trial.
             if (signal != Signal.GREEN) trial();
@@ -212,11 +230,20 @@ public final class ConcurrencyLimiter {
         if (signal == Signal.NONE && limit > 1 && downHold == 0 && quietWaves >= 2) {
             // Nothing tells when the server is past its best; one step down shows it. A server
             // with fixed slots gives the same throughput with fewer, and a thrashing cache more.
-            trial();
-            moveTo(limit - Math.max(1, limit / 4));
+            stepDown();
             return;
         }
         quietWaves++;
+    }
+
+    private void stepDown() {
+        trial();
+        moveTo(limit - Math.max(1, limit / 4));
+    }
+
+    private boolean measuredBelow() {
+        for (int l : throughput.keySet()) if (l < limit) return true;
+        return false;
     }
 
     private void trial() {
@@ -225,7 +252,7 @@ public final class ConcurrencyLimiter {
     }
 
     private boolean canGrow() {
-        return hold == 0 && signal != Signal.HOLD && limit < Math.min(ceiling, cap);
+        return hold == 0 && signal != Signal.HOLD && limit < ceiling;
     }
 
     /** 429, 503, a timeout or a red reading: halve now. */
@@ -237,13 +264,6 @@ public final class ConcurrencyLimiter {
         waves.clear();
         best = 0;
         moveTo(Math.max(1, limit / 2));
-    }
-
-    /** The server queued requests while running {@code running}: that is all it takes at once. */
-    public void capAt(int running) {
-        cap = Math.max(1, running);
-        from = 0;
-        if (limit > cap) moveTo(cap);
     }
 
     private void moveTo(int newLimit) {

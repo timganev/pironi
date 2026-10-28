@@ -208,7 +208,6 @@ public final class DispatchController {
         light = classify(s);
         limiter.signal(light == Light.GREEN ? ConcurrencyLimiter.Signal.GREEN
                 : light == Light.UNKNOWN ? ConcurrencyLimiter.Signal.NONE : ConcurrencyLimiter.Signal.HOLD);
-        if (s.available() && s.fullWaiting() > 0 && s.running() >= 1) limiter.capAt((int) s.running());
         if (cooldown > 0) {
             cooldown--;
         } else if (light == Light.RED) {

@@ -132,16 +132,6 @@ class DispatchControllerTest {
     }
 
     @Test
-    void aFullServerQueueCapsTheLimitAtWhatItRuns() {
-        DispatchController c = controller(12, 64, 16_000);
-        c.onTick(new Sensors(true, 0.3, 4, 0, 0.1, 0.9, Double.NaN, false, 8, 4));
-        assertEquals(8, c.window());
-        c.onTick(green());
-        for (int i = 0; i < 20; i++) round(c, 1, 100);
-        assertEquals(8, c.window(), "grew past what the server runs at once");
-    }
-
-    @Test
     void aLimitSetByTheDemandIsNotKeptAsLearned() {
         DispatchController c = controller(8, 64, 16_000);
         for (int i = 0; i < 20; i++) {

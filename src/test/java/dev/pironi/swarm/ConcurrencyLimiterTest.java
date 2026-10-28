@@ -35,7 +35,12 @@ class ConcurrencyLimiterTest {
 
     /** A server to simulate; {@code kvTokens} 0 means fixed slots. */
     record Server(int slots, double prefillRate, double decodeAlone, long kvTokens, int minPrompt, int maxPrompt,
-                  int minGen, int maxGen) {
+                  int minGen, int maxGen, int thrashAbove) {
+        Server(int slots, double prefillRate, double decodeAlone, long kvTokens, int minPrompt, int maxPrompt,
+               int minGen, int maxGen) {
+            this(slots, prefillRate, decodeAlone, kvTokens, minPrompt, maxPrompt, minGen, maxGen, 0);
+        }
+
         static Server slots(int slots, double prefillRate, double decodeAlone) {
             return new Server(slots, prefillRate, decodeAlone, 0, 500, 4_000, 150, 600);
         }
@@ -149,6 +154,10 @@ class ConcurrencyLimiterTest {
                 }
             }
             double each = server.decodeAlone() * Math.pow(Math.max(1, decoding.size()), -0.4) * DT;
+            if (server.thrashAbove() > 0 && decoding.size() > server.thrashAbove()) {
+                // Past this the server swaps its cache in and out: the whole batch slows sharply.
+                each *= Math.pow((double) server.thrashAbove() / decoding.size(), 2);
+            }
             for (Request r : decoding) r.decodeLeft -= each;
             clock.addAndGet((long) (DT * 1e9));
             if (step > steps / 2) held.merge(c.window(), 1L, Long::sum);
@@ -260,13 +269,14 @@ class ConcurrencyLimiterTest {
     }
 
     @Test
-    void onAKvCacheServerTheLimitComesDownWhereMoreIsClearlyWorse() {
-        // Smaller cache: 16 in flight thrash it.
-        Server tight = new Server(32, 2_000, 30, 60_000, 4_000, 12_000, 300, 900);
-        double best = bestFixed(tight, 24, 3_000, 9, 2, 4, 6, 8);
-        Result held = fixed(tight, 16, 24, 3_000, 9);
-        Result learned = simulate(tight, 64, 16, 24, 3_000, 9);
-        assertTrue(learned.limit() < 16 && learned.tokensPerSecond() >= 0.9 * best,
+    void onAServerThatThrashesTheLimitComesDown() {
+        // Past six running the whole batch slows sharply, as a vLLM out of KV cache does. A stale
+        // profile says 16.
+        Server thrash = new Server(32, 6_000, 60, 0, 500, 4_000, 150, 600, 6);
+        double best = bestFixed(thrash, 24, 1_500, 9, 2, 4, 6, 8);
+        Result held = fixed(thrash, 16, 24, 1_500, 9);
+        Result learned = simulate(thrash, 64, 16, 24, 1_500, 9);
+        assertTrue(learned.limit() <= 8 && learned.tokensPerSecond() >= 0.85 * best,
                 learned + " vs best fixed " + best + ", 16 held " + held);
     }
 
