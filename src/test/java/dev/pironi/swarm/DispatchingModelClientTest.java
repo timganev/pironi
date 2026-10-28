@@ -9,7 +9,9 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DispatchingModelClientTest {
 
@@ -63,5 +65,36 @@ class DispatchingModelClientTest {
         dev.pironi.model.ModelClient plain = m -> null;
         assertSame(plain, DispatchingModelClient.wrap(plain, SwarmSettings.off(),
                 java.net.URI.create("http://127.0.0.1:8000/v1"), "k"));
+    }
+
+    @Test
+    void llamaCppSlotsBecomeTheCeiling() {
+        assertEquals(4, DispatchingModelClient.slotsIn("{\"total_slots\":4,\"model_path\":\"m.gguf\"}"));
+        assertEquals(0, DispatchingModelClient.slotsIn("{\"model\":\"other server\"}"));
+        assertEquals(0, DispatchingModelClient.slotsIn("not json"));
+    }
+
+    @Test
+    void aServerWithoutPropsLeavesTheSafetyCeiling() {
+        // Nothing listens on port 9: the limiter learns under the safety cap.
+        assertEquals(ConcurrencyLimiter.SAFETY_CEILING,
+                DispatchingModelClient.serverSlots(java.net.URI.create("http://127.0.0.1:9/v1"), null));
+    }
+
+    @Test
+    void fullServersAreToldApartFromBadRequests() {
+        assertTrue(DispatchingModelClient.overloaded(new java.io.IOException("Provider returned HTTP 429: slow down")));
+        assertTrue(DispatchingModelClient.overloaded(new java.io.IOException("Provider returned HTTP 503: busy")));
+        assertTrue(DispatchingModelClient.overloaded(
+                new java.io.IOException("send failed", new java.net.http.HttpTimeoutException("request timed out"))));
+        assertFalse(DispatchingModelClient.overloaded(new java.io.IOException("Provider returned HTTP 400: bad schema")));
+    }
+
+    @Test
+    void theOrchestratorDoesNotSplitAtALimitOfOne() {
+        var client = new DispatchingModelClient(m -> null, new DispatchController(64, 16_000), null, null);
+        assertEquals(1, client.parallelism().limit());
+        assertFalse(client.parallelism().worthSplitting());
+        assertTrue(new Parallelism(4, true, 8).worthSplitting());
     }
 }

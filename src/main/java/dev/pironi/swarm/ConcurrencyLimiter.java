@@ -63,8 +63,6 @@ public final class ConcurrencyLimiter {
     private int bad = Integer.MAX_VALUE;
     private boolean settled;
     private boolean growthAllowed = true;
-    /** Re-probing above a settled limit, rather than in the first search. */
-    private boolean probing;
     /** A limit left unclear, while the good one is measured longer; 0 when none. */
     private int pending;
     private Trial pendingTrial;
@@ -165,7 +163,6 @@ public final class ConcurrencyLimiter {
                 // throughput by less than the noise between answers of different sizes.
                 bad = Integer.MAX_VALUE;
                 settled = false;
-                probing = true;
                 moveTo(Math.max(limit + 1, (int) Math.ceil(limit * 1.5)));
             }
             return;
@@ -218,7 +215,6 @@ public final class ConcurrencyLimiter {
         } else {
             bad = limit;
         }
-        probing = probing && pays;  // a probe that paid off is a new search upward
         next();
     }
 
@@ -259,6 +255,8 @@ public final class ConcurrencyLimiter {
         bad = before > good ? before : Integer.MAX_VALUE;
         settled = true;
         settledSamples = 0;
+        pending = rerun = 0;
+        pendingTrial = null;
         measured.clear();
         moveTo(good);
     }
