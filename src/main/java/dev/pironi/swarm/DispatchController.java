@@ -38,6 +38,8 @@ public final class DispatchController {
     static final double HIT_RED = 0.5;
     /** Readings ignored after a cut, so one overload is not punished twice. */
     static final int COOLDOWN_TICKS = 3;
+    /** After a step back for a long queue: the queue drains one request at a time. */
+    static final int QUEUE_COOLDOWN_TICKS = 10;
     static final double DEFAULT_PREFILL_RATE = 4_000;
 
     private final ConcurrencyLimiter limiter;
@@ -210,15 +212,26 @@ public final class DispatchController {
                 : light == Light.UNKNOWN ? ConcurrencyLimiter.Signal.NONE : ConcurrencyLimiter.Signal.HOLD);
         if (cooldown > 0) {
             cooldown--;
-        } else if (light == Light.RED) {
+        } else if (light == Light.RED && severe(s)) {
             limiter.overload();
             budget = Math.max(minBudget, (long) (budget * 0.75));
             cooldown = COOLDOWN_TICKS;
+        } else if (light == Light.RED) {
+            // Only a long queue: one more than the server runs at once waited its turn. A step back
+            // is enough; the queue times of requests already waiting keep coming for a while.
+            limiter.backOff();
+            cooldown = QUEUE_COOLDOWN_TICKS;
         } else if (light == Light.GREEN) {
             budget = Math.min(maxBudget, (long) (budget * 1.25));
         }
         notifyAll();
         return light;
+    }
+
+    /** What says the server itself is in trouble, not only that requests queue for it. */
+    static boolean severe(Sensors s) {
+        return s.rateLimited() || s.preemptions() > 0 || s.kvUsage() > KV_RED
+                || s.prefixHitRate() < HIT_RED && s.kvUsage() >= KV_YELLOW;
     }
 
     static Light classify(Sensors s) {

@@ -167,6 +167,18 @@ class DispatchControllerTest {
     }
 
     @Test
+    void aLongQueueAloneStepsBackByOne() {
+        // One request past what vLLM runs at once waits seconds: red, but nothing is evicted.
+        DispatchController c = controller(9, 64, 16_000);
+        Sensors queued = new Sensors(true, 0.3, 1, 0, 11.8, 0.9, Double.NaN, false);
+        assertEquals(DispatchController.Light.RED, c.onTick(queued));
+        assertEquals(8, c.window());
+        assertEquals(16_000, c.budget());
+        for (int i = 0; i < DispatchController.QUEUE_COOLDOWN_TICKS; i++) c.onTick(queued);
+        assertEquals(8, c.window(), "the same queue was punished again while it drained");
+    }
+
+    @Test
     void anOverloadedAnswerHalvesTheLimitOncePerLimit() {
         DispatchController c = controller(8, 64, 16_000);
         var a = c.tryAcquire(1);

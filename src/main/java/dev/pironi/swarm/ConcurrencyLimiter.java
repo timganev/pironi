@@ -255,6 +255,13 @@ public final class ConcurrencyLimiter {
         return hold == 0 && signal != Signal.HOLD && limit < ceiling;
     }
 
+    /** Requests queued in the server: one less, and no growth for a while. */
+    public void backOff() {
+        hold = HOLD_WAVES;
+        from = 0;
+        moveTo(limit - 1);
+    }
+
     /** 429, 503, a timeout or a red reading: halve now. */
     public void overload() {
         hold = HOLD_WAVES;
