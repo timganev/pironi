@@ -56,6 +56,8 @@ public final class DispatchingModelClient implements ModelClient, AutoCloseable 
     private final java.util.ArrayDeque<List<ChatMessage>> recentStarts = new java.util.ArrayDeque<>();
     private final Thread poller;
     private volatile boolean closed;
+    private SwarmProfile profile;
+    private String profileKey;
 
     public DispatchingModelClient(ModelClient delegate, DispatchController controller,
                                   VllmMetrics metrics, PrintWriter log) {
@@ -68,7 +70,8 @@ public final class DispatchingModelClient implements ModelClient, AutoCloseable 
     }
 
     /** The wrapper --swarm asks for, or the client itself when it is off. */
-    public static ModelClient wrap(ModelClient client, SwarmSettings settings, URI baseUri, String apiKey) {
+    public static ModelClient wrap(ModelClient client, SwarmSettings settings, URI baseUri, String apiKey,
+                                   String model) {
         if (settings == null || !settings.enabled()) return client;
         RateLimitSignals.honorRetryAfter(true);
         PrintWriter log = null;
@@ -80,19 +83,27 @@ public final class DispatchingModelClient implements ModelClient, AutoCloseable 
                 throw new UncheckedIOException("cannot open swarm log " + settings.logPath(), e);
             }
         }
-        int ceiling = settings.maxParallel() > 0 ? settings.maxParallel() : serverSlots(baseUri, apiKey);
+        // Start high: at what the user or the server says, else at what was learned last time.
+        SwarmProfile profile = new SwarmProfile(settings.profilePath());
+        String key = SwarmProfile.key(baseUri, model);
+        int slots = settings.maxParallel() > 0 ? 0 : serverSlots(baseUri, apiKey);
+        int ceiling = settings.maxParallel() > 0 ? settings.maxParallel()
+                : slots > 0 ? slots : ConcurrencyLimiter.SAFETY_CEILING;
+        int learned = profile.limit(key);
+        int start = settings.maxParallel() > 0 || slots > 0 ? ceiling
+                : learned > 0 ? Math.min(learned, ceiling) : ConcurrencyLimiter.BLIND_START;
         DispatchingModelClient wrapped = new DispatchingModelClient(client,
-                new DispatchController(ceiling, settings.budgetTokens()),
+                new DispatchController(ceiling, start, settings.budgetTokens()),
                 settings.blind() ? null : new VllmMetrics(VllmMetrics.metricsUri(baseUri), apiKey), log);
-        wrapped.log("start ceiling=" + ceiling + (settings.maxParallel() > 0 ? " (--max-parallel)" : "")
-                + (settings.blind() ? " blind" : ""));
+        wrapped.profile = profile;
+        wrapped.profileKey = key;
+        wrapped.log("start limit=" + start + " ceiling=" + ceiling
+                + (settings.maxParallel() > 0 ? " (--max-parallel)" : slots > 0 ? " (/props)" : "")
+                + (learned > 0 ? " learned=" + learned : "") + (settings.blind() ? " blind" : ""));
         return wrapped;
     }
 
-    /**
-     * How many requests the server says it runs at once: llama.cpp's /props has total_slots.
-     * Others say nothing, and the limiter learns it under {@link ConcurrencyLimiter#SAFETY_CEILING}.
-     */
+    /** How many requests the server says it runs at once (llama.cpp's /props total_slots), or 0. */
     static int serverSlots(URI baseUri, String apiKey) {
         String base = baseUri.toString().replaceAll("/+$", "");
         if (base.endsWith("/v1")) base = base.substring(0, base.length() - 3);
@@ -102,13 +113,12 @@ public final class DispatchingModelClient implements ModelClient, AutoCloseable 
             if (apiKey != null && !apiKey.isBlank()) b.header("Authorization", "Bearer " + apiKey);
             HttpResponse<String> r = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build()
                     .send(b.build(), HttpResponse.BodyHandlers.ofString());
-            int slots = r.statusCode() / 100 == 2 ? slotsIn(r.body()) : 0;
-            return slots > 0 ? slots : ConcurrencyLimiter.SAFETY_CEILING;
+            return r.statusCode() / 100 == 2 ? Math.max(0, slotsIn(r.body())) : 0;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return ConcurrencyLimiter.SAFETY_CEILING;
+            return 0;
         } catch (Exception e) {
-            return ConcurrencyLimiter.SAFETY_CEILING;
+            return 0;
         }
     }
 
@@ -273,7 +283,14 @@ public final class DispatchingModelClient implements ModelClient, AutoCloseable 
                 lastWindow = p.limit();
                 lastSettled = p.settled();
             }
+            remember();
         }
+    }
+
+    /** Keeps the limit for the next run; only a settled one, so a search cut short is not kept. */
+    private void remember() {
+        int learned = controller.learnedLimit();
+        if (profile != null && learned > 0) profile.remember(profileKey, learned);
     }
 
     private void log(String line) {
@@ -287,6 +304,7 @@ public final class DispatchingModelClient implements ModelClient, AutoCloseable 
     @Override
     public void close() {
         closed = true;
+        remember();
         if (poller != null) poller.interrupt();
         if (log != null) log.flush();
     }

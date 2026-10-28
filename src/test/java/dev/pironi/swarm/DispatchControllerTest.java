@@ -32,11 +32,10 @@ class DispatchControllerTest {
     }
 
     @Test
-    void theLimitStartsAtOne() {
+    void withNothingKnownTheLimitStartsAtFour() {
         DispatchController c = new DispatchController(64, 16_000);
-        assertEquals(1, c.window());
-        assertNotNull(c.tryAcquire(10));
-        assertNull(c.tryAcquire(10), "a second request went out before anything was learned");
+        assertEquals(ConcurrencyLimiter.BLIND_START, c.window());
+        assertEquals(1, new DispatchController(1, 16_000).window(), "a one-slot server is not overrun");
     }
 
     @Test
@@ -82,46 +81,83 @@ class DispatchControllerTest {
         assertNotNull(c.tryAcquire(8_000), "decode of a prefilled request blocked new prefill");
     }
 
+    /**
+     * One round: fills the limit, asks for one more (held back), lets {@code seconds} pass and
+     * finishes them all with {@code tokens} each.
+     */
+    private void round(DispatchController c, double seconds, long tokens) {
+        int limit = c.window();
+        var permits = new java.util.ArrayList<DispatchController.Permit>();
+        for (int i = 0; i < limit; i++) permits.add(c.tryAcquire(100));
+        assertNull(c.tryAcquire(100));
+        now.addAndGet((long) (seconds * 1e9));
+        for (var p : permits) c.release(p, tokens);
+    }
+
     @Test
-    void withoutMetricsTheLimitStillGrows() {
-        // Before: an UNKNOWN light held the window where it was. Latency alone must be enough.
-        DispatchController c = new DispatchController(64, 16_000, now::get);
-        for (int round = 0; round < 8; round++) {
-            c.onTick(Sensors.unavailable(false));
-            int limit = c.window();
-            var permits = new java.util.ArrayList<DispatchController.Permit>();
-            for (int i = 0; i < limit; i++) permits.add(c.tryAcquire(100));
-            assertNull(c.tryAcquire(100));  // demand beyond the limit
-            now.addAndGet(TimeUnit.SECONDS.toNanos(1));
-            for (var p : permits) c.release(p, 100);  // linear speed-up: every request as fast as alone
-            if (c.window() == limit) {
-                // a trial needs a few samples; repeat the round at the same limit
-                for (int k = 0; k < 3; k++) {
-                    permits.clear();
-                    for (int i = 0; i < limit; i++) permits.add(c.tryAcquire(100));
-                    c.tryAcquire(100);
-                    now.addAndGet(TimeUnit.SECONDS.toNanos(1));
-                    for (var p : permits) c.release(p, 100);
-                }
-            }
-        }
+    void withoutMetricsTheLimitGrowsWhileOneMorePays() {
+        DispatchController c = controller(4, 64, 16_000);
+        // Every request as fast as alone: throughput grows with the limit.
+        for (int i = 0; i < 40 && c.window() < 8; i++) round(c, 1, 100);
         assertTrue(c.window() >= 8, "the limit stayed at " + c.window() + " with no /metrics");
     }
 
     @Test
-    void yellowStopsTheSearchForAWiderLimit() {
+    void withoutMetricsTheLimitStopsWhereOneMoreBringsNothing() {
+        DispatchController c = controller(4, 64, 16_000);
+        // A server with 4 slots: whatever is in flight, 400 tokens a second come back.
+        for (int i = 0; i < 60; i++) {
+            int limit = c.window();
+            round(c, limit / 4.0, 100);
+        }
+        assertTrue(c.window() <= 5, "the limit walked up to " + c.window() + " with no gain");
+    }
+
+    @Test
+    void aClearDropInThroughputStepsBack() {
+        DispatchController c = controller(4, 64, 16_000);
+        for (int i = 0; i < 40 && c.window() < 6; i++) round(c, 1, 100);
+        int top = c.window();
+        // From here every round is twice as slow: the server thrashes at this limit.
+        for (int i = 0; i < 12 && c.window() == top; i++) round(c, 2, 100);
+        assertEquals(top - 1, c.window());
+    }
+
+    @Test
+    void greenLetsTheLimitGrowWithoutWaitingForAGain() {
+        DispatchController c = controller(4, 64, 16_000);
+        c.onTick(green());
+        for (int i = 0; i < 30 && c.window() < 8; i++) round(c, c.window() / 4.0, 100);  // no gain at all
+        assertTrue(c.window() >= 8, "green held the limit at " + c.window());
+    }
+
+    @Test
+    void aFullServerQueueCapsTheLimitAtWhatItRuns() {
+        DispatchController c = controller(12, 64, 16_000);
+        c.onTick(new Sensors(true, 0.3, 4, 0, 0.1, 0.9, Double.NaN, false, 8, 4));
+        assertEquals(8, c.window());
+        c.onTick(green());
+        for (int i = 0; i < 20; i++) round(c, 1, 100);
+        assertEquals(8, c.window(), "grew past what the server runs at once");
+    }
+
+    @Test
+    void aLimitSetByTheDemandIsNotKeptAsLearned() {
+        DispatchController c = controller(8, 64, 16_000);
+        for (int i = 0; i < 20; i++) {
+            var p = c.tryAcquire(100);  // one agent, one request at a time
+            now.addAndGet(TimeUnit.SECONDS.toNanos(1));
+            c.release(p, 100);
+        }
+        assertEquals(1, c.window(), "a limit of 8 that one agent never fills");
+        assertEquals(0, c.learnedLimit(), "the next run would start at 1 for a swarm");
+    }
+
+    @Test
+    void yellowStopsGrowth() {
         DispatchController c = controller(3, 64, 10_000);
         assertEquals(DispatchController.Light.YELLOW, c.onTick(yellow()));
-        for (int i = 0; i < 10; i++) {
-            var a = c.tryAcquire(1);
-            var b = c.tryAcquire(1);
-            var d = c.tryAcquire(1);
-            c.tryAcquire(1);
-            now.addAndGet(TimeUnit.SECONDS.toNanos(1));
-            c.release(a, 100);
-            c.release(b, 100);
-            c.release(d, 100);
-        }
+        for (int i = 0; i < 20; i++) round(c, 1, 100);
         assertEquals(3, c.window());
         assertTrue(c.parallelism().settled());
     }
@@ -205,7 +241,7 @@ class DispatchControllerTest {
 
     @Test
     void waitersAreAdmittedInArrivalOrder() throws Exception {
-        DispatchController c = new DispatchController(64, 1_000_000);
+        DispatchController c = controller(1, 64, 1_000_000);
         DispatchController.Permit first = c.acquire(1);
         StringBuilder order = new StringBuilder();
         CountDownLatch queued = new CountDownLatch(2);

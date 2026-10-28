@@ -13,11 +13,13 @@ import java.nio.file.Path;
  * @param budgetTokens uncached prompt tokens allowed in prefill at once, when /metrics is read
  * @param blind        never read /metrics; latency alone sets the limit, as on any other server
  * @param logPath      where state changes are written, or null for none
+ * @param profilePath  where the limit learned per server and model is kept, or null for nowhere
  */
-public record SwarmSettings(boolean enabled, int maxParallel, long budgetTokens, boolean blind, Path logPath) {
+public record SwarmSettings(boolean enabled, int maxParallel, long budgetTokens, boolean blind, Path logPath,
+                            Path profilePath) {
     public static final long DEFAULT_BUDGET_TOKENS = 16_000;
 
     public static SwarmSettings off() {
-        return new SwarmSettings(false, 0, DEFAULT_BUDGET_TOKENS, false, null);
+        return new SwarmSettings(false, 0, DEFAULT_BUDGET_TOKENS, false, null, null);
     }
 }

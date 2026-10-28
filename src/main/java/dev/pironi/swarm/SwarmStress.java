@@ -59,8 +59,9 @@ public final class SwarmStress {
                 Integer.parseInt(a.getOrDefault("max-parallel", "0")),
                 Long.parseLong(a.getOrDefault("budget", String.valueOf(SwarmSettings.DEFAULT_BUDGET_TOKENS))),
                 a.getOrDefault("blind", "off").equals("on"),
-                a.containsKey("log") ? Path.of(a.get("log")) : null);
-        ModelClient client = DispatchingModelClient.wrap(plain, settings, base, key);
+                a.containsKey("log") ? Path.of(a.get("log")) : null,
+                a.containsKey("profile") ? Path.of(a.get("profile")) : null);
+        ModelClient client = DispatchingModelClient.wrap(plain, settings, base, key, model);
 
         String salt = Long.toHexString(System.nanoTime());
         int slice = 12_000 * 4;  // ~12k tokens of Java

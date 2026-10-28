@@ -257,7 +257,7 @@ public final class PironiMain {
         );
         // Every agent call - parent, children, summaries - goes through one dispatcher under --swarm.
         ModelClient agentClient = DispatchingModelClient.wrap(
-                modelClient, options.swarm(), options.baseUri(), options.apiKey());
+                modelClient, options.swarm(), options.baseUri(), options.apiKey(), options.model());
         AtomicReference<CliOptions> currentOptions = new AtomicReference<>(options);
         ProviderModelCatalog modelCatalog = new ProviderModelCatalog(
                 HttpClient.newHttpClient(), objectMapper

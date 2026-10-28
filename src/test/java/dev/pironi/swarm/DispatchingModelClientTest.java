@@ -64,7 +64,7 @@ class DispatchingModelClientTest {
     void withoutTheFlagTheClientIsUntouched() {
         dev.pironi.model.ModelClient plain = m -> null;
         assertSame(plain, DispatchingModelClient.wrap(plain, SwarmSettings.off(),
-                java.net.URI.create("http://127.0.0.1:8000/v1"), "k"));
+                java.net.URI.create("http://127.0.0.1:8000/v1"), "k", "m"));
     }
 
     @Test
@@ -76,9 +76,8 @@ class DispatchingModelClientTest {
 
     @Test
     void aServerWithoutPropsLeavesTheSafetyCeiling() {
-        // Nothing listens on port 9: the limiter learns under the safety cap.
-        assertEquals(ConcurrencyLimiter.SAFETY_CEILING,
-                DispatchingModelClient.serverSlots(java.net.URI.create("http://127.0.0.1:9/v1"), null));
+        // Nothing listens on port 9: the server told nothing, and the safety cap applies.
+        assertEquals(0, DispatchingModelClient.serverSlots(java.net.URI.create("http://127.0.0.1:9/v1"), null));
     }
 
     @Test
@@ -91,8 +90,29 @@ class DispatchingModelClientTest {
     }
 
     @Test
+    void aLearnedLimitIsKeptPerServerAndModel(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) {
+        SwarmProfile p = new SwarmProfile(dir.resolve("sub/swarm-profile.json"));
+        String a = SwarmProfile.key(java.net.URI.create("http://127.0.0.1:8000/v1/"), "qwen36");
+        String b = SwarmProfile.key(java.net.URI.create("http://127.0.0.1:8000/v1"), "qwen38");
+        assertEquals(0, p.limit(a), "nothing learned yet");
+        p.remember(a, 8);
+        p.remember(b, 3);
+        SwarmProfile again = new SwarmProfile(dir.resolve("sub/swarm-profile.json"));
+        assertEquals(8, again.limit(a));
+        assertEquals(3, again.limit(b));
+    }
+
+    @Test
+    void anUnreadableProfileIsNothingLearned(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws Exception {
+        java.nio.file.Path f = dir.resolve("swarm-profile.json");
+        java.nio.file.Files.writeString(f, "not json");
+        assertEquals(0, new SwarmProfile(f).limit("x"));
+        assertEquals(0, new SwarmProfile(null).limit("x"));
+    }
+
+    @Test
     void theOrchestratorDoesNotSplitAtALimitOfOne() {
-        var client = new DispatchingModelClient(m -> null, new DispatchController(64, 16_000), null, null);
+        var client = new DispatchingModelClient(m -> null, new DispatchController(1, 16_000), null, null);
         assertEquals(1, client.parallelism().limit());
         assertFalse(client.parallelism().worthSplitting());
         assertTrue(new Parallelism(4, true, 8).worthSplitting());

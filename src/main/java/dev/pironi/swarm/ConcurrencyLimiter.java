@@ -4,124 +4,116 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * How many model requests to keep in flight, learned from the answers alone, so it works on any
- * OpenAI-compatible server - vLLM, llama.cpp, Ollama, LM Studio, MLX or a cloud API - with no
- * metrics endpoint at all.
+ * How many model requests to keep in flight, so it works on any OpenAI-compatible server - vLLM,
+ * llama.cpp, Ollama, LM Studio, MLX or a cloud API - with or without a metrics endpoint.
  *
- * <p>The idea is Netflix's concurrency-limits (Vegas, Gradient2): latency says when a server is
- * full. A model server needs one twist. Batching makes every request slower as more run at once
- * even while the total work done grows, so a rise in latency alone is no sign of overload. What
- * is: latency rising as fast as concurrency, with no gain in throughput, because the extra
- * requests only wait in the server's queue. So each limit is tried while there is demand for it,
- * and the throughput it gave is compared with the best limit known so far:
- * <pre>
- *   throughput  T = mean(concurrency x tokens / duration)            (Little's law, per answer)
- *   payoff      φ = log(T_new / T_good) / log(C_new / C_good)        (1 = linear, 0 = none)
- * </pre>
- * A limit pays off when φ is at least {@link #GAIN_FLOOR}. Answers differ in size, so T is noisy:
- * a limit is judged early only when φ is clear of the floor by a standard error; otherwise the
- * trial is extended, up to {@link #MAX_TRIAL_FACTOR} times, and then φ itself decides. Limits are searched like TCP slow start
- * and then bisected: 1, 2, 4, 8 ... until one does not pay off, then halfway back until the two
- * meet. A settled limit is re-probed half again higher from time to time, because the server or its
- * load may have changed.
+ * <p>The search runs from the top down, because on a model server one answer can take a minute and
+ * the two mistakes do not cost the same. Too few requests in flight wastes the server for as long
+ * as the search takes. Too many costs little: a server with fixed slots (llama.cpp, Ollama, LM
+ * Studio) queues the extra ones itself, and vLLM only suffers once its KV cache runs out, which
+ * /metrics and a fall in throughput both show. So the limit starts at what is known - the user's
+ * ceiling, the server's slots, the limit learned last time, or else {@link #BLIND_START} - and is
+ * lowered on a signal (AIMD):
+ * <ul>
+ *   <li>429, 503, a timeout, Retry-After, preemptions or a red reading: half, at once;</li>
+ *   <li>throughput well below the best seen (thrashing, or someone else on the server): one less.</li>
+ * </ul>
+ * It grows by one only while requests are held back and nothing says the server is busy: with
+ * /metrics, on green; without it, on trial, kept only if it paid. Without /metrics it also tries a
+ * step down from time to time and stays there if that cost nothing, because only that shows a
+ * server past its best: one with fixed slots gives the same with fewer, a thrashing cache more.
+ * A limit the swarm does not fill for a whole wave comes down to what it asks for.
  *
- * <p>Tokens are normalised so a long prompt does not look like a slow server: a generated token
- * counts 1, an uncached prompt token {@link #PREFILL_WEIGHT}.
- *
- * <p>Overload (429, 503, a timeout, Retry-After, or a red reading from /metrics) halves the limit
- * at once, as Gradient2 does, and so does throughput at a settled limit falling below
- * 1/{@link #CONTENTION_TOLERANCE} of its long-run level: someone else is using the server.
+ * <p>Throughput is measured in waves of finished requests, not per answer. By Little's law a request
+ * that ran {@code s} seconds alongside {@code c} others on average stands for {@code c} requests'
+ * worth of the server for that time, so a wave's throughput is {@code sum(tokens) / sum(s / c)}.
+ * Unlike tokens over wall-clock time, this does not depend on where the wave's edges fall when
+ * answers finish in bursts. A token counts 1 if
+ * generated, {@link #PREFILL_WEIGHT} if it was an uncached prompt token, so a long prompt does not
+ * look like a slow server. Only requests that ran while others were held back count: otherwise the
+ * limit was not what set the pace.
  *
  * <p>Not thread safe; {@link DispatchController} calls it under its own lock.
  */
 public final class ConcurrencyLimiter {
     /** A prefilled prompt token costs about this share of a generated one on common servers. */
     static final double PREFILL_WEIGHT = 0.05;
-    /** The share of a linear speed-up a wider limit must give to be kept. */
-    static final double GAIN_FLOOR = 0.3;
     /** Without a ceiling from the user or the server, this many is the most ever tried. */
     public static final int SAFETY_CEILING = 64;
-    /**
-     * Answers a limit is first judged on: this many, or one per slot. Few, because on a real model
-     * one answer can take ten seconds; when they are not enough the trial is extended (see above).
-     */
-    static final int MIN_TRIAL_SAMPLES = 4;
-    /** Samples at a settled limit before the next step up is tried. */
-    static final int PROBE_AFTER_SAMPLES = 60;
-    static final double CONTENTION_TOLERANCE = 2.0;
-    static final int MAX_TRIAL_FACTOR = 4;
-    /**
-     * Answers of different sizes differ in throughput by at least this much (coefficient of
-     * variation); a spread measured on four answers can be far too small, and would let noise pass.
-     */
-    static final double MIN_SPREAD = 0.3;
-    private static final double LONG_ALPHA = 0.2;
+    /** Where a server that tells nothing about itself starts. */
+    public static final int BLIND_START = 4;
+    /** Requests finished per wave: this many, or one per slot, doubled from {@link #LARGE_LIMIT}. */
+    static final int MIN_WAVE = 4;
+    static final int LARGE_LIMIT = 8;
+    /** Without /metrics, one more is kept only if it brings at least this much more throughput. */
+    static final double STEP_GAIN = 1.02;
+    /** Throughput below this share of the best seen means overshoot or someone else on the server. */
+    static final double DROP = 0.75;
+    /** Waves without growth after a step back, so the limit does not swing between two values. */
+    static final int HOLD_WAVES = 8;
+    /** Waves without a change after which the limit counts as found. */
+    static final int SETTLED_WAVES = 3;
+    private static final double ALPHA = 0.5;
+
+    /** What a reading of the server's own state allows. */
+    public enum Signal {
+        /** No reading (no /metrics, or --swarm-blind): throughput alone decides. */
+        NONE,
+        /** /metrics reads green: one more is safe. */
+        GREEN,
+        /** /metrics reads yellow or red: no growth. */
+        HOLD
+    }
 
     private final int ceiling;
-    private int limit = 1;
-    private int good = 1;
-    private int bad = Integer.MAX_VALUE;
-    private boolean settled;
-    private boolean growthAllowed = true;
-    /** A limit left unclear, while the good one is measured longer; 0 when none. */
-    private int pending;
-    private Trial pendingTrial;
-    /** The last limit whose comparison was re-run, so each is re-run once. */
-    private int rerun;
-    /** Answers still to skip at a new limit; see {@link #moveTo}. */
-    private int warmup;
+    private int limit;
+    /** The most the server was seen to run at once (vLLM's queue said it was full); growth stops there. */
+    private int cap;
+    private Signal signal = Signal.NONE;
     private int epoch;
-    private int settledSamples;
-    private Trial trial = new Trial();
-    private final Map<Integer, Trial> measured = new HashMap<>();
-    private double longThroughput = Double.NaN;
+    private boolean frozen;
+    /** Unsaturated answers in a row, and the most in flight among them. */
+    private int idleSamples;
+    private double idlePeak;
+    /** The limit was lowered to what the swarm asked for, not learned from the server. */
+    private boolean demandBound;
+    private int hold;
+    /** Waves before the next step down is tried, in the same way as {@link #hold} for growth. */
+    private int downHold;
+    /** The limit a step on trial came from, and what it gave; 0 when no step is on trial. */
+    private int from;
+    private double fromThroughput;
+    private int quietWaves;
+    /** Waves to discard after a cut, while requests from the wider limit still finish. */
+    private int skip;
+    private final Map<Integer, Double> throughput = new HashMap<>();
+    private final Map<Integer, Integer> waves = new HashMap<>();
+    private double best;
+    private int waveSamples;
+    private double waveTokens;
+    /** Sum of seconds / concurrency: the server time the wave's requests stand for. */
+    private double waveServerSeconds;
+    /** Whether anyone was held back during the wave: growth is only worth trying then. */
+    private boolean waveWanted;
 
-    /** What one limit gave while it was full. */
-    private static final class Trial {
-        double sum;  // of each answer's concurrency x tokens / seconds
-        double sumSquares;
-        double seconds;
-        double concurrencySeconds;
-        int samples;
-
-        void add(double throughput, double concurrency, double s) {
-            sum += throughput;
-            sumSquares += throughput * throughput;
-            seconds += s;
-            concurrencySeconds += concurrency * s;
-            samples++;
-        }
-
-        double throughput() { return sum / samples; }
-        double concurrency() { return concurrencySeconds / seconds; }
-
-        /** Standard error of log(throughput). */
-        double logError() {
-            double mean = throughput();
-            double variance = Math.max(0, sumSquares / samples - mean * mean) * samples / Math.max(1, samples - 1);
-            return Math.max(Math.sqrt(variance) / mean, MIN_SPREAD) / Math.sqrt(samples);
-        }
-    }
-
-    public ConcurrencyLimiter(int ceiling) {
-        this(ceiling, 1);
-    }
-
-    /** Starts the search at {@code start} rather than 1; for tests. */
-    ConcurrencyLimiter(int ceiling, int start) {
+    public ConcurrencyLimiter(int ceiling, int start) {
         this.ceiling = Math.max(1, ceiling);
-        this.limit = this.good = Math.max(1, Math.min(start, this.ceiling));
+        this.cap = this.ceiling;
+        this.limit = Math.max(1, Math.min(start, this.ceiling));
     }
 
     public int limit() { return limit; }
     public int ceiling() { return ceiling; }
-    /** Whether the search has found its limit, rather than still trying wider ones. */
-    public boolean settled() { return settled; }
-    /** Changes with every new limit; a request admitted under an older one says nothing about it. */
+    /** Whether the limit has held for a few waves, rather than still moving. */
+    public boolean settled() { return quietWaves >= SETTLED_WAVES || limit == ceiling && ceiling == 1; }
+    /** Whether the limit is only what the swarm asked for lately, not what the server takes. */
+    public boolean demandBound() { return demandBound; }
+    /** Changes with every new limit. */
     public int epoch() { return epoch; }
 
-    /** False while /metrics reads yellow: the server is busy, so a wider limit is not tried. */
-    public void allowGrowth(boolean allowed) { growthAllowed = allowed; }
+    public void signal(Signal s) { signal = s; }
+
+    void freeze() { frozen = true; }
 
     /**
      * One finished request.
@@ -129,147 +121,138 @@ public final class ConcurrencyLimiter {
      * @param seconds     from sending it to the last token
      * @param tokens      generated tokens plus {@link #PREFILL_WEIGHT} x uncached prompt tokens
      * @param concurrency requests in flight on average while it ran, itself included
-     * @param saturated   whether others were held back while it ran: only then was the limit in use
-     * @param admittedIn  the {@link #epoch()} it was admitted in
+     * @param saturated   whether the limit was in use while it ran: full, or others held back
+     * @param wanted      whether others were held back: only then would a wider limit be used
      */
-    public void onSample(double seconds, double tokens, double concurrency, boolean saturated, int admittedIn) {
+    public void onSample(double seconds, double tokens, double concurrency, boolean saturated, boolean wanted) {
         if (seconds <= 0 || tokens <= 0 || concurrency <= 0) return;
-        if (admittedIn != epoch || !saturated) return;
-        if (warmup > 0) {
-            warmup--;
-            return;
-        }
-        trial.add(concurrency * tokens / seconds, concurrency, seconds);
-        if (trial.samples < trialSize() || trial.samples % trialSize() != 0) return;
-        if (pending > 0) {
-            // The good limit, measured longer; then back to the unclear one, with its answers kept.
-            if (trial.samples < MAX_TRIAL_FACTOR * trialSize()) return;
-            measured.put(good, trial);
-            int back = pending;
-            Trial kept = pendingTrial;
-            pending = 0;
-            pendingTrial = null;
-            moveTo(back);
-            trial = kept;
-            return;
-        }
-        if (settled) {
-            if (contended(trial.throughput())) return;
-            measured.put(limit, trial);
-            settledSamples += trial.samples;
-            trial = new Trial();
-            if (settledSamples >= PROBE_AFTER_SAMPLES && limit < ceiling && growthAllowed) {
-                // The server may have grown. A step of half again, not one: one request more changes
-                // throughput by less than the noise between answers of different sizes.
-                bad = Integer.MAX_VALUE;
-                settled = false;
-                moveTo(Math.max(limit + 1, (int) Math.ceil(limit * 1.5)));
+        if (!saturated) {
+            // The swarm did not fill the limit, so this says nothing about it. A limit far above
+            // what the swarm asks for would never be tested, so it comes down to the demand.
+            idleSamples++;
+            idlePeak = Math.max(idlePeak, concurrency);
+            if (idleSamples >= waveSize()) {
+                int demand = Math.max(1, (int) Math.ceil(idlePeak));
+                idleSamples = 0;
+                idlePeak = 0;
+                if (demand < limit) {
+                    demandBound = true;
+                    from = 0;
+                    moveTo(demand);
+                }
             }
             return;
         }
-        decide();
+        idleSamples = 0;
+        idlePeak = 0;
+        demandBound = false;
+        waveWanted |= wanted;
+        waveTokens += tokens;
+        waveServerSeconds += seconds / concurrency;
+        waveSamples++;
+        if (waveSamples < waveSize()) return;
+        double t = waveTokens / waveServerSeconds;
+        boolean more = waveWanted;
+        resetWave();
+        onWave(t, more);
     }
 
-    private int trialSize() {
-        return Math.max(MIN_TRIAL_SAMPLES, limit);
+    private int waveSize() {
+        int size = Math.max(MIN_WAVE, limit);
+        return limit >= LARGE_LIMIT ? 2 * size : size;
     }
 
-    private void decide() {
-        Trial now = trial;
-        Trial base = measured.get(good);
-        if (base == null || limit == good) {
-            measured.put(limit, now);
-            next();
+    private void resetWave() {
+        waveWanted = false;
+        waveTokens = 0;
+        waveServerSeconds = 0;
+        waveSamples = 0;
+    }
+
+    private void onWave(double t, boolean wanted) {
+        if (skip > 0) {
+            skip--;
             return;
         }
-        double concurrencyGain = now.concurrency() / base.concurrency();
-        if (concurrencyGain < 1.15) {
-            // The swarm never filled the wider limit; nothing was learned about it.
-            trial = new Trial();
-            return;
-        }
-        double logGain = Math.log(now.throughput() / base.throughput());
-        double error = Math.hypot(now.logError(), base.logError());
-        double scale = Math.log(concurrencyGain);
-        boolean pays = (logGain - error) / scale >= GAIN_FLOOR;
-        boolean doesNot = (logGain + error) / scale < GAIN_FLOOR;
-        if (!pays && !doesNot) {
-            if (now.samples < MAX_TRIAL_FACTOR * trialSize()) return;  // not clear yet
-            if (rerun != limit && base.samples < MAX_TRIAL_FACTOR * trialSize()) {
-                // Most of the doubt is the good limit's short first measurement: measure it longer.
-                rerun = limit;
-                pending = limit;
-                pendingTrial = now;
-                Trial longer = base;
-                moveTo(good);
-                trial = longer;
-                return;
+        if (hold > 0) hold--;
+        if (downHold > 0) downHold--;
+        int n = waves.merge(limit, 1, Integer::sum);
+        double mean = throughput.merge(limit, t, (old, x) -> old + ALPHA * (x - old));
+        if (from > 0) {
+            // A step on trial: kept if it paid (up) or cost nothing (down), else undone.
+            if (n < 2) return;
+            boolean up = limit > from;
+            boolean keep = up ? mean >= STEP_GAIN * fromThroughput : mean * STEP_GAIN >= fromThroughput;
+            int back = from;
+            from = 0;
+            if (!keep) {
+                if (up) hold = HOLD_WAVES; else downHold = HOLD_WAVES;
+                moveTo(back);
             }
-            // Still unclear with both limits measured at length: a gain too small to see is not
-            // worth a fuller server, and counting it would let noise walk the limit upward.
-            pays = false;
+            best = Math.max(best, Math.max(mean, fromThroughput));
+            return;
         }
-        measured.put(limit, now);
-        if (pays) {
-            good = limit;
-        } else {
-            bad = limit;
+        if (n >= 2 && mean < DROP * best && limit > 1) {
+            // Well below what was seen: the server is thrashing, or someone else is on it.
+            // What was measured before no longer holds.
+            throughput.clear();
+            waves.clear();
+            best = 0;
+            hold = HOLD_WAVES;
+            moveTo(limit - 1);
+            return;
         }
-        next();
+        best = Math.max(best, mean);
+        if (wanted && canGrow()) {
+            // With a green light one more is safe and kept; without one it is on trial.
+            if (signal != Signal.GREEN) trial();
+            moveTo(limit + 1);
+            return;
+        }
+        if (signal == Signal.NONE && limit > 1 && downHold == 0 && quietWaves >= 2) {
+            // Nothing tells when the server is past its best; one step down shows it. A server
+            // with fixed slots gives the same throughput with fewer, and a thrashing cache more.
+            trial();
+            moveTo(limit - Math.max(1, limit / 4));
+            return;
+        }
+        quietWaves++;
     }
 
-    private void next() {
-        int target = bad == Integer.MAX_VALUE ? good * 2 : (good + bad) / 2;
-        target = Math.min(target, ceiling);
-        if (target <= good || !growthAllowed) {
-            settled = true;
-            settledSamples = 0;
-            moveTo(good);
-        } else {
-            moveTo(target);
-        }
+    private void trial() {
+        from = limit;
+        fromThroughput = throughput.get(limit);
     }
 
-    /**
-     * At a settled limit, a trial whose throughput fell well below the long-run level: per-token
-     * latency at the same concurrency is up, so someone else is using the server. Judged per trial,
-     * not per answer, because one answer's latency depends mostly on its size.
-     */
-    private boolean contended(double throughput) {
-        if (Double.isNaN(longThroughput)) {
-            longThroughput = throughput;
-            return false;
-        }
-        if (throughput * CONTENTION_TOLERANCE < longThroughput && limit > 1) {
-            overload();
-            return true;
-        }
-        longThroughput += LONG_ALPHA * (throughput - longThroughput);
-        return false;
+    private boolean canGrow() {
+        return hold == 0 && signal != Signal.HOLD && limit < Math.min(ceiling, cap);
     }
 
-    /** 429, 503, a timeout or a red reading: halve now and settle below where it happened. */
+    /** 429, 503, a timeout or a red reading: halve now. */
     public void overload() {
-        int before = limit;
-        good = Math.max(1, limit / 2);
-        bad = before > good ? before : Integer.MAX_VALUE;
-        settled = true;
-        settledSamples = 0;
-        pending = rerun = 0;
-        pendingTrial = null;
-        measured.clear();
-        moveTo(good);
+        hold = HOLD_WAVES;
+        from = 0;
+        skip = 1;
+        throughput.clear();
+        waves.clear();
+        best = 0;
+        moveTo(Math.max(1, limit / 2));
     }
 
-    /**
-     * Right after a change the first answers back are the quick ones - the slow ones are still
-     * running - so they overstate throughput at the new limit. Half a limit's worth is skipped.
-     */
+    /** The server queued requests while running {@code running}: that is all it takes at once. */
+    public void capAt(int running) {
+        cap = Math.max(1, running);
+        from = 0;
+        if (limit > cap) moveTo(cap);
+    }
+
     private void moveTo(int newLimit) {
-        limit = Math.max(1, Math.min(newLimit, ceiling));
-        warmup = limit / 2;
+        if (frozen) return;
+        int to = Math.max(1, Math.min(newLimit, ceiling));
+        if (to == limit) return;
+        limit = to;
         epoch++;
-        trial = new Trial();
-        longThroughput = Double.NaN;
+        quietWaves = 0;
+        resetWave();
     }
 }

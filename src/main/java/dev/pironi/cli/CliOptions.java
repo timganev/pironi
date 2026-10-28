@@ -390,7 +390,10 @@ record CliOptions(
                         positiveInt(values, "swarm-budget", (int) SwarmSettings.DEFAULT_BUDGET_TOKENS),
                         values.containsKey("swarm-blind"),
                         environment.containsKey("PIRONI_SWARM_LOG")
-                                ? Path.of(environment.get("PIRONI_SWARM_LOG")) : null
+                                ? Path.of(environment.get("PIRONI_SWARM_LOG")) : null,
+                        environment.containsKey("PIRONI_SWARM_PROFILE")
+                                ? Path.of(environment.get("PIRONI_SWARM_PROFILE"))
+                                : pironiHome.resolve("swarm-profile.json")
                 )
         );
     }

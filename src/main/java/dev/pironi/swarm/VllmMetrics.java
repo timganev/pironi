@@ -13,6 +13,8 @@ import java.util.Map;
  * Counters are summed over their labels; the interval's rates are differences of the sums.
  */
 public final class VllmMetrics {
+    /** Requests waiting for room rather than for their prefill turn; see {@link #parse}. */
+    static final String CAPACITY_WAITING = "vllm:num_requests_waiting_by_reason:capacity";
     private final HttpClient http;
     private final URI uri;
     private final String apiKey;
@@ -62,15 +64,17 @@ public final class VllmMetrics {
     static Sensors sensors(Map<String, Double> before, Map<String, Double> now, boolean rateLimited) {
         double kv = now.getOrDefault("vllm:kv_cache_usage_perc", Double.NaN);
         double waiting = now.getOrDefault("vllm:num_requests_waiting", Double.NaN);
+        double running = now.getOrDefault("vllm:num_requests_running", Double.NaN);
+        double full = now.getOrDefault(CAPACITY_WAITING, Double.NaN);
         if (before == null) {
-            return new Sensors(true, kv, waiting, 0, Double.NaN, Double.NaN, Double.NaN, rateLimited);
+            return new Sensors(true, kv, waiting, 0, Double.NaN, Double.NaN, Double.NaN, rateLimited, running, full);
         }
         double preempt = delta(before, now, "vllm:num_preemptions_total");
         double qCount = delta(before, now, "vllm:request_queue_time_seconds_count");
         double queue = qCount > 0 ? delta(before, now, "vllm:request_queue_time_seconds_sum") / qCount : Double.NaN;
         double queries = delta(before, now, "vllm:prefix_cache_queries_total");
         double hit = queries >= 1_000 ? delta(before, now, "vllm:prefix_cache_hits_total") / queries : Double.NaN;
-        return new Sensors(true, kv, waiting, preempt, queue, hit, prefillRate(before, now), rateLimited);
+        return new Sensors(true, kv, waiting, preempt, queue, hit, prefillRate(before, now), rateLimited, running, full);
     }
 
     /**
@@ -99,6 +103,9 @@ public final class VllmMetrics {
             if (space < 0) continue;
             String name = (brace >= 0 && brace < space ? line.substring(0, brace) : line.substring(0, space)).trim();
             if (name.endsWith("_bucket") || name.endsWith("_created")) continue;
+            if (name.equals("vllm:num_requests_waiting_by_reason") && line.contains("reason=\"capacity\"")) {
+                name = CAPACITY_WAITING;  // the one reason that says the server is full
+            }
             try {
                 m.merge(name, Double.parseDouble(line.substring(space + 1).trim()), Double::sum);
             } catch (NumberFormatException ignored) {

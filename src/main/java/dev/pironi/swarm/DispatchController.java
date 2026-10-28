@@ -81,10 +81,14 @@ public final class DispatchController {
     }
 
     DispatchController(int ceiling, long budgetTokens, LongSupplier clock) {
-        this(ceiling, 1, budgetTokens, clock);
+        this(ceiling, Math.min(ceiling, ConcurrencyLimiter.BLIND_START), budgetTokens, clock);
     }
 
-    /** Starts the limit at {@code startLimit} rather than 1; for tests. */
+    /** @param startLimit where the limit starts: the ceiling, or what was learned last time */
+    public DispatchController(int ceiling, int startLimit, long budgetTokens) {
+        this(ceiling, startLimit, budgetTokens, System::nanoTime);
+    }
+
     DispatchController(int ceiling, int startLimit, long budgetTokens, LongSupplier clock) {
         if (ceiling < 1 || budgetTokens < 1) {
             throw new IllegalArgumentException("ceiling and budget must be positive");
@@ -143,9 +147,11 @@ public final class DispatchController {
         advanceArea();
         long elapsed = clock.getAsLong() - permit.admittedNanos;
         double concurrency = elapsed > 0 ? (concurrencyArea - permit.areaAtAdmit) / elapsed : inFlight.size();
-        boolean saturated = heldBack != permit.heldBackAtAdmit || !queue.isEmpty();
+        // In use: others were held back, or it was full the whole time even with no one waiting.
+        boolean wanted = heldBack != permit.heldBackAtAdmit || !queue.isEmpty();
+        boolean saturated = wanted || concurrency >= limiter.limit() - 0.5;
         double tokens = generatedTokens + ConcurrencyLimiter.PREFILL_WEIGHT * permit.tokens;
-        limiter.onSample(elapsed / 1e9, tokens, concurrency, saturated, permit.epoch);
+        limiter.onSample(elapsed / 1e9, tokens, concurrency, saturated, wanted);
         remove(permit);
     }
 
@@ -164,15 +170,15 @@ public final class DispatchController {
         remove(permit);
     }
 
-    private void remove(Permit permit) {
-        inFlight.remove(permit);
-        notifyAll();
-    }
-
     private void advanceArea() {
         long now = clock.getAsLong();
         concurrencyArea += (double) inFlight.size() * (now - areaUpdatedNanos);
         areaUpdatedNanos = now;
+    }
+
+    private void remove(Permit permit) {
+        inFlight.remove(permit);
+        notifyAll();
     }
 
     private boolean admissible(long tokens) {
@@ -200,7 +206,9 @@ public final class DispatchController {
             prefillRate = s.prefillRate();
         }
         light = classify(s);
-        limiter.allowGrowth(light != Light.YELLOW && light != Light.RED);
+        limiter.signal(light == Light.GREEN ? ConcurrencyLimiter.Signal.GREEN
+                : light == Light.UNKNOWN ? ConcurrencyLimiter.Signal.NONE : ConcurrencyLimiter.Signal.HOLD);
+        if (s.available() && s.fullWaiting() > 0 && s.running() >= 1) limiter.capAt((int) s.running());
         if (cooldown > 0) {
             cooldown--;
         } else if (light == Light.RED) {
@@ -226,6 +234,16 @@ public final class DispatchController {
             return Light.YELLOW;
         }
         return Light.GREEN;
+    }
+
+    /** A limit worth keeping for the next run: settled, and learned from the server rather than the demand. */
+    public synchronized int learnedLimit() {
+        return limiter.settled() && !limiter.demandBound() ? limiter.limit() : 0;
+    }
+
+    /** Holds the limit where it is, whatever happens; for comparisons in tests. */
+    synchronized void fixLimit() {
+        limiter.freeze();
     }
 
     /** What the swarm has learned the server takes; see {@link Parallelism}. */

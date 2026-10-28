@@ -71,4 +71,17 @@ class VllmMetricsTest {
         assertEquals(URI.create("http://127.0.0.1:8000/metrics"),
                 VllmMetrics.metricsUri(URI.create("http://127.0.0.1:8000/v1/")));
     }
+
+    @Test
+    void onlyWaitingForRoomCountsAsAFullServer() {
+        var m = VllmMetrics.parse("""
+                vllm:num_requests_running{engine="0",model_name="q"} 8.0
+                vllm:num_requests_waiting_by_reason{engine="0",model_name="q",reason="capacity"} 3.0
+                vllm:num_requests_waiting_by_reason{engine="0",model_name="q",reason="deferred"} 5.0
+                vllm:kv_cache_usage_perc{engine="0",model_name="q"} 0.4
+                """);
+        Sensors s = VllmMetrics.sensors(null, m, false);
+        org.junit.jupiter.api.Assertions.assertEquals(8.0, s.running(), 1e-9);
+        org.junit.jupiter.api.Assertions.assertEquals(3.0, s.fullWaiting(), 1e-9);
+    }
 }

@@ -13,6 +13,9 @@ package dev.pironi.swarm;
  * @param prefixHitRate share of prompt tokens served from the prefix cache during the interval
  * @param prefillRate   uncached prompt tokens per second of prefill during the interval
  * @param rateLimited   whether the transport saw a 429 or 503 during the interval
+ * @param running       requests the server is running
+ * @param fullWaiting   requests waiting because the server has no room for them (vLLM's
+ *                      waiting reason "capacity"), as opposed to waiting for their prefill turn
  */
 public record Sensors(
         boolean available,
@@ -22,10 +25,18 @@ public record Sensors(
         double queueSeconds,
         double prefixHitRate,
         double prefillRate,
-        boolean rateLimited
+        boolean rateLimited,
+        double running,
+        double fullWaiting
 ) {
+    public Sensors(boolean available, double kvUsage, double waiting, double preemptions, double queueSeconds,
+                   double prefixHitRate, double prefillRate, boolean rateLimited) {
+        this(available, kvUsage, waiting, preemptions, queueSeconds, prefixHitRate, prefillRate, rateLimited,
+                Double.NaN, Double.NaN);
+    }
+
     public Sensors withPrefillRate(double rate) {
-        return new Sensors(available, kvUsage, waiting, preemptions, queueSeconds, prefixHitRate, rate, rateLimited);
+        return new Sensors(available, kvUsage, waiting, preemptions, queueSeconds, prefixHitRate, rate, rateLimited, running, fullWaiting);
     }
 
     public static Sensors unavailable(boolean rateLimited) {
