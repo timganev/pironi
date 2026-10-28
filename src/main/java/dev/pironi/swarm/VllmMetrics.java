@@ -17,6 +17,8 @@ public final class VllmMetrics {
     private final URI uri;
     private final String apiKey;
     private Map<String, Double> previous;
+    /** The first scrape: prefill rate is measured from here, see {@link #sensors}. */
+    private Map<String, Double> first;
 
     public VllmMetrics(URI uri, String apiKey) {
         this(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build(), uri, apiKey);
@@ -51,9 +53,10 @@ public final class VllmMetrics {
             return Sensors.unavailable(rateLimited);
         }
         if (!now.containsKey("vllm:kv_cache_usage_perc")) return Sensors.unavailable(rateLimited);
+        if (first == null) first = now;
         Sensors s = sensors(previous, now, rateLimited);
         previous = now;
-        return s;
+        return s.withPrefillRate(prefillRate(first, now));
     }
 
     static Sensors sensors(Map<String, Double> before, Map<String, Double> now, boolean rateLimited) {
@@ -67,11 +70,19 @@ public final class VllmMetrics {
         double queue = qCount > 0 ? delta(before, now, "vllm:request_queue_time_seconds_sum") / qCount : Double.NaN;
         double queries = delta(before, now, "vllm:prefix_cache_queries_total");
         double hit = queries >= 1_000 ? delta(before, now, "vllm:prefix_cache_hits_total") / queries : Double.NaN;
+        return new Sensors(true, kv, waiting, preempt, queue, hit, prefillRate(before, now), rateLimited);
+    }
+
+    /**
+     * Uncached prompt tokens per second of prefill between two scrapes. vLLM adds a request's
+     * prefill time only when the request finishes, so over one short interval the tokens and the
+     * time rarely belong to the same requests; measured from the first scrape they do.
+     */
+    static double prefillRate(Map<String, Double> before, Map<String, Double> now) {
         double prefillSeconds = delta(before, now, "vllm:request_prefill_time_seconds_sum");
         double uncached = delta(before, now, "vllm:prompt_tokens_total")
                 - delta(before, now, "vllm:prompt_tokens_cached_total");
-        double rate = prefillSeconds > 0.05 && uncached > 500 ? uncached / prefillSeconds : Double.NaN;
-        return new Sensors(true, kv, waiting, preempt, queue, hit, rate, rateLimited);
+        return prefillSeconds > 0.5 && uncached > 2_000 ? uncached / prefillSeconds : Double.NaN;
     }
 
     private static double delta(Map<String, Double> a, Map<String, Double> b, String k) {

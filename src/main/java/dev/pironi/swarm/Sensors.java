@@ -24,6 +24,10 @@ public record Sensors(
         double prefillRate,
         boolean rateLimited
 ) {
+    public Sensors withPrefillRate(double rate) {
+        return new Sensors(available, kvUsage, waiting, preemptions, queueSeconds, prefixHitRate, rate, rateLimited);
+    }
+
     public static Sensors unavailable(boolean rateLimited) {
         return new Sensors(false, Double.NaN, Double.NaN, 0, Double.NaN, Double.NaN, Double.NaN,
                 rateLimited);

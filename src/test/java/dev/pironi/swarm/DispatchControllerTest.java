@@ -74,6 +74,15 @@ class DispatchControllerTest {
     }
 
     @Test
+    void aSwarmHeldByTheBudgetDoesNotGrowItsWindow() {
+        DispatchController c = controller(2, 6, 10_000);
+        assertNotNull(c.tryAcquire(9_000));
+        assertNull(c.tryAcquire(9_000), "over budget");
+        c.onTick(green());
+        assertEquals(2, c.window(), "the window grew while the budget was the limit");
+    }
+
+    @Test
     void theWindowNeverPassesItsCeiling() {
         DispatchController c = controller(5, 6, 10_000);
         for (int i = 0; i < 6; i++) c.tryAcquire(1);
@@ -141,8 +150,10 @@ class DispatchControllerTest {
     @Test
     void theMeasuredPrefillRateIsLearned() {
         DispatchController c = controller(2, 6, 16_000);
-        for (int i = 0; i < 20; i++) c.onTick(new Sensors(true, 0.1, 0, 0, 0, 0.9, 8_000, false));
-        assertEquals(8_000, c.prefillRate(), 50);
+        c.onTick(new Sensors(true, 0.1, 0, 0, 0, 0.9, 8_000, false));
+        assertEquals(8_000, c.prefillRate(), 1e-9);
+        c.onTick(new Sensors(true, 0.1, 0, 0, 0, 0.9, Double.NaN, false));
+        assertEquals(8_000, c.prefillRate(), 1e-9, "an interval with no measurement forgot the rate");
     }
 
     @Test

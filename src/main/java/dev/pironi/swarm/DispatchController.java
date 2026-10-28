@@ -130,7 +130,8 @@ public final class DispatchController {
     /** Feeds one sensor reading; returns the light it was read as. */
     public synchronized Light onTick(Sensors s) {
         if (s.available() && s.prefillRate() > 0 && Double.isFinite(s.prefillRate())) {
-            prefillRate = 0.7 * prefillRate + 0.3 * s.prefillRate();
+            // Already an average since the first scrape, so it is taken as it is.
+            prefillRate = s.prefillRate();
         }
         light = classify(s);
         if (cooldown > 0) {
@@ -140,9 +141,9 @@ public final class DispatchController {
             budget = Math.max(minBudget, (long) (budget * 0.75));
             cooldown = COOLDOWN_TICKS;
         } else if (light == Light.GREEN) {
-            // Grow only while the window is what holds requests back; an idle swarm says nothing
-            // about whether a wider one would fit.
-            if (inFlight.size() >= window || !queue.isEmpty()) {
+            // Grow only while the window is what holds requests back: an idle swarm, or one held
+            // by the token budget, says nothing about whether a wider window would fit.
+            if (inFlight.size() >= window) {
                 window = Math.min(maxWindow, window + 1);
             }
             budget = Math.min(maxBudget, (long) (budget * 1.25));
