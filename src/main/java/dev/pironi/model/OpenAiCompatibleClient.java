@@ -257,7 +257,7 @@ public final class OpenAiCompatibleClient implements ModelClient {
                 // output limit stopped it, and the answer never began. Asking the same question
                 // again walks the same circle, so the retry says to stop thinking and act, with
                 // thinking switched off. Anything else empty is not a loop and is not retried.
-                if (looped(finishReason) && reasoningLength(message) > 0) {
+                if ((looped(finishReason) || budgetSpent(finishReason)) && reasoningLength(message) > 0) {
                     fallbackFrom = "thinking-loop:" + finishReason;
                     continue;
                 }
@@ -491,6 +491,14 @@ public final class OpenAiCompatibleClient implements ModelClient {
     /** Stopped by a limit or a repetition check rather than by finishing. */
     private static boolean looped(String finishReason) {
         return "length".equals(finishReason) || "repetition".equals(finishReason);
+    }
+
+    /**
+     * The server ended the thinking at thinking_token_budget and the model, cut off mid-thought,
+     * ended its turn there: finish_reason=stop with no answer. Asked again it does the same.
+     */
+    private boolean budgetSpent(String finishReason) {
+        return "stop".equals(finishReason) && reasoningGuard.thinkingTokenBudget() > 0;
     }
 
     /** How much the model thought, for the two providers that report it under either name. */

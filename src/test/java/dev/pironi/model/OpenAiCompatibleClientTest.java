@@ -99,6 +99,45 @@ class OpenAiCompatibleClientTest {
     }
 
     @Test
+    void anAnswerCutOffByTheThinkingBudgetIsAskedOnceMoreWithThinkingOff() throws Exception {
+        List<JsonNode> requests = new java.util.concurrent.CopyOnWriteArrayList<>();
+        // What vLLM returns when thinking_token_budget ends the thinking and the model stops there.
+        HttpServer server = scriptedServer(requests, List.of("""
+                {"choices":[{"finish_reason":"stop","message":{"content":null,"reasoning":"so the next step"}}],
+                 "usage":{"prompt_tokens":12057,"completion_tokens":2049}}
+                """, """
+                {"choices":[{"finish_reason":"stop","message":{"content":"{\\"finalAnswer\\":\\"done\\"}"}}]}
+                """));
+        try {
+            ModelResponse response = client(server, new ReasoningGuard(2048, false))
+                    .chat(List.of(ChatMessage.user("count the tools")));
+
+            assertEquals("{\"finalAnswer\":\"done\"}", response.content());
+            assertEquals(2, response.requestAttempts());
+            assertEquals("thinking-loop:stop", response.fallbackFrom());
+            assertEquals(false, requests.get(1).path("chat_template_kwargs").path("enable_thinking").asBoolean(true));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void anEmptyStopWithoutAThinkingBudgetIsNotRetried() throws Exception {
+        List<JsonNode> requests = new java.util.concurrent.CopyOnWriteArrayList<>();
+        HttpServer server = scriptedServer(requests, List.of("""
+                {"choices":[{"finish_reason":"stop","message":{"content":null,"reasoning":"so the next step"}}]}
+                """));
+        try {
+            java.io.IOException e = assertThrows(java.io.IOException.class,
+                    () -> client(server, new ReasoningGuard(0, true)).chat(List.of(ChatMessage.user("hi"))));
+            assertTrue(e.getMessage().contains("finish_reason=stop"), e.getMessage());
+            assertEquals(1, requests.size());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void aThinkingLoopIsAskedOnceMoreToActWithThinkingOff() throws Exception {
         List<JsonNode> requests = new java.util.concurrent.CopyOnWriteArrayList<>();
         HttpServer server = scriptedServer(requests, List.of("""
