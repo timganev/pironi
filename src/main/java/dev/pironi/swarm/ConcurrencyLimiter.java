@@ -19,9 +19,8 @@ import java.util.Map;
  *   payoff      φ = log(T_new / T_good) / log(C_new / C_good)        (1 = linear, 0 = none)
  * </pre>
  * A limit pays off when φ is at least {@link #GAIN_FLOOR}. Answers differ in size, so T is noisy:
- * a limit is judged only once φ is clear of the floor by a standard error, and a trial that stays
- * unclear is extended up to {@link #MAX_TRIAL_FACTOR} times and then counted as no gain - a gain
- * too small to see is not worth a fuller server. Limits are searched like TCP slow start
+ * a limit is judged early only when φ is clear of the floor by a standard error; otherwise the
+ * trial is extended, up to {@link #MAX_TRIAL_FACTOR} times, and then φ itself decides. Limits are searched like TCP slow start
  * and then bisected: 1, 2, 4, 8 ... until one does not pay off, then halfway back until the two
  * meet. A settled limit is re-probed half again higher from time to time, because the server or its
  * load may have changed.
@@ -30,8 +29,8 @@ import java.util.Map;
  * counts 1, an uncached prompt token {@link #PREFILL_WEIGHT}.
  *
  * <p>Overload (429, 503, a timeout, Retry-After, or a red reading from /metrics) halves the limit
- * at once, as Gradient2 does, and so does per-token latency more than {@link #CONTENTION_TOLERANCE}
- * times its long-run average at a settled limit: someone else is using the server.
+ * at once, as Gradient2 does, and so does throughput at a settled limit falling below
+ * 1/{@link #CONTENTION_TOLERANCE} of its long-run level: someone else is using the server.
  *
  * <p>Not thread safe; {@link DispatchController} calls it under its own lock.
  */
@@ -42,14 +41,21 @@ public final class ConcurrencyLimiter {
     static final double GAIN_FLOOR = 0.3;
     /** Without a ceiling from the user or the server, this many is the most ever tried. */
     public static final int SAFETY_CEILING = 64;
-    /** Answers a limit is judged on, at least; and twice the limit, so every slot is seen more than once. */
-    static final int MIN_TRIAL_SAMPLES = 8;
+    /**
+     * Answers a limit is first judged on: this many, or one per slot. Few, because on a real model
+     * one answer can take ten seconds; when they are not enough the trial is extended (see above).
+     */
+    static final int MIN_TRIAL_SAMPLES = 4;
     /** Samples at a settled limit before the next step up is tried. */
     static final int PROBE_AFTER_SAMPLES = 60;
-    static final double CONTENTION_TOLERANCE = 2.5;
+    static final double CONTENTION_TOLERANCE = 2.0;
     static final int MAX_TRIAL_FACTOR = 4;
-    private static final double LONG_ALPHA = 0.02;
-    private static final double SHORT_ALPHA = 0.3;
+    /**
+     * Answers of different sizes differ in throughput by at least this much (coefficient of
+     * variation); a spread measured on four answers can be far too small, and would let noise pass.
+     */
+    static final double MIN_SPREAD = 0.3;
+    private static final double LONG_ALPHA = 0.2;
 
     private final int ceiling;
     private int limit = 1;
@@ -57,12 +63,20 @@ public final class ConcurrencyLimiter {
     private int bad = Integer.MAX_VALUE;
     private boolean settled;
     private boolean growthAllowed = true;
+    /** Re-probing above a settled limit, rather than in the first search. */
+    private boolean probing;
+    /** A limit left unclear, while the good one is measured longer; 0 when none. */
+    private int pending;
+    private Trial pendingTrial;
+    /** The last limit whose comparison was re-run, so each is re-run once. */
+    private int rerun;
+    /** Answers still to skip at a new limit; see {@link #moveTo}. */
+    private int warmup;
     private int epoch;
     private int settledSamples;
     private Trial trial = new Trial();
     private final Map<Integer, Trial> measured = new HashMap<>();
-    private double longLatency = Double.NaN;
-    private double shortLatency = Double.NaN;
+    private double longThroughput = Double.NaN;
 
     /** What one limit gave while it was full. */
     private static final class Trial {
@@ -87,7 +101,7 @@ public final class ConcurrencyLimiter {
         double logError() {
             double mean = throughput();
             double variance = Math.max(0, sumSquares / samples - mean * mean) * samples / Math.max(1, samples - 1);
-            return Math.sqrt(variance / samples) / mean;
+            return Math.max(Math.sqrt(variance) / mean, MIN_SPREAD) / Math.sqrt(samples);
         }
     }
 
@@ -122,11 +136,27 @@ public final class ConcurrencyLimiter {
      */
     public void onSample(double seconds, double tokens, double concurrency, boolean saturated, int admittedIn) {
         if (seconds <= 0 || tokens <= 0 || concurrency <= 0) return;
-        if (admittedIn == epoch && settled && contended(seconds / tokens)) return;
         if (admittedIn != epoch || !saturated) return;
+        if (warmup > 0) {
+            warmup--;
+            return;
+        }
         trial.add(concurrency * tokens / seconds, concurrency, seconds);
         if (trial.samples < trialSize() || trial.samples % trialSize() != 0) return;
+        if (pending > 0) {
+            // The good limit, measured longer; then back to the unclear one, with its answers kept.
+            if (trial.samples < MAX_TRIAL_FACTOR * trialSize()) return;
+            measured.put(good, trial);
+            int back = pending;
+            Trial kept = pendingTrial;
+            pending = 0;
+            pendingTrial = null;
+            moveTo(back);
+            trial = kept;
+            return;
+        }
         if (settled) {
+            if (contended(trial.throughput())) return;
             measured.put(limit, trial);
             settledSamples += trial.samples;
             trial = new Trial();
@@ -135,6 +165,7 @@ public final class ConcurrencyLimiter {
                 // throughput by less than the noise between answers of different sizes.
                 bad = Integer.MAX_VALUE;
                 settled = false;
+                probing = true;
                 moveTo(Math.max(limit + 1, (int) Math.ceil(limit * 1.5)));
             }
             return;
@@ -143,7 +174,7 @@ public final class ConcurrencyLimiter {
     }
 
     private int trialSize() {
-        return Math.max(MIN_TRIAL_SAMPLES, 2 * limit);
+        return Math.max(MIN_TRIAL_SAMPLES, limit);
     }
 
     private void decide() {
@@ -165,13 +196,29 @@ public final class ConcurrencyLimiter {
         double scale = Math.log(concurrencyGain);
         boolean pays = (logGain - error) / scale >= GAIN_FLOOR;
         boolean doesNot = (logGain + error) / scale < GAIN_FLOOR;
-        if (!pays && !doesNot && now.samples < MAX_TRIAL_FACTOR * trialSize()) return;  // not clear yet
+        if (!pays && !doesNot) {
+            if (now.samples < MAX_TRIAL_FACTOR * trialSize()) return;  // not clear yet
+            if (rerun != limit && base.samples < MAX_TRIAL_FACTOR * trialSize()) {
+                // Most of the doubt is the good limit's short first measurement: measure it longer.
+                rerun = limit;
+                pending = limit;
+                pendingTrial = now;
+                Trial longer = base;
+                moveTo(good);
+                trial = longer;
+                return;
+            }
+            // Still unclear with both limits measured at length: a gain too small to see is not
+            // worth a fuller server, and counting it would let noise walk the limit upward.
+            pays = false;
+        }
         measured.put(limit, now);
         if (pays) {
             good = limit;
         } else {
             bad = limit;
         }
+        probing = probing && pays;  // a probe that paid off is a new search upward
         next();
     }
 
@@ -187,18 +234,21 @@ public final class ConcurrencyLimiter {
         }
     }
 
-    /** Per-token latency well above its long-run level at the same limit: the server is shared. */
-    private boolean contended(double secondsPerToken) {
-        if (Double.isNaN(longLatency)) {
-            longLatency = shortLatency = secondsPerToken;
+    /**
+     * At a settled limit, a trial whose throughput fell well below the long-run level: per-token
+     * latency at the same concurrency is up, so someone else is using the server. Judged per trial,
+     * not per answer, because one answer's latency depends mostly on its size.
+     */
+    private boolean contended(double throughput) {
+        if (Double.isNaN(longThroughput)) {
+            longThroughput = throughput;
             return false;
         }
-        shortLatency += SHORT_ALPHA * (secondsPerToken - shortLatency);
-        if (shortLatency > CONTENTION_TOLERANCE * longLatency && limit > 1) {
+        if (throughput * CONTENTION_TOLERANCE < longThroughput && limit > 1) {
             overload();
             return true;
         }
-        longLatency += LONG_ALPHA * (secondsPerToken - longLatency);
+        longThroughput += LONG_ALPHA * (throughput - longThroughput);
         return false;
     }
 
@@ -213,10 +263,15 @@ public final class ConcurrencyLimiter {
         moveTo(good);
     }
 
+    /**
+     * Right after a change the first answers back are the quick ones - the slow ones are still
+     * running - so they overstate throughput at the new limit. Half a limit's worth is skipped.
+     */
     private void moveTo(int newLimit) {
         limit = Math.max(1, Math.min(newLimit, ceiling));
+        warmup = limit / 2;
         epoch++;
         trial = new Trial();
-        longLatency = shortLatency = Double.NaN;
+        longThroughput = Double.NaN;
     }
 }

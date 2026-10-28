@@ -90,22 +90,33 @@ class ConcurrencyLimiterTest {
         return new Result(mostHeld, c.parallelism().settled(), generatedLate / (seconds / 2));
     }
 
+    /** The limits held longest across eight runs with different requests, sorted. */
+    private static int[] limits(int slots, double prefillRate, double decodeAlone) {
+        int[] out = new int[8];
+        for (int seed = 0; seed < out.length; seed++) {
+            out[seed] = simulate(slots, prefillRate, decodeAlone, 64, 24, 1_500, 100 + seed).limit();
+        }
+        java.util.Arrays.sort(out);
+        return out;
+    }
+
     @Test
     void oneSlotSettlesAtOne() {
-        Result r = simulate(1, 6_000, 60, 64, 24, 1_500, 1);
-        assertEquals(1, r.limit(), r.toString());
+        int[] l = limits(1, 6_000, 60);
+        assertEquals(1, l[l.length - 1], java.util.Arrays.toString(l));
     }
 
     @Test
     void fourSlotsSettleAtFour() {
-        Result r = simulate(4, 6_000, 60, 64, 24, 1_500, 2);
-        assertTrue(r.limit() >= 3 && r.limit() <= 5, r.toString());
+        int[] l = limits(4, 6_000, 60);
+        assertEquals(4, l[l.length / 2], java.util.Arrays.toString(l));
+        assertTrue(l[0] >= 3 && l[l.length - 1] <= 6, java.util.Arrays.toString(l));
     }
 
     @Test
     void eightSlotsSettleAtEight() {
-        Result r = simulate(8, 6_000, 60, 64, 24, 1_500, 3);
-        assertTrue(r.limit() >= 6 && r.limit() <= 9, r.toString());
+        int[] l = limits(8, 6_000, 60);
+        assertTrue(l[0] >= 7 && l[l.length - 1] <= 10, java.util.Arrays.toString(l));
     }
 
     @Test
@@ -129,8 +140,8 @@ class ConcurrencyLimiterTest {
 
     @Test
     void withFastPrefillEightSlotsAreFound() {
-        Result r = simulate(8, 20_000, 120, 64, 24, 1_000, 6);
-        assertTrue(r.limit() >= 6 && r.limit() <= 9, r.toString());
+        int[] l = limits(8, 20_000, 120);
+        assertTrue(l[0] >= 7 && l[l.length - 1] <= 10, java.util.Arrays.toString(l));
     }
 
     @Test
