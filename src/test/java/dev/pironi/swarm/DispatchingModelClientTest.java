@@ -19,7 +19,7 @@ class DispatchingModelClientTest {
 
     @Test
     void onlyWhatAConversationAddsSinceItsLastRequestCounts() {
-        var client = new DispatchingModelClient(m -> null, new DispatchController(2, 6, 16_000), null, null);
+        var client = new DispatchingModelClient(m -> null, new DispatchController(64, 16_000), null, null);
         List<ChatMessage> turn = new ArrayList<>(List.of(ChatMessage.system(chars(3_500)), ChatMessage.user(chars(3_500))));
         assertEquals(2_000, client.uncachedTokens(turn), "a new conversation is all uncached");
         turn.add(ChatMessage.assistant(chars(350)));
@@ -29,7 +29,7 @@ class DispatchingModelClientTest {
 
     @Test
     void anotherConversationPaysOnlyForWhereItDiverges() {
-        var client = new DispatchingModelClient(m -> null, new DispatchController(2, 6, 16_000), null, null);
+        var client = new DispatchingModelClient(m -> null, new DispatchController(64, 16_000), null, null);
         client.uncachedTokens(List.of(ChatMessage.system(chars(3_500)), ChatMessage.user("task A")));
         // Same system prompt and the same "task " - only the last letter is new.
         assertEquals(1, client.uncachedTokens(List.of(ChatMessage.system(chars(3_500)), ChatMessage.user("task B"))));
@@ -37,14 +37,14 @@ class DispatchingModelClientTest {
 
     @Test
     void anUnrelatedConversationIsCountedWhole() {
-        var client = new DispatchingModelClient(m -> null, new DispatchController(2, 6, 16_000), null, null);
+        var client = new DispatchingModelClient(m -> null, new DispatchController(64, 16_000), null, null);
         client.uncachedTokens(List.of(ChatMessage.system("y".repeat(3_500)), ChatMessage.user("task A")));
         assertEquals(1_002, client.uncachedTokens(List.of(ChatMessage.system(chars(3_500)), ChatMessage.user("task B"))));
     }
 
     @Test
     void everyCallTakesAndReturnsAPermit() throws Exception {
-        DispatchController controller = new DispatchController(1, 1, 16_000);
+        DispatchController controller = new DispatchController(1, 16_000);
         AtomicInteger seenInFlight = new AtomicInteger();
         ModelResponse answer = new ModelResponse("ok", 1, 1, 0, 0, "stop", "text", 1, "", "", 0);
         var client = new DispatchingModelClient(m -> {

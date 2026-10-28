@@ -15,8 +15,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class DispatchControllerTest {
     private final AtomicLong now = new AtomicLong();
 
-    private DispatchController controller(int window, int max, long budget) {
-        return new DispatchController(window, max, budget, now::get);
+    private DispatchController controller(int start, int ceiling, long budget) {
+        return new DispatchController(ceiling, start, budget, now::get);
     }
 
     private static Sensors green() {
@@ -32,30 +32,50 @@ class DispatchControllerTest {
     }
 
     @Test
-    void theWindowBoundsRequestsInFlight() {
-        DispatchController c = controller(2, 6, 1_000_000);
+    void theLimitStartsAtOne() {
+        DispatchController c = new DispatchController(64, 16_000);
+        assertEquals(1, c.window());
         assertNotNull(c.tryAcquire(10));
-        assertNotNull(c.tryAcquire(10));
-        assertNull(c.tryAcquire(10), "a third request went out with a window of 2");
+        assertNull(c.tryAcquire(10), "a second request went out before anything was learned");
     }
 
     @Test
-    void theBudgetBoundsUncachedTokensInPrefill() {
-        DispatchController c = controller(6, 6, 10_000);
+    void theLimitBoundsRequestsInFlight() {
+        DispatchController c = controller(2, 64, 1_000_000);
+        assertNotNull(c.tryAcquire(10));
+        assertNotNull(c.tryAcquire(10));
+        assertNull(c.tryAcquire(10), "a third request went out with a limit of 2");
+    }
+
+    @Test
+    void theBudgetBoundsUncachedTokensOnceMetricsAnswer() {
+        DispatchController c = controller(6, 64, 10_000);
+        c.onTick(green());
         assertNotNull(c.tryAcquire(8_000));
         assertNull(c.tryAcquire(4_000), "12k uncached tokens went out under a 10k budget");
         assertNotNull(c.tryAcquire(1_000), "a request that fits the budget was held back");
     }
 
     @Test
+    void withoutMetricsTheBudgetIsNotApplied() {
+        // The default prefill rate is a vLLM-on-B70 number; on another server it would be a guess.
+        DispatchController c = controller(6, 64, 10_000);
+        c.onTick(Sensors.unavailable(false));
+        assertNotNull(c.tryAcquire(8_000));
+        assertNotNull(c.tryAcquire(8_000));
+    }
+
+    @Test
     void aLoneRequestIsAdmittedHoweverLarge() {
-        DispatchController c = controller(2, 6, 1_000);
+        DispatchController c = controller(2, 64, 1_000);
+        c.onTick(green());
         assertNotNull(c.tryAcquire(50_000), "one long prompt would wait forever");
     }
 
     @Test
     void prefilledTokensStopCountingAgainstTheBudget() {
-        DispatchController c = controller(6, 6, 10_000);
+        DispatchController c = controller(6, 64, 10_000);
+        c.onTick(green());
         assertNotNull(c.tryAcquire(8_000));
         assertNull(c.tryAcquire(8_000));
         now.addAndGet(TimeUnit.SECONDS.toNanos(2)); // at the default 4k tok/s the first is prefilled
@@ -63,58 +83,85 @@ class DispatchControllerTest {
     }
 
     @Test
-    void greenGrowsTheWindowOnlyUnderDemand() {
-        DispatchController c = controller(2, 6, 10_000);
-        c.onTick(green());
-        assertEquals(2, c.window(), "an idle swarm grew its window");
-        c.tryAcquire(1);
-        c.tryAcquire(1);
-        c.onTick(green());
-        assertEquals(3, c.window());
+    void withoutMetricsTheLimitStillGrows() {
+        // Before: an UNKNOWN light held the window where it was. Latency alone must be enough.
+        DispatchController c = new DispatchController(64, 16_000, now::get);
+        for (int round = 0; round < 8; round++) {
+            c.onTick(Sensors.unavailable(false));
+            int limit = c.window();
+            var permits = new java.util.ArrayList<DispatchController.Permit>();
+            for (int i = 0; i < limit; i++) permits.add(c.tryAcquire(100));
+            assertNull(c.tryAcquire(100));  // demand beyond the limit
+            now.addAndGet(TimeUnit.SECONDS.toNanos(1));
+            for (var p : permits) c.release(p, 100);  // linear speed-up: every request as fast as alone
+            if (c.window() == limit) {
+                // a trial needs a few samples; repeat the round at the same limit
+                for (int k = 0; k < 3; k++) {
+                    permits.clear();
+                    for (int i = 0; i < limit; i++) permits.add(c.tryAcquire(100));
+                    c.tryAcquire(100);
+                    now.addAndGet(TimeUnit.SECONDS.toNanos(1));
+                    for (var p : permits) c.release(p, 100);
+                }
+            }
+        }
+        assertTrue(c.window() >= 8, "the limit stayed at " + c.window() + " with no /metrics");
     }
 
     @Test
-    void aSwarmHeldByTheBudgetDoesNotGrowItsWindow() {
-        DispatchController c = controller(2, 6, 10_000);
-        assertNotNull(c.tryAcquire(9_000));
-        assertNull(c.tryAcquire(9_000), "over budget");
-        c.onTick(green());
-        assertEquals(2, c.window(), "the window grew while the budget was the limit");
-    }
-
-    @Test
-    void theWindowNeverPassesItsCeiling() {
-        DispatchController c = controller(5, 6, 10_000);
-        for (int i = 0; i < 6; i++) c.tryAcquire(1);
-        for (int i = 0; i < 5; i++) c.onTick(green());
-        assertEquals(6, c.window());
-    }
-
-    @Test
-    void yellowHoldsTheWindow() {
-        DispatchController c = controller(3, 6, 10_000);
-        for (int i = 0; i < 3; i++) c.tryAcquire(1);
+    void yellowStopsTheSearchForAWiderLimit() {
+        DispatchController c = controller(3, 64, 10_000);
         assertEquals(DispatchController.Light.YELLOW, c.onTick(yellow()));
+        for (int i = 0; i < 10; i++) {
+            var a = c.tryAcquire(1);
+            var b = c.tryAcquire(1);
+            var d = c.tryAcquire(1);
+            c.tryAcquire(1);
+            now.addAndGet(TimeUnit.SECONDS.toNanos(1));
+            c.release(a, 100);
+            c.release(b, 100);
+            c.release(d, 100);
+        }
         assertEquals(3, c.window());
+        assertTrue(c.parallelism().settled());
     }
 
     @Test
-    void redHalvesTheWindowAndCutsTheBudgetOncePerOverload() {
-        DispatchController c = controller(6, 6, 16_000);
+    void redHalvesTheLimitAndCutsTheBudgetOncePerOverload() {
+        DispatchController c = controller(8, 64, 16_000);
         assertEquals(DispatchController.Light.RED, c.onTick(preempted()));
-        assertEquals(3, c.window());
+        assertEquals(4, c.window());
         assertEquals(12_000, c.budget());
         c.onTick(preempted());
         c.onTick(preempted());
         c.onTick(preempted());
-        assertEquals(3, c.window(), "the same overload was punished again during cooldown");
+        assertEquals(4, c.window(), "the same overload was punished again during cooldown");
         c.onTick(preempted());
-        assertEquals(1, c.window());
+        assertEquals(2, c.window());
     }
 
     @Test
-    void theWindowNeverDropsBelowOne() {
-        DispatchController c = controller(1, 6, 16_000);
+    void anOverloadedAnswerHalvesTheLimitOncePerLimit() {
+        DispatchController c = controller(8, 64, 16_000);
+        var a = c.tryAcquire(1);
+        var b = c.tryAcquire(1);
+        c.releaseFailed(a, true);
+        assertEquals(4, c.window());
+        c.releaseFailed(b, true);
+        assertEquals(4, c.window(), "two answers to the same overload halved it twice");
+        assertEquals(0, c.inFlight());
+    }
+
+    @Test
+    void anOrdinaryFailureLeavesTheLimit() {
+        DispatchController c = controller(8, 64, 16_000);
+        c.releaseFailed(c.tryAcquire(1), false);
+        assertEquals(8, c.window());
+    }
+
+    @Test
+    void theLimitNeverDropsBelowOne() {
+        DispatchController c = controller(1, 64, 16_000);
         for (int i = 0; i < 20; i++) c.onTick(preempted());
         assertEquals(1, c.window());
         assertTrue(c.budget() >= 4_000, "budget fell below a quarter: " + c.budget());
@@ -122,7 +169,7 @@ class DispatchControllerTest {
 
     @Test
     void greenRestoresTheBudgetUpToItsCeiling() {
-        DispatchController c = controller(2, 6, 16_000);
+        DispatchController c = controller(2, 64, 16_000);
         c.onTick(preempted());
         for (int i = 0; i < 10; i++) c.onTick(green());
         assertEquals(16_000, c.budget());
@@ -149,7 +196,7 @@ class DispatchControllerTest {
 
     @Test
     void theMeasuredPrefillRateIsLearned() {
-        DispatchController c = controller(2, 6, 16_000);
+        DispatchController c = controller(2, 64, 16_000);
         c.onTick(new Sensors(true, 0.1, 0, 0, 0, 0.9, 8_000, false));
         assertEquals(8_000, c.prefillRate(), 1e-9);
         c.onTick(new Sensors(true, 0.1, 0, 0, 0, 0.9, Double.NaN, false));
@@ -158,7 +205,7 @@ class DispatchControllerTest {
 
     @Test
     void waitersAreAdmittedInArrivalOrder() throws Exception {
-        DispatchController c = new DispatchController(1, 6, 1_000_000);
+        DispatchController c = new DispatchController(64, 1_000_000);
         DispatchController.Permit first = c.acquire(1);
         StringBuilder order = new StringBuilder();
         CountDownLatch queued = new CountDownLatch(2);

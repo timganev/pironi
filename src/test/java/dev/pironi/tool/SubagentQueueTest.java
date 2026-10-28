@@ -60,7 +60,14 @@ class SubagentQueueTest {
         Thread.sleep(50);
         manager.cancelAll("discarded");
         release.countDown();
-        List<SubagentResult> done = manager.awaitCompleted(Duration.ofSeconds(10));
+        // Cancelled children no longer count as active, so awaitCompleted does not wait for them;
+        // collect until the queued one has reported.
+        List<SubagentResult> done = new java.util.ArrayList<>();
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (done.stream().noneMatch(r -> r.name().equals("queued")) && System.nanoTime() < deadline) {
+            done.addAll(manager.drainCompleted());
+            Thread.sleep(10);
+        }
         SubagentResult queued = done.stream().filter(r -> r.name().equals("queued")).findFirst().orElseThrow();
         assertTrue(queued.isCancelled(), queued.toString());
         manager.close();

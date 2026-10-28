@@ -55,14 +55,14 @@ record CliOptions(
             System.getProperty("user.dir", ".")
     ).toAbsolutePath().normalize();
     private static final Set<String> BOOLEAN_FLAGS = Set.of(
-            "interactive", "no-interactive", "no-tui", "continue", "portable", "stop-repetition", "swarm");
+            "interactive", "no-interactive", "no-tui", "continue", "portable", "stop-repetition", "swarm", "swarm-blind");
     private static final Set<String> VALUE_OPTIONS = Set.of(
             "provider", "base-url", "api-key-env", "model", "workspace", "task", "task-file",
             "approval", "activity", "max-turns", "context", "max-output-tokens", "thinking-budget",
             "timeout-seconds", "trace", "pironi-home", "personal-context", "status",
             "verify-command", "deny-tools", "allow-tools", "shell-scope", "read-scope",
             "search-roots", "resume",
-            "max-subagents", "subagent-timeout-seconds", "swarm-max-window", "swarm-budget"
+            "max-subagents", "subagent-timeout-seconds", "max-parallel", "swarm-budget"
     );
     private static final Set<String> KNOWN_OPTIONS = java.util.stream.Stream.concat(
             BOOLEAN_FLAGS.stream(), VALUE_OPTIONS.stream()
@@ -386,8 +386,9 @@ record CliOptions(
                 // load, which only a local server that is ours alone can be judged by.
                 new SwarmSettings(
                         values.containsKey("swarm"),
-                        positiveInt(values, "swarm-max-window", SwarmSettings.DEFAULT_MAX_WINDOW),
+                        values.containsKey("max-parallel") ? positiveInt(values, "max-parallel", 1) : 0,
                         positiveInt(values, "swarm-budget", (int) SwarmSettings.DEFAULT_BUDGET_TOKENS),
+                        values.containsKey("swarm-blind"),
                         environment.containsKey("PIRONI_SWARM_LOG")
                                 ? Path.of(environment.get("PIRONI_SWARM_LOG")) : null
                 )

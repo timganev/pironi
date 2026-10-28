@@ -6,23 +6,24 @@ import java.util.List;
 import java.util.function.LongSupplier;
 
 /**
- * Decides when a model request may go out, so that many agents on one card do not choke it.
+ * Decides when a model request may go out, so that many agents on one server do not choke it.
  *
- * <p>The card chokes on prefill, not on the number of requests: a dozen agents that share a cached
- * prefix run fine, four that each bring 15k new tokens queue behind one another. So a request is
- * admitted only when both hold:
+ * <p>Two limits, both of which must hold:
  * <ul>
- *   <li>fewer than {@code window} requests are in flight;</li>
- *   <li>the uncached tokens still being prefilled, plus this request's, fit in {@code budget}.</li>
+ *   <li>fewer requests in flight than the {@link ConcurrencyLimiter} has learned the server
+ *       takes - from latency alone, so it works on any OpenAI-compatible server;</li>
+ *   <li>when vLLM's /metrics is readable: the uncached tokens still being prefilled, plus this
+ *       request's, fit in {@code budget}. A request's tokens stop counting once the measured
+ *       prefill rate says they are done, so the budget limits prefill without serialising decode.</li>
  * </ul>
- * A request's uncached tokens stop counting once the measured prefill rate says they are done, so
- * the budget limits prefill without serialising the decode that follows it. A request alone in
- * flight is always admitted, however large: otherwise one long prompt would wait forever.
+ * A request alone in flight is always admitted, however large: otherwise one long prompt would
+ * wait forever.
  *
- * <p>Window and budget follow AIMD, as TCP does with congestion: each green reading adds one to
- * the window while there is demand for it, the first red one halves it and cuts the budget by a
- * quarter. After a cut the next readings are ignored for a while, because the KV cache and the
- * queue take seconds to drain and would otherwise halve the window again for the same overload.
+ * <p>/metrics, when there is one, only adds to what latency says. Red (preemptions, a full KV
+ * cache, a long queue) halves the limit and cuts the budget by a quarter; yellow stops the limiter
+ * from trying wider limits. After a cut the next readings are ignored for a while, because the KV
+ * cache and the queue take seconds to drain and would otherwise halve the limit again for the same
+ * overload. Without /metrics nothing here waits for it.
  *
  * <p>Requests are admitted in arrival order. A pause only ever happens before a request is sent,
  * that is between an agent's turns; nothing is interrupted once it is on the wire.
@@ -39,44 +40,61 @@ public final class DispatchController {
     static final int COOLDOWN_TICKS = 3;
     static final double DEFAULT_PREFILL_RATE = 4_000;
 
-    private final int maxWindow;
+    private final ConcurrencyLimiter limiter;
     private final long maxBudget;
     private final long minBudget;
     private final LongSupplier clock;
 
-    private int window;
     private long budget;
+    /** The budget applies only once /metrics has answered: without it the prefill rate is a guess. */
+    private boolean budgetActive;
     private double prefillRate = DEFAULT_PREFILL_RATE;
     private int cooldown;
     private Light light = Light.UNKNOWN;
     private final ArrayDeque<Object> queue = new ArrayDeque<>();
     private final List<Permit> inFlight = new ArrayList<>();
+    /** Requests in flight integrated over time, in request-nanoseconds: gives a request's average concurrency. */
+    private double concurrencyArea;
+    private long areaUpdatedNanos;
+    /** Times a request found the limit full; a request that saw it change ran while the limit was in use. */
+    private long heldBack;
 
     /** An admitted request; hand it back to {@link #release}. */
     public static final class Permit {
         final long tokens;
         final long admittedNanos;
+        final double areaAtAdmit;
+        final long heldBackAtAdmit;
+        final int epoch;
 
-        Permit(long tokens, long admittedNanos) {
+        Permit(long tokens, long admittedNanos, double areaAtAdmit, long heldBackAtAdmit, int epoch) {
             this.tokens = tokens;
             this.admittedNanos = admittedNanos;
+            this.areaAtAdmit = areaAtAdmit;
+            this.heldBackAtAdmit = heldBackAtAdmit;
+            this.epoch = epoch;
         }
     }
 
-    public DispatchController(int initialWindow, int maxWindow, long budgetTokens) {
-        this(initialWindow, maxWindow, budgetTokens, System::nanoTime);
+    public DispatchController(int ceiling, long budgetTokens) {
+        this(ceiling, budgetTokens, System::nanoTime);
     }
 
-    DispatchController(int initialWindow, int maxWindow, long budgetTokens, LongSupplier clock) {
-        if (maxWindow < 1 || initialWindow < 1 || budgetTokens < 1) {
-            throw new IllegalArgumentException("window and budget must be positive");
+    DispatchController(int ceiling, long budgetTokens, LongSupplier clock) {
+        this(ceiling, 1, budgetTokens, clock);
+    }
+
+    /** Starts the limit at {@code startLimit} rather than 1; for tests. */
+    DispatchController(int ceiling, int startLimit, long budgetTokens, LongSupplier clock) {
+        if (ceiling < 1 || budgetTokens < 1) {
+            throw new IllegalArgumentException("ceiling and budget must be positive");
         }
-        this.maxWindow = maxWindow;
-        this.window = Math.min(initialWindow, maxWindow);
+        this.limiter = new ConcurrencyLimiter(ceiling, startLimit);
         this.maxBudget = budgetTokens;
         this.budget = budgetTokens;
         this.minBudget = Math.max(1, budgetTokens / 4);
         this.clock = clock;
+        this.areaUpdatedNanos = clock.getAsLong();
     }
 
     /** Blocks until the request may go out. */
@@ -84,8 +102,13 @@ public final class DispatchController {
         Object ticket = new Object();
         synchronized (this) {
             queue.addLast(ticket);
+            boolean counted = false;
             try {
                 while (queue.peekFirst() != ticket || !admissible(uncachedTokens)) {
+                    if (!counted) {
+                        heldBack++;
+                        counted = true;
+                    }
                     // Timed: budget frees up as prefill progresses, with no event to wake on.
                     wait(100);
                 }
@@ -93,27 +116,69 @@ public final class DispatchController {
                 queue.remove(ticket);
                 notifyAll();
             }
-            Permit permit = new Permit(Math.max(0, uncachedTokens), clock.getAsLong());
-            inFlight.add(permit);
-            return permit;
+            return admit(uncachedTokens);
         }
     }
 
     /** Non-blocking variant for tests and callers that would rather do something else. */
     public synchronized Permit tryAcquire(long uncachedTokens) {
-        if (!queue.isEmpty() || !admissible(uncachedTokens)) return null;
-        Permit permit = new Permit(Math.max(0, uncachedTokens), clock.getAsLong());
+        if (!queue.isEmpty() || !admissible(uncachedTokens)) {
+            heldBack++;
+            return null;
+        }
+        return admit(uncachedTokens);
+    }
+
+    private Permit admit(long uncachedTokens) {
+        advanceArea();
+        Permit permit = new Permit(Math.max(0, uncachedTokens), clock.getAsLong(), concurrencyArea,
+                heldBack, limiter.epoch());
         inFlight.add(permit);
         return permit;
     }
 
+    /** The request answered; its time and size teach the limiter. */
+    public synchronized void release(Permit permit, long generatedTokens) {
+        if (!inFlight.contains(permit)) return;
+        advanceArea();
+        long elapsed = clock.getAsLong() - permit.admittedNanos;
+        double concurrency = elapsed > 0 ? (concurrencyArea - permit.areaAtAdmit) / elapsed : inFlight.size();
+        boolean saturated = heldBack != permit.heldBackAtAdmit || !queue.isEmpty();
+        double tokens = generatedTokens + ConcurrencyLimiter.PREFILL_WEIGHT * permit.tokens;
+        limiter.onSample(elapsed / 1e9, tokens, concurrency, saturated, permit.epoch);
+        remove(permit);
+    }
+
+    /** The request failed; an overload (429, 503, timeout) halves the limit, once per limit. */
+    public synchronized void releaseFailed(Permit permit, boolean overloaded) {
+        if (!inFlight.contains(permit)) return;
+        if (overloaded && permit.epoch == limiter.epoch()) limiter.overload();
+        advanceArea();
+        remove(permit);
+    }
+
+    /** Returns the permit without teaching the limiter anything. */
     public synchronized void release(Permit permit) {
-        if (inFlight.remove(permit)) notifyAll();
+        if (!inFlight.contains(permit)) return;
+        advanceArea();
+        remove(permit);
+    }
+
+    private void remove(Permit permit) {
+        inFlight.remove(permit);
+        notifyAll();
+    }
+
+    private void advanceArea() {
+        long now = clock.getAsLong();
+        concurrencyArea += (double) inFlight.size() * (now - areaUpdatedNanos);
+        areaUpdatedNanos = now;
     }
 
     private boolean admissible(long tokens) {
         if (inFlight.isEmpty()) return true;
-        return inFlight.size() < window && prefillPending() + tokens <= budget;
+        if (inFlight.size() >= limiter.limit()) return false;
+        return !budgetActive || prefillPending() + tokens <= budget;
     }
 
     /** Uncached tokens of the requests in flight that the measured rate says are not yet prefilled. */
@@ -127,25 +192,22 @@ public final class DispatchController {
         return pending;
     }
 
-    /** Feeds one sensor reading; returns the light it was read as. */
+    /** Feeds one reading of /metrics (or of 429/503 alone); returns the light it was read as. */
     public synchronized Light onTick(Sensors s) {
+        if (s.available()) budgetActive = true;
         if (s.available() && s.prefillRate() > 0 && Double.isFinite(s.prefillRate())) {
             // Already an average since the first scrape, so it is taken as it is.
             prefillRate = s.prefillRate();
         }
         light = classify(s);
+        limiter.allowGrowth(light != Light.YELLOW && light != Light.RED);
         if (cooldown > 0) {
             cooldown--;
         } else if (light == Light.RED) {
-            window = Math.max(1, window / 2);
+            limiter.overload();
             budget = Math.max(minBudget, (long) (budget * 0.75));
             cooldown = COOLDOWN_TICKS;
         } else if (light == Light.GREEN) {
-            // Grow only while the window is what holds requests back: an idle swarm, or one held
-            // by the token budget, says nothing about whether a wider window would fit.
-            if (inFlight.size() >= window) {
-                window = Math.min(maxWindow, window + 1);
-            }
             budget = Math.min(maxBudget, (long) (budget * 1.25));
         }
         notifyAll();
@@ -166,8 +228,14 @@ public final class DispatchController {
         return Light.GREEN;
     }
 
-    public synchronized int window() { return window; }
+    /** What the swarm has learned the server takes; see {@link Parallelism}. */
+    public synchronized Parallelism parallelism() {
+        return new Parallelism(limiter.limit(), limiter.settled(), limiter.ceiling());
+    }
+
+    public synchronized int window() { return limiter.limit(); }
     public synchronized long budget() { return budget; }
+    public synchronized boolean budgetActive() { return budgetActive; }
     public synchronized int inFlight() { return inFlight.size(); }
     public synchronized int queued() { return queue.size(); }
     public synchronized double prefillRate() { return prefillRate; }

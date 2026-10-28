@@ -1,5 +1,6 @@
 package dev.pironi.swarm;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.pironi.model.ChatMessage;
 import dev.pironi.model.ModelClient;
 import dev.pironi.model.ModelResponse;
@@ -9,6 +10,11 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.UncheckedIOException;
 import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
+import java.time.Duration;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
@@ -21,8 +27,9 @@ import java.util.function.Consumer;
 
 /**
  * Sends every model call through a {@link DispatchController}, so the parent and its children
- * share one view of how loaded the card is. A background poller reads /metrics and feeds the
- * controller; without /metrics only 429/503 answers move it.
+ * share one view of how loaded the server is. Every answer teaches the controller's limiter how
+ * many requests the server takes; a background poller adds vLLM's /metrics where there is one
+ * (not with --swarm-blind) and 429/503 answers everywhere.
  *
  * <p>The cost of a request is its uncached prompt: what this conversation sent last time is in
  * the server's prefix cache, so only the part after it is new. A conversation is recognised by its
@@ -56,7 +63,8 @@ public final class DispatchingModelClient implements ModelClient, AutoCloseable 
         this.controller = controller;
         this.metrics = metrics;
         this.log = log;
-        this.poller = metrics == null ? null : Thread.ofVirtual().name("swarm-poller").start(this::poll);
+        // Polls even without /metrics: a 429 or 503 seen by the transport must still cut the limit.
+        this.poller = Thread.ofVirtual().name("swarm-poller").start(this::poll);
     }
 
     /** The wrapper --swarm asks for, or the client itself when it is off. */
@@ -72,43 +80,101 @@ public final class DispatchingModelClient implements ModelClient, AutoCloseable 
                 throw new UncheckedIOException("cannot open swarm log " + settings.logPath(), e);
             }
         }
-        return new DispatchingModelClient(client,
-                new DispatchController(2, settings.maxWindow(), settings.budgetTokens()),
-                new VllmMetrics(VllmMetrics.metricsUri(baseUri), apiKey), log);
+        int ceiling = settings.maxParallel() > 0 ? settings.maxParallel() : serverSlots(baseUri, apiKey);
+        DispatchingModelClient wrapped = new DispatchingModelClient(client,
+                new DispatchController(ceiling, settings.budgetTokens()),
+                settings.blind() ? null : new VllmMetrics(VllmMetrics.metricsUri(baseUri), apiKey), log);
+        wrapped.log("start ceiling=" + ceiling + (settings.maxParallel() > 0 ? " (--max-parallel)" : "")
+                + (settings.blind() ? " blind" : ""));
+        return wrapped;
+    }
+
+    /**
+     * How many requests the server says it runs at once: llama.cpp's /props has total_slots.
+     * Others say nothing, and the limiter learns it under {@link ConcurrencyLimiter#SAFETY_CEILING}.
+     */
+    static int serverSlots(URI baseUri, String apiKey) {
+        String base = baseUri.toString().replaceAll("/+$", "");
+        if (base.endsWith("/v1")) base = base.substring(0, base.length() - 3);
+        try {
+            HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(base + "/props"))
+                    .timeout(Duration.ofSeconds(2)).GET();
+            if (apiKey != null && !apiKey.isBlank()) b.header("Authorization", "Bearer " + apiKey);
+            HttpResponse<String> r = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build()
+                    .send(b.build(), HttpResponse.BodyHandlers.ofString());
+            int slots = r.statusCode() / 100 == 2 ? slotsIn(r.body()) : 0;
+            return slots > 0 ? slots : ConcurrencyLimiter.SAFETY_CEILING;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return ConcurrencyLimiter.SAFETY_CEILING;
+        } catch (Exception e) {
+            return ConcurrencyLimiter.SAFETY_CEILING;
+        }
+    }
+
+    static int slotsIn(String propsJson) {
+        try {
+            return new ObjectMapper().readTree(propsJson).path("total_slots").asInt(0);
+        } catch (IOException e) {
+            return 0;
+        }
     }
 
     @Override
     public ModelResponse chat(List<ChatMessage> messages) throws IOException, InterruptedException {
-        long tokens = uncachedTokens(messages);
-        DispatchController.Permit permit = admit(tokens);
-        try {
-            return delegate.chat(messages);
-        } finally {
-            controller.release(permit);
-        }
+        return dispatch(messages, () -> delegate.chat(messages));
     }
 
     @Override
     public ModelResponse chatText(List<ChatMessage> messages) throws IOException, InterruptedException {
-        long tokens = uncachedTokens(messages);
-        DispatchController.Permit permit = admit(tokens);
-        try {
-            return delegate.chatText(messages);
-        } finally {
-            controller.release(permit);
-        }
+        return dispatch(messages, () -> delegate.chatText(messages));
     }
 
     @Override
     public ModelResponse chatStreaming(List<ChatMessage> messages, Consumer<String> contentChunk)
             throws IOException, InterruptedException {
-        long tokens = uncachedTokens(messages);
-        DispatchController.Permit permit = admit(tokens);
+        return dispatch(messages, () -> delegate.chatStreaming(messages, contentChunk));
+    }
+
+    private interface Call {
+        ModelResponse run() throws IOException, InterruptedException;
+    }
+
+    private ModelResponse dispatch(List<ChatMessage> messages, Call call) throws IOException, InterruptedException {
+        DispatchController.Permit permit = admit(uncachedTokens(messages));
         try {
-            return delegate.chatStreaming(messages, contentChunk);
+            ModelResponse response = call.run();
+            controller.release(permit, generatedTokens(response));
+            return response;
+        } catch (IOException e) {
+            controller.releaseFailed(permit, overloaded(e));
+            throw e;
         } finally {
-            controller.release(permit);
+            controller.release(permit);  // no-op unless something else was thrown
         }
+    }
+
+    /** What the server generated; estimated from the text where it does not report usage. */
+    static long generatedTokens(ModelResponse response) {
+        if (response == null) return 0;
+        if (response.outputTokens() > 0) return response.outputTokens();
+        String content = response.content();
+        return content == null ? 0 : (long) Math.ceil(content.length() / CHARS_PER_TOKEN);
+    }
+
+    /** A failure that says the server is full rather than that the request was wrong. */
+    static boolean overloaded(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof HttpTimeoutException) return true;
+            String m = t.getMessage();
+            if (m != null && (m.contains("HTTP 429") || m.contains("HTTP 503"))) return true;
+        }
+        return false;
+    }
+
+    /** What the swarm has learned the server takes, for the orchestrator. */
+    public Parallelism parallelism() {
+        return controller.parallelism();
     }
 
     private DispatchController.Permit admit(long tokens) throws InterruptedException {
@@ -182,6 +248,7 @@ public final class DispatchingModelClient implements ModelClient, AutoCloseable 
         long seenLimits = RateLimitSignals.count();
         DispatchController.Light last = null;
         int lastWindow = -1;
+        boolean lastSettled = false;
         int ticks = 0;
         while (!closed) {
             try {
@@ -190,18 +257,21 @@ public final class DispatchingModelClient implements ModelClient, AutoCloseable 
                 return;
             }
             long limits = RateLimitSignals.count();
-            Sensors s = metrics.read(limits > seenLimits);
+            Sensors s = metrics == null ? Sensors.unavailable(limits > seenLimits) : metrics.read(limits > seenLimits);
             seenLimits = limits;
             DispatchController.Light light = controller.onTick(s);
             // Changes as they happen, and every ~15 s a heartbeat with the learned prefill rate.
-            if (light != last || controller.window() != lastWindow || ++ticks % 10 == 0) {
+            Parallelism p = controller.parallelism();
+            if (light != last || p.limit() != lastWindow || p.settled() != lastSettled || ++ticks % 10 == 0) {
                 log(String.format(java.util.Locale.ROOT,
-                        "%s W=%d B=%d inflight=%d queued=%d kv=%.2f waiting=%.0f preempt=%.0f queue=%.2f hit=%.2f prefill=%.0f",
-                        light, controller.window(), controller.budget(), controller.inFlight(),
+                        "%s W=%d%s B=%s inflight=%d queued=%d kv=%.2f waiting=%.0f preempt=%.0f queue=%.2f hit=%.2f prefill=%.0f",
+                        light, p.limit(), p.settled() ? " settled" : "",
+                        controller.budgetActive() ? String.valueOf(controller.budget()) : "-", controller.inFlight(),
                         controller.queued(), s.kvUsage(), s.waiting(), s.preemptions(), s.queueSeconds(),
                         s.prefixHitRate(), controller.prefillRate()));
                 last = light;
-                lastWindow = controller.window();
+                lastWindow = p.limit();
+                lastSettled = p.settled();
             }
         }
     }

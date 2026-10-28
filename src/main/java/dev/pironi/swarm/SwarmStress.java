@@ -56,8 +56,9 @@ public final class SwarmStress {
                 Duration.ofSeconds(1800), 131072, thinking + 600,
                 new ReasoningGuard(thinking, true)).createClient();
         SwarmSettings settings = new SwarmSettings(swarm,
-                Integer.parseInt(a.getOrDefault("max-window", String.valueOf(SwarmSettings.DEFAULT_MAX_WINDOW))),
+                Integer.parseInt(a.getOrDefault("max-parallel", "0")),
                 Long.parseLong(a.getOrDefault("budget", String.valueOf(SwarmSettings.DEFAULT_BUDGET_TOKENS))),
+                a.getOrDefault("blind", "off").equals("on"),
                 a.containsKey("log") ? Path.of(a.get("log")) : null);
         ModelClient client = DispatchingModelClient.wrap(plain, settings, base, key);
 
