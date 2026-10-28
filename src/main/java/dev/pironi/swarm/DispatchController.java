@@ -248,9 +248,12 @@ public final class DispatchController {
         return Light.GREEN;
     }
 
-    /** A limit worth keeping for the next run: settled, and learned from the server rather than the demand. */
+    /**
+     * A limit worth keeping for the next run: the last one measured while requests waited for it,
+     * not one on trial and not one lowered to a small demand. 0 when there is none yet.
+     */
     public synchronized int learnedLimit() {
-        return limiter.settled() && !limiter.demandBound() ? limiter.limit() : 0;
+        return limiter.loadedLimit();
     }
 
     /** Holds the limit where it is, whatever happens; for comparisons in tests. */

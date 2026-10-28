@@ -287,7 +287,7 @@ public final class DispatchingModelClient implements ModelClient, AutoCloseable 
         }
     }
 
-    /** Keeps the limit for the next run; only a settled one, so a search cut short is not kept. */
+    /** Keeps the limit for the next run, from the first wave measured under load. */
     private void remember() {
         int learned = controller.learnedLimit();
         if (profile != null && learned > 0) profile.remember(profileKey, learned);

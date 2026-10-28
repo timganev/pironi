@@ -103,6 +103,13 @@ class DispatchControllerTest {
     }
 
     @Test
+    void aLimitStillClimbingIsKeptForTheNextRun() {
+        DispatchController c = controller(4, 64, 16_000);
+        for (int i = 0; i < 40 && c.window() < 8; i++) round(c, 1, 100);
+        assertTrue(c.learnedLimit() >= 7, "a run cut short kept " + c.learnedLimit());
+    }
+
+    @Test
     void withoutMetricsTheLimitStopsWhereOneMoreBringsNothing() {
         DispatchController c = controller(4, 64, 16_000);
         // A server with 4 slots: whatever is in flight, 400 tokens a second come back.

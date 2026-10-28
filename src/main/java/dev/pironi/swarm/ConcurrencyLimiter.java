@@ -81,6 +81,7 @@ public final class ConcurrencyLimiter {
     private double idlePeak;
     /** The limit was lowered to what the swarm asked for, not learned from the server. */
     private boolean demandBound;
+    private int loadedLimit;
     private int hold;
     /** Waves before the next step down is tried, in the same way as {@link #hold} for growth. */
     private int downHold;
@@ -113,6 +114,9 @@ public final class ConcurrencyLimiter {
     public int ceiling() { return ceiling; }
     /** Whether the limit has held for a few waves, rather than still moving. */
     public boolean settled() { return quietWaves >= SETTLED_WAVES || limit == ceiling && ceiling == 1; }
+    /** The limit last measured while requests waited for it: what the next run starts from, 0 if none. */
+    public int loadedLimit() { return loadedLimit; }
+
     /** Whether the limit is only what the swarm asked for lately, not what the server takes. */
     public boolean demandBound() { return demandBound; }
     /** Changes with every new limit. */
@@ -176,6 +180,7 @@ public final class ConcurrencyLimiter {
     }
 
     private void onWave(double t, boolean wanted) {
+        if (wanted && from == 0) loadedLimit = limit;
         if (skip > 0) {
             skip--;
             return;
