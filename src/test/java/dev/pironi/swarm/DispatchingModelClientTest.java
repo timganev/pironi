@@ -28,9 +28,17 @@ class DispatchingModelClientTest {
     }
 
     @Test
-    void anotherConversationIsCountedWhole() {
+    void anotherConversationPaysOnlyForWhereItDiverges() {
         var client = new DispatchingModelClient(m -> null, new DispatchController(2, 6, 16_000), null, null);
         client.uncachedTokens(List.of(ChatMessage.system(chars(3_500)), ChatMessage.user("task A")));
+        // Same system prompt and the same "task " - only the last letter is new.
+        assertEquals(1, client.uncachedTokens(List.of(ChatMessage.system(chars(3_500)), ChatMessage.user("task B"))));
+    }
+
+    @Test
+    void anUnrelatedConversationIsCountedWhole() {
+        var client = new DispatchingModelClient(m -> null, new DispatchController(2, 6, 16_000), null, null);
+        client.uncachedTokens(List.of(ChatMessage.system("y".repeat(3_500)), ChatMessage.user("task A")));
         assertEquals(1_002, client.uncachedTokens(List.of(ChatMessage.system(chars(3_500)), ChatMessage.user("task B"))));
     }
 

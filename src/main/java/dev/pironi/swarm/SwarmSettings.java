@@ -13,7 +13,8 @@ import java.nio.file.Path;
  * @param logPath      where state changes are written, or null for none
  */
 public record SwarmSettings(boolean enabled, int maxWindow, long budgetTokens, Path logPath) {
-    public static final int DEFAULT_MAX_WINDOW = 6;
+    /** vLLM on the B70 runs 8 sequences at once (max_num_seqs); a narrower ceiling only idles it. */
+    public static final int DEFAULT_MAX_WINDOW = 8;
     public static final long DEFAULT_BUDGET_TOKENS = 16_000;
 
     public static SwarmSettings off() {
