@@ -41,6 +41,8 @@ public final class OpenAiCompatibleClient implements ModelClient {
     /** Attempts at getting an answer out of the transport, before the protocol is even read. */
     private static final int MAX_TRANSPORT_ATTEMPTS = 4;
     private static final long RETRY_BACKOFF_MILLIS = 1_000;
+    /** A Retry-After longer than this is not waited out in full; the turn would look hung. */
+    private static final long MAX_RETRY_AFTER_MILLIS = 60_000;
 
     public OpenAiCompatibleClient(
             URI baseUri,
@@ -408,10 +410,16 @@ public final class OpenAiCompatibleClient implements ModelClient {
         long backoffMillis = RETRY_BACKOFF_MILLIS;
         for (int attempt = 1; ; attempt++) {
             boolean lastAttempt = attempt >= MAX_TRANSPORT_ATTEMPTS;
+            long waitMillis = backoffMillis;
             try {
                 HttpResponse<String> response =
                         httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                RateLimitSignals.record(response.statusCode());
                 if (!retryable(response.statusCode()) || lastAttempt) return response;
+                // The server knows when it will have room; guessing shorter only spends an attempt.
+                long asked = !RateLimitSignals.honorRetryAfter() ? -1
+                        : retryAfterMillis(response.headers().firstValue("Retry-After").orElse(null));
+                if (asked >= 0) waitMillis = Math.min(asked, MAX_RETRY_AFTER_MILLIS);
             } catch (IOException e) {
                 if (lastAttempt) {
                     throw new IOException(
@@ -420,8 +428,29 @@ public final class OpenAiCompatibleClient implements ModelClient {
                                     + "s: " + e.getMessage(), e);
                 }
             }
-            Thread.sleep(backoffMillis);
+            Thread.sleep(waitMillis);
             backoffMillis *= 2;
+        }
+    }
+
+    /**
+     * Retry-After as milliseconds, or -1 when absent or unreadable. It is either a number of
+     * seconds or an HTTP date.
+     */
+    static long retryAfterMillis(String value) {
+        if (value == null || value.isBlank()) return -1;
+        String v = value.trim();
+        try {
+            return Math.max(0, (long) (Double.parseDouble(v) * 1000));
+        } catch (NumberFormatException ignored) {
+            // not seconds; try a date
+        }
+        try {
+            java.time.ZonedDateTime when = java.time.ZonedDateTime.parse(
+                    v, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME);
+            return Math.max(0, Duration.between(java.time.Instant.now(), when.toInstant()).toMillis());
+        } catch (java.time.format.DateTimeParseException e) {
+            return -1;
         }
     }
 

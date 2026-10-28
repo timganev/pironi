@@ -84,6 +84,13 @@ public final class AgentLoop {
     private final Duration subagentTimeout;
     private final boolean subagentEligible;
     private final boolean asyncSubagents;
+    private final boolean parallelReads;
+    /**
+     * Tools whose calls only read, so a batch of them can run at once without one seeing another's
+     * effect. run_command is not here even for reads: what it runs is up to the model.
+     */
+    private static final Set<String> PARALLEL_READ_TOOLS = Set.of(
+            "read_file", "list_files", "find_files", "inspect_file", "http_get", "read_skill");
     private final Map<String, Approach> approaches = new LinkedHashMap<>();
 
     /** One class of attempt and whether it still yields anything unseen. */
@@ -137,26 +144,32 @@ public final class AgentLoop {
             CapabilityReport capabilities,
             SubagentGateway subagentGateway,
             Duration subagentTimeout,
-            boolean asyncSubagents
+            boolean asyncSubagents,
+            boolean parallelReads
     ) {
         public static Settings defaults() {
-            return new Settings(null, AgentMemory.none(), null, null, null, false);
+            return new Settings(null, AgentMemory.none(), null, null, null, false, false);
+        }
+
+        /** Read-only calls at the head of a turn's batch run at once; on with --swarm. */
+        public Settings withParallelReads(boolean on) {
+            return new Settings(liveOutput, memory, capabilities, subagentGateway, subagentTimeout, asyncSubagents, on);
         }
 
         public Settings withLiveOutput(Consumer<String> output) {
-            return new Settings(output, memory, capabilities, subagentGateway, subagentTimeout, asyncSubagents);
+            return new Settings(output, memory, capabilities, subagentGateway, subagentTimeout, asyncSubagents, parallelReads);
         }
 
         public Settings withMemory(AgentMemory agentMemory) {
-            return new Settings(liveOutput, agentMemory, capabilities, subagentGateway, subagentTimeout, asyncSubagents);
+            return new Settings(liveOutput, agentMemory, capabilities, subagentGateway, subagentTimeout, asyncSubagents, parallelReads);
         }
 
         public Settings withCapabilities(CapabilityReport report) {
-            return new Settings(liveOutput, memory, report, subagentGateway, subagentTimeout, asyncSubagents);
+            return new Settings(liveOutput, memory, report, subagentGateway, subagentTimeout, asyncSubagents, parallelReads);
         }
 
         public Settings withSubagents(SubagentGateway gateway, Duration timeout, boolean async) {
-            return new Settings(liveOutput, memory, capabilities, gateway, timeout, async);
+            return new Settings(liveOutput, memory, capabilities, gateway, timeout, async, parallelReads);
         }
     }
 
@@ -212,6 +225,7 @@ public final class AgentLoop {
                 ? Duration.ofSeconds(120) : settings.subagentTimeout();
         this.subagentEligible = subagentGateway != null;
         this.asyncSubagents = settings.asyncSubagents();
+        this.parallelReads = settings.parallelReads();
     }
 
     public AgentResult run(String task) throws IOException, InterruptedException {
@@ -500,6 +514,57 @@ public final class AgentLoop {
         return true;
     }
 
+    private static ToolResult executeOne(Tool tool, ToolCall call) {
+        try {
+            return tool.execute(call.arguments());
+        } catch (RuntimeException | LinkageError e) {
+            return ToolResult.failure(
+                    "Tool failed with " + e.getClass().getSimpleName() + ": " + e.getMessage()
+            );
+        }
+    }
+
+    /**
+     * Runs the read-only calls at the head of the batch at once and returns their results by index
+     * (null for every call left to the sequential loop). Only the head: a read after a write in the
+     * same batch must see the write, so the first call that is not a plain read ends the run.
+     * Results are still reported, traced and recorded in batch order by the caller.
+     */
+    private ToolResult[] prefetchReads(List<ToolCall> toolCalls, List<Tool> resolvedTools) {
+        ToolResult[] out = new ToolResult[toolCalls.size()];
+        int head = 0;
+        while (head < toolCalls.size()) {
+            ToolCall call = toolCalls.get(head);
+            Tool tool = resolvedTools.get(head);
+            Approach known = approaches.get(ApproachSignature.approachSignature(call));
+            if (tool == null || !PARALLEL_READ_TOOLS.contains(tool.name()) || tool.mutating(call.arguments())
+                    || (known != null && known.blocked())) {
+                break;
+            }
+            head++;
+        }
+        if (head < 2) return out;
+        try (var pool = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            List<java.util.concurrent.Future<ToolResult>> futures = new ArrayList<>();
+            for (int i = 0; i < head; i++) {
+                Tool tool = resolvedTools.get(i);
+                ToolCall call = toolCalls.get(i);
+                futures.add(pool.submit(() -> executeOne(tool, call)));
+            }
+            for (int i = 0; i < head; i++) {
+                try {
+                    out[i] = futures.get(i).get();
+                } catch (java.util.concurrent.ExecutionException e) {
+                    out[i] = ToolResult.failure("Tool failed with " + e.getCause());
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return new ToolResult[toolCalls.size()];
+                }
+            }
+        }
+        return out;
+    }
+
     private ToolExecutionResult executeTools(int turn, List<ToolCall> toolCalls) {
         int unknownCount = 0;
         ObjectNode envelope = objectMapper.createObjectNode();
@@ -551,6 +616,9 @@ public final class AgentLoop {
             }
         }
 
+        ToolResult[] prefetched = parallelReads && !preflightFailed
+                ? prefetchReads(toolCalls, resolvedTools) : new ToolResult[toolCalls.size()];
+
         int successCount = 0;
         List<String> successfulMutations = new ArrayList<>();
         List<String> outcomes = new ArrayList<>();
@@ -578,14 +646,10 @@ public final class AgentLoop {
                                 "Not executed because another tool call failed preflight"
                         )
                         : preflight;
+            } else if (prefetched[index] != null) {
+                result = prefetched[index];
             } else {
-                try {
-                    result = tool.execute(call.arguments());
-                } catch (RuntimeException | LinkageError e) {
-                    result = ToolResult.failure(
-                            "Tool failed with " + e.getClass().getSimpleName() + ": " + e.getMessage()
-                    );
-                }
+                result = executeOne(tool, call);
             }
             statusReporter.toolFinished(
                     call.name(), result.success(),

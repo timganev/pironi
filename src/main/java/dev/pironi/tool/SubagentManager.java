@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -41,6 +42,10 @@ public final class SubagentManager implements AutoCloseable, SubagentGateway {
     private final LinkedBlockingQueue<Completion> completed = new LinkedBlockingQueue<>();
     private final ConcurrentHashMap<String, ChildHandle> children = new ConcurrentHashMap<>();
     private final Duration defaultTimeout;
+    /** Children that may wait for a slot beyond the running ones, under queueWhenFull. */
+    static final int MAX_QUEUED = 16;
+    private final boolean queueWhenFull;
+    private final Semaphore slots;
 
     public SubagentManager(
             int maxConcurrent,
@@ -63,18 +68,40 @@ public final class SubagentManager implements AutoCloseable, SubagentGateway {
             SubagentEvents events,
             java.util.function.BiFunction<String, String, SubagentResult> taskRunner
     ) {
+        this(maxConcurrent, defaultTimeout, events, taskRunner, false);
+    }
+
+    /**
+     * @param queueWhenFull a spawn past the limit waits for a free slot instead of being refused,
+     *                      up to {@link #MAX_QUEUED} waiting; --swarm turns it on
+     */
+    public SubagentManager(
+            int maxConcurrent,
+            Duration defaultTimeout,
+            SubagentEvents events,
+            java.util.function.BiFunction<String, String, SubagentResult> taskRunner,
+            boolean queueWhenFull
+    ) {
         if (maxConcurrent < 1) throw new IllegalArgumentException("max-subagents must be >= 1");
         this.maxConcurrent = maxConcurrent;
         this.defaultTimeout = defaultTimeout;
         this.events = events == null ? SubagentEvents.NOOP : events;
         this.taskRunner = taskRunner;
+        this.queueWhenFull = queueWhenFull;
+        this.slots = new Semaphore(maxConcurrent, true);
     }
 
     /** Spawn a child for {@code subtask}. Returns a handle; the {@code substring} stays the real name. */
     public SubagentResult spawn(String name, String subtask) {
-        if (active.get() >= maxConcurrent) {
+        if (!queueWhenFull && active.get() >= maxConcurrent) {
             return SubagentResult.error(
                     "cap", name, "sub-agent limit reached (" + maxConcurrent + "); wait for a child to finish"
+            );
+        }
+        if (queueWhenFull && active.get() >= maxConcurrent + MAX_QUEUED) {
+            return SubagentResult.error(
+                    "cap", name, "sub-agent queue full (" + maxConcurrent + " running, " + MAX_QUEUED
+                            + " waiting); wait for a child to finish"
             );
         }
         String id = "sub_" + UUID.randomUUID().toString().substring(0, 8);
@@ -90,8 +117,11 @@ public final class SubagentManager implements AutoCloseable, SubagentGateway {
             handle.state = State.RUNNING;
             child.start(); // no external observer can see NEW; interrupt can't hit a null thread
         }
-        return SubagentResult.completed(id, name, "started (handle " + id + ", concurrent "
-                + active.get() + "/" + maxConcurrent + ")");
+        int now = active.get();
+        return SubagentResult.completed(id, name, now > maxConcurrent
+                ? "queued (handle " + id + ", " + (now - maxConcurrent) + " waiting for "
+                        + maxConcurrent + " slots)"
+                : "started (handle " + id + ", concurrent " + now + "/" + maxConcurrent + ")");
     }
 
     /**
@@ -151,7 +181,12 @@ public final class SubagentManager implements AutoCloseable, SubagentGateway {
                     + " (interrupt without a cancel token)");
         }
         SubagentResult result;
+        boolean slot = false;
         try {
+            // Every child takes a slot, queued or not, so at most maxConcurrent ever run; the
+            // wait is interruptible, and cancelChild interrupts a RUNNING child, queued included.
+            slots.acquire();
+            slot = true;
             result = taskRunner.apply(h.name, subtask);
             if (result == null) {
                 result = SubagentResult.error(h.id, h.name, "sub-agent produced no result");
@@ -163,11 +198,14 @@ public final class SubagentManager implements AutoCloseable, SubagentGateway {
                         result.output(), result.activity(), result.elapsed());
             }
         } catch (Throwable t) {
-            result = Thread.currentThread().isInterrupted()
+            // An InterruptedException has already cleared the flag it was thrown for.
+            result = (Thread.currentThread().isInterrupted() || t instanceof InterruptedException)
                     && h.cancelReason != SubagentResult.CancelReason.NONE
                     ? SubagentResult.cancelled(h.id, h.name, h.cancelReason)
                     : SubagentResult.error(h.id, h.name, t.getMessage() == null
                             ? t.getClass().getSimpleName() : t.getMessage());
+        } finally {
+            if (slot) slots.release();
         }
         finish(h, result);
     }

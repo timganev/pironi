@@ -18,6 +18,7 @@ import dev.pironi.model.ProviderConfig;
 import dev.pironi.model.ProviderType;
 import dev.pironi.model.ReasoningGuard;
 import dev.pironi.model.SwitchableModelClient;
+import dev.pironi.swarm.DispatchingModelClient;
 import dev.pironi.safety.AccessGrants;
 import dev.pironi.safety.ApprovalDecision;
 import dev.pironi.safety.ApprovalMode;
@@ -254,6 +255,9 @@ public final class PironiMain {
                 options.model(),
                 providerConfig(options).createClient()
         );
+        // Every agent call - parent, children, summaries - goes through one dispatcher under --swarm.
+        ModelClient agentClient = DispatchingModelClient.wrap(
+                modelClient, options.swarm(), options.baseUri(), options.apiKey());
         AtomicReference<CliOptions> currentOptions = new AtomicReference<>(options);
         ProviderModelCatalog modelCatalog = new ProviderModelCatalog(
                 HttpClient.newHttpClient(), objectMapper
@@ -338,9 +342,10 @@ public final class PironiMain {
                     Duration.ofSeconds(options.subagentTimeoutSeconds()),
                     subEvents,
                     (name, subtask) -> runChildSubagent(
-                            modelClient, objectMapper, childRegistry, childPolicy,
+                            agentClient, objectMapper, childRegistry, childPolicy,
                             options, name, subtask
-                    )
+                    ),
+                    options.swarm().enabled()
             );
             availableTools.add(new SpawnSubagentTool(subagentManager));
         } else {
@@ -465,7 +470,7 @@ public final class PironiMain {
                     interactive
             );
             AgentLoop loop = new AgentLoop(
-                    modelClient,
+                    agentClient,
                     new DecisionParser(objectMapper),
                     objectMapper,
                     tools,
@@ -485,6 +490,7 @@ public final class PironiMain {
                                     ? new FinalAnswerStreamer(System.out, terminal, theme) : null)
                             .withMemory(memory)
                             .withCapabilities(capabilityReport)
+                            .withParallelReads(options.swarm().enabled())
                             .withSubagents(
                                     finalSubagentManager,
                                     Duration.ofSeconds(finalSubagentManager == null
@@ -722,7 +728,8 @@ public final class PironiMain {
                 new NoOpStatusReporter(),
                 new NoOpVerificationGate(),
                 childTurns,
-                MAX_PROTOCOL_ERRORS
+                MAX_PROTOCOL_ERRORS,
+                AgentLoop.Settings.defaults().withParallelReads(options.swarm().enabled())
         );
         try {
             AgentResult result = childLoop.run(subtask);

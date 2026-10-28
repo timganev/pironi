@@ -44,6 +44,10 @@ Agent:
   --search-roots PATH,PATH                      allowed roots for find_files; default: workspace
   --max-subagents N                             cloud providers only; default: 2
   --subagent-timeout-seconds N                  default: 120
+  --swarm                                       experimental: pace model calls by the server's
+                                                /metrics, queue sub-agents, run reads in parallel
+  --swarm-max-window N                          most requests in flight under --swarm; default: 6
+  --swarm-budget N                              uncached prompt tokens in prefill; default: 16000
 
 Examples:
   java -jar pironi.jar
