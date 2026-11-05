@@ -16,13 +16,18 @@ import java.util.Map;
  * lowered on a signal (AIMD):
  * <ul>
  *   <li>429, 503, a timeout, Retry-After, preemptions or a red reading: half, at once;</li>
+ *   <li>a queue in the server that the limit builds: one less (right after a doubling, back to
+ *       the limit before it);</li>
  *   <li>throughput well below the best seen (thrashing, or someone else on the server): one less.</li>
  * </ul>
- * It grows by one only while requests are held back and nothing says the server is busy: with
- * /metrics, on green; without it, on trial, kept only if it paid. Without /metrics it also tries a
- * step down from time to time and stays there if that cost nothing, because only that shows a
- * server past its best: one with fixed slots gives the same with fewer, a thrashing cache more.
- * A limit the swarm does not fill for a whole wave comes down to what it asks for.
+ * It grows only while requests are held back and nothing says the server is busy: with /metrics,
+ * on green; without it, on trial, kept only if it paid. From a cold start it doubles (slow start)
+ * until the first sign of congestion - a cut, a step that did not pay, a fall in throughput - and
+ * from then on grows by one; a start from a learned limit grows by one from the outset and tries
+ * fewer only once one more did not pay, since that limit was measured under load. Without /metrics
+ * it also tries a step down from time to time and stays there if that cost nothing, because only
+ * that shows a server past its best: one with fixed slots gives the same with fewer, a thrashing
+ * cache more. A limit the swarm does not fill for a whole wave comes down to what it asks for.
  *
  * <p>Throughput is measured in waves of finished requests, not per answer. By Little's law a request
  * that ran {@code s} seconds alongside {@code c} others on average stands for {@code c} requests'
@@ -49,7 +54,11 @@ public final class ConcurrencyLimiter {
     static final int MIN_WAVE = 4;
     /** A step down that gives this much more is followed by another at once. */
     static final double CLEAR_GAIN = 1.2;
-    /** Without /metrics, one more is kept only if it brings at least this much more throughput. */
+    /**
+     * Without /metrics, one more is kept only if it brings at least this much more throughput; a
+     * larger step must bring this much for every request it adds, so noise alone does not keep a
+     * doubling.
+     */
     static final double STEP_GAIN = 1.02;
     /** Throughput below this share of the best seen means overshoot or someone else on the server. */
     static final double DROP = 0.75;
@@ -74,8 +83,19 @@ public final class ConcurrencyLimiter {
     private Signal signal = Signal.NONE;
     private int epoch;
     private boolean frozen;
-    /** Started above the blind default, on a limit learned or told: see first whether fewer do as well. */
+    /** Started above the blind default on a ceiling told: see first whether fewer do as well. */
     private boolean downFirst;
+    /**
+     * Started on a learned limit: if one more does not pay, try one step fewer at once rather than
+     * after a quiet spell, in case the server changed since it was learned.
+     */
+    private boolean checkBelow;
+    /** Doubling rather than adding one: no congestion seen yet. */
+    private boolean slowStart;
+    /** The limit before the last doubling, which showed no congestion; 0 when not doubled yet. */
+    private int beforeDoubling;
+    /** Requests the server's own reading says still fit, or {@link Integer#MAX_VALUE} if it says nothing. */
+    private int room = Integer.MAX_VALUE;
     /** Unsaturated answers in a row, and the most in flight among them. */
     private int idleSamples;
     private double idlePeak;
@@ -105,9 +125,19 @@ public final class ConcurrencyLimiter {
     private boolean waveWanted;
 
     public ConcurrencyLimiter(int ceiling, int start) {
+        this(ceiling, start, false);
+    }
+
+    /**
+     * @param learned whether {@code start} is the limit learned last time under load: then it is
+     *                neither searched upwards by doubling nor first tried lower
+     */
+    public ConcurrencyLimiter(int ceiling, int start, boolean learned) {
         this.ceiling = Math.max(1, ceiling);
         this.limit = Math.max(1, Math.min(start, this.ceiling));
-        this.downFirst = this.limit > BLIND_START;
+        this.downFirst = !learned && this.limit > BLIND_START;
+        this.slowStart = !learned;
+        this.checkBelow = learned;
     }
 
     public int limit() { return limit; }
@@ -123,6 +153,16 @@ public final class ConcurrencyLimiter {
     public int epoch() { return epoch; }
 
     public void signal(Signal s) { signal = s; }
+
+    /**
+     * What the server's reading says still fits - for example in-flight requests times the share of
+     * its KV cache left - so a doubling does not overrun it at once; {@link Integer#MAX_VALUE}
+     * when it says nothing. Only bounds a doubling: one more is always allowed on green.
+     */
+    public void room(int requests) { room = Math.max(1, requests); }
+
+    /** Whether the limit still doubles: no congestion seen since the start. */
+    public boolean slowStart() { return slowStart; }
 
     void freeze() { frozen = true; }
 
@@ -148,7 +188,8 @@ public final class ConcurrencyLimiter {
                 idlePeak = 0;
                 if (demand < limit) {
                     demandBound = true;
-                    from = 0;
+                    // A step on trial past the demand stays on trial, at the demand.
+                    if (demand <= from) from = 0;
                     moveTo(demand);
                 }
             }
@@ -183,6 +224,8 @@ public final class ConcurrencyLimiter {
         if (wanted && from == 0) loadedLimit = limit;
         if (skip > 0) {
             skip--;
+            // On green growth needs no measurement, so a cold start does not wait out the first wave.
+            if (slowStart && signal == Signal.GREEN && wanted && canGrow()) grow();
             return;
         }
         if (hold > 0) hold--;
@@ -193,14 +236,21 @@ public final class ConcurrencyLimiter {
             // A step on trial: kept if it paid (up) or cost nothing (down), else undone.
             if (n < 2) return;
             boolean up = limit > from;
-            boolean keep = up ? mean >= STEP_GAIN * fromThroughput : mean * STEP_GAIN >= fromThroughput;
+            boolean keep = up ? mean >= Math.pow(STEP_GAIN, limit - from) * fromThroughput
+                    : mean * STEP_GAIN >= fromThroughput;
             int back = from;
             double was = fromThroughput;
             from = 0;
             best = Math.max(best, mean);
+            if (up) checkBelow &= !keep;
             if (!keep) {
                 if (up) hold = HOLD_WAVES; else downHold = HOLD_WAVES;
+                slowStart = false;  // one more did not pay: this is about where the server peaks
                 moveTo(back);
+                if (up && checkBelow && limit > 1) {
+                    checkBelow = false;
+                    stepDown();
+                }
             } else if (!up && mean >= CLEAR_GAIN * was && limit > 1) {
                 // Far better with fewer: the server was thrashing. Keep going down.
                 stepDown();
@@ -216,6 +266,7 @@ public final class ConcurrencyLimiter {
             waves.clear();
             best = 0;
             hold = HOLD_WAVES;
+            slowStart = false;
             moveTo(limit - 1);
             return;
         }
@@ -227,9 +278,7 @@ public final class ConcurrencyLimiter {
             return;
         }
         if (wanted && canGrow()) {
-            // With a green light one more is safe and kept; without one it is on trial.
-            if (signal != Signal.GREEN) trial();
-            moveTo(limit + 1);
+            grow();
             return;
         }
         if (signal == Signal.NONE && limit > 1 && downHold == 0 && quietWaves >= 2) {
@@ -241,7 +290,19 @@ public final class ConcurrencyLimiter {
         quietWaves++;
     }
 
+    /** With a green light a step up is safe and kept; without one it is on trial. */
+    private void grow() {
+        if (signal != Signal.GREEN) trial();
+        int to = limit + 1;
+        if (slowStart) {
+            beforeDoubling = limit;
+            to = Math.max(to, Math.min(2 * limit, room));
+        }
+        moveTo(to);
+    }
+
     private void stepDown() {
+        slowStart = false;
         trial();
         moveTo(limit - Math.max(1, limit / 4));
     }
@@ -260,11 +321,16 @@ public final class ConcurrencyLimiter {
         return hold == 0 && signal != Signal.HOLD && limit < ceiling;
     }
 
-    /** Requests queued in the server: one less, and no growth for a while. */
+    /**
+     * Requests queue in the server: one less, and no growth for a while. Right after a doubling,
+     * back to the limit before it, which did not queue; from then on the limit grows by one.
+     */
     public void backOff() {
         hold = HOLD_WAVES;
         from = 0;
-        moveTo(limit - 1);
+        int to = slowStart && beforeDoubling > 0 ? beforeDoubling : limit - 1;
+        slowStart = false;
+        moveTo(to);
     }
 
     /** 429, 503, a timeout or a red reading: halve now. */
@@ -275,6 +341,7 @@ public final class ConcurrencyLimiter {
         throughput.clear();
         waves.clear();
         best = 0;
+        slowStart = false;
         moveTo(Math.max(1, limit / 2));
     }
 

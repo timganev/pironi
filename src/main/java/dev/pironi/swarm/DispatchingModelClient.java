@@ -90,10 +90,11 @@ public final class DispatchingModelClient implements ModelClient, AutoCloseable 
         int ceiling = settings.maxParallel() > 0 ? settings.maxParallel()
                 : slots > 0 ? slots : ConcurrencyLimiter.SAFETY_CEILING;
         int learned = profile.limit(key);
+        boolean warm = settings.maxParallel() <= 0 && slots <= 0 && learned > 0;
         int start = settings.maxParallel() > 0 || slots > 0 ? ceiling
-                : learned > 0 ? Math.min(learned, ceiling) : ConcurrencyLimiter.BLIND_START;
+                : warm ? Math.min(learned, ceiling) : ConcurrencyLimiter.BLIND_START;
         DispatchingModelClient wrapped = new DispatchingModelClient(client,
-                new DispatchController(ceiling, start, settings.budgetTokens()),
+                new DispatchController(ceiling, start, warm, settings.budgetTokens()),
                 settings.blind() ? null : new VllmMetrics(VllmMetrics.metricsUri(baseUri), apiKey), log);
         wrapped.profile = profile;
         wrapped.profileKey = key;
@@ -275,7 +276,7 @@ public final class DispatchingModelClient implements ModelClient, AutoCloseable 
             if (light != last || p.limit() != lastWindow || p.settled() != lastSettled || ++ticks % 10 == 0) {
                 log(String.format(java.util.Locale.ROOT,
                         "%s W=%d%s B=%s inflight=%d queued=%d kv=%.2f waiting=%.0f preempt=%.0f queue=%.2f hit=%.2f prefill=%.0f",
-                        light, p.limit(), p.settled() ? " settled" : "",
+                        light, p.limit(), p.settled() ? " settled" : controller.slowStart() ? " doubling" : "",
                         controller.budgetActive() ? String.valueOf(controller.budget()) : "-", controller.inFlight(),
                         controller.queued(), s.kvUsage(), s.waiting(), s.preemptions(), s.queueSeconds(),
                         s.prefixHitRate(), controller.prefillRate()));

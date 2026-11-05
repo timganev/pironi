@@ -111,6 +111,26 @@ class DispatchingModelClientTest {
     }
 
     @Test
+    void aLearnedLimitIsAWarmStartAndNothingLearnedACold(@org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) {
+        // Port 9: nothing listens, so /props answers nothing and no slots are known.
+        java.net.URI base = java.net.URI.create("http://127.0.0.1:9/v1");
+        java.nio.file.Path f = dir.resolve("swarm-profile.json");
+        new SwarmProfile(f).remember(SwarmProfile.key(base, "m"), 6);
+        var settings = new SwarmSettings(true, 0, SwarmSettings.DEFAULT_BUDGET_TOKENS, true, null, f);
+        var warm = (DispatchingModelClient) DispatchingModelClient.wrap(m -> null, settings, base, null, "m");
+        var cold = (DispatchingModelClient) DispatchingModelClient.wrap(m -> null, settings, base, null, "other");
+        try {
+            assertEquals(6, warm.controller().window());
+            assertFalse(warm.controller().slowStart(), "a learned start doubles");
+            assertEquals(ConcurrencyLimiter.BLIND_START, cold.controller().window());
+            assertTrue(cold.controller().slowStart());
+        } finally {
+            warm.close();
+            cold.close();
+        }
+    }
+
+    @Test
     void theOrchestratorDoesNotSplitAtALimitOfOne() {
         var client = new DispatchingModelClient(m -> null, new DispatchController(1, 16_000), null, null);
         assertEquals(1, client.parallelism().limit());

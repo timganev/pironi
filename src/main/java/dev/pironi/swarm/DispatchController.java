@@ -19,10 +19,14 @@ import java.util.function.LongSupplier;
  * A request alone in flight is always admitted, however large: otherwise one long prompt would
  * wait forever.
  *
- * <p>/metrics, when there is one, only adds to what latency says. Red (preemptions, a full KV
- * cache, a long queue) halves the limit and cuts the budget by a quarter; yellow stops the limiter
- * from trying wider limits. After a cut the next readings are ignored for a while, because the KV
- * cache and the queue take seconds to drain and would otherwise halve the limit again for the same
+ * <p>/metrics, when there is one, only adds to what latency says. Red from the server itself
+ * (preemptions, a full KV cache, a thrashing prefix cache) halves the limit and cuts the budget by
+ * a quarter; yellow stops the limiter from trying wider limits. A long queue is red only for the
+ * part of it that prefill does not explain - the uncached prompts in flight, prefilled one after
+ * another at the measured rate - and steps back by one only while the queue grows with the limit
+ * full: a queue read as the last requests of a run drain, or while long prompts are prefilled, is
+ * not the limit's doing. After a cut the next readings are ignored for a while, because the KV
+ * cache and the queue take seconds to drain and would otherwise cut the limit again for the same
  * overload. Without /metrics nothing here waits for it.
  *
  * <p>Requests are admitted in arrival order. A pause only ever happens before a request is sent,
@@ -41,6 +45,8 @@ public final class DispatchController {
     /** After a step back for a long queue: the queue drains one request at a time. */
     static final int QUEUE_COOLDOWN_TICKS = 10;
     static final double DEFAULT_PREFILL_RATE = 4_000;
+    /** A doubling of the limit stops where the KV cache, scaled by the requests, would reach this. */
+    static final double KV_GROW_TO = (KV_YELLOW + KV_RED) / 2;
 
     private final ConcurrencyLimiter limiter;
     private final long maxBudget;
@@ -52,6 +58,8 @@ public final class DispatchController {
     private boolean budgetActive;
     private double prefillRate = DEFAULT_PREFILL_RATE;
     private int cooldown;
+    /** The last queue time /metrics measured, to tell a growing queue from one that drains. */
+    private double lastQueue;
     private Light light = Light.UNKNOWN;
     private final ArrayDeque<Object> queue = new ArrayDeque<>();
     private final List<Permit> inFlight = new ArrayList<>();
@@ -92,10 +100,22 @@ public final class DispatchController {
     }
 
     DispatchController(int ceiling, int startLimit, long budgetTokens, LongSupplier clock) {
+        this(ceiling, startLimit, false, budgetTokens, clock);
+    }
+
+    /**
+     * @param learned whether {@code startLimit} is the limit learned last time: then it is neither
+     *                doubled nor first tried lower, see {@link ConcurrencyLimiter}
+     */
+    public DispatchController(int ceiling, int startLimit, boolean learned, long budgetTokens) {
+        this(ceiling, startLimit, learned, budgetTokens, System::nanoTime);
+    }
+
+    DispatchController(int ceiling, int startLimit, boolean learned, long budgetTokens, LongSupplier clock) {
         if (ceiling < 1 || budgetTokens < 1) {
             throw new IllegalArgumentException("ceiling and budget must be positive");
         }
-        this.limiter = new ConcurrencyLimiter(ceiling, startLimit);
+        this.limiter = new ConcurrencyLimiter(ceiling, startLimit, learned);
         this.maxBudget = budgetTokens;
         this.budget = budgetTokens;
         this.minBudget = Math.max(1, budgetTokens / 4);
@@ -200,6 +220,16 @@ public final class DispatchController {
         return pending;
     }
 
+    /**
+     * Seconds the server needs to prefill the uncached prompts of all requests in flight, one after
+     * another: the most of a queue that prefill alone explains.
+     */
+    synchronized double prefillSeconds() {
+        long tokens = 0;
+        for (Permit p : inFlight) tokens += p.tokens;
+        return tokens / prefillRate;
+    }
+
     /** Feeds one reading of /metrics (or of 429/503 alone); returns the light it was read as. */
     public synchronized Light onTick(Sensors s) {
         if (s.available()) budgetActive = true;
@@ -207,7 +237,13 @@ public final class DispatchController {
             // Already an average since the first scrape, so it is taken as it is.
             prefillRate = s.prefillRate();
         }
-        light = classify(s);
+        light = classify(s, prefillSeconds());
+        if (light == Light.RED && !severe(s) && !queueBuilding(s)) {
+            // A long queue, but not one the limit builds: the run drains, or nothing waits for the limit.
+            light = Light.YELLOW;
+        }
+        if (Double.isFinite(s.queueSeconds())) lastQueue = s.queueSeconds();
+        limiter.room(room(s));
         limiter.signal(light == Light.GREEN ? ConcurrencyLimiter.Signal.GREEN
                 : light == Light.UNKNOWN ? ConcurrencyLimiter.Signal.NONE : ConcurrencyLimiter.Signal.HOLD);
         if (cooldown > 0) {
@@ -228,6 +264,25 @@ public final class DispatchController {
         return light;
     }
 
+    /**
+     * Whether requests queue because of the limit: exactly as many in flight as it gives, and the
+     * queue longer than at the last reading. Fewer in flight is a run draining; more is what a
+     * wider limit sent before a cut, still queued; a queue that shrinks is one already there
+     * draining.
+     */
+    private boolean queueBuilding(Sensors s) {
+        return inFlight.size() == limiter.limit() && s.queueSeconds() > lastQueue;
+    }
+
+    /**
+     * How many requests the KV cache would hold at {@link #KV_GROW_TO}, at what those in flight
+     * use each; {@link Integer#MAX_VALUE} when the reading says nothing.
+     */
+    private int room(Sensors s) {
+        if (!s.available() || !(s.kvUsage() > 0) || inFlight.isEmpty()) return Integer.MAX_VALUE;
+        return (int) Math.max(1, Math.floor(inFlight.size() * KV_GROW_TO / s.kvUsage()));
+    }
+
     /** What says the server itself is in trouble, not only that requests queue for it. */
     static boolean severe(Sensors s) {
         return s.rateLimited() || s.preemptions() > 0 || s.kvUsage() > KV_RED
@@ -235,14 +290,20 @@ public final class DispatchController {
     }
 
     static Light classify(Sensors s) {
+        return classify(s, 0);
+    }
+
+    /** @param prefillSeconds the part of the queue time that prefill explains, see {@link #prefillSeconds} */
+    static Light classify(Sensors s, double prefillSeconds) {
         if (s.rateLimited()) return Light.RED;
         if (!s.available()) return Light.UNKNOWN;
         boolean highKv = s.kvUsage() > KV_RED;
         boolean thrashing = s.prefixHitRate() < HIT_RED && s.kvUsage() >= KV_YELLOW;
-        if (s.preemptions() > 0 || highKv || s.queueSeconds() > QUEUE_RED_SECONDS || thrashing) {
+        double queue = s.queueSeconds() - prefillSeconds;
+        if (s.preemptions() > 0 || highKv || queue > QUEUE_RED_SECONDS || thrashing) {
             return Light.RED;
         }
-        if (s.kvUsage() >= KV_YELLOW || s.queueSeconds() >= QUEUE_YELLOW_SECONDS || s.waiting() > 0) {
+        if (s.kvUsage() >= KV_YELLOW || queue >= QUEUE_YELLOW_SECONDS || s.waiting() > 0) {
             return Light.YELLOW;
         }
         return Light.GREEN;
@@ -267,6 +328,8 @@ public final class DispatchController {
     }
 
     public synchronized int window() { return limiter.limit(); }
+    /** Whether the limit still doubles, see {@link ConcurrencyLimiter#slowStart}. */
+    public synchronized boolean slowStart() { return limiter.slowStart(); }
     public synchronized long budget() { return budget; }
     public synchronized boolean budgetActive() { return budgetActive; }
     public synchronized int inFlight() { return inFlight.size(); }
