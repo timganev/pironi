@@ -20,7 +20,9 @@ import java.util.function.LongSupplier;
  * wait forever.
  *
  * <p>/metrics, when there is one, only adds to what latency says. Red from the server itself
- * (preemptions, a full KV cache, a thrashing prefix cache) halves the limit and cuts the budget by
+ * (preemptions, a full KV cache, a prefix cache whose hit rate falls well below its usual level
+ * while the KV cache fills - a low hit rate alone is no sign: agents with prompts of their own
+ * never share a prefix) halves the limit and cuts the budget by
  * a quarter; yellow stops the limiter from trying wider limits. A long queue is red only for the
  * part of it that prefill does not explain - the uncached prompts in flight, prefilled one after
  * another at the measured rate - and steps back by one only while the queue grows with the limit
@@ -40,6 +42,8 @@ public final class DispatchController {
     static final double QUEUE_YELLOW_SECONDS = 0.5;
     static final double QUEUE_RED_SECONDS = 2.0;
     static final double HIT_RED = 0.5;
+    /** Weight of a new reading in the usual prefix hit rate: slow, so a few bad readings do not move it. */
+    static final double HIT_USUAL_WEIGHT = 0.25;
     /** Readings ignored after a cut, so one overload is not punished twice. */
     static final int COOLDOWN_TICKS = 3;
     /** After a step back for a long queue: the queue drains one request at a time. */
@@ -60,6 +64,8 @@ public final class DispatchController {
     private int cooldown;
     /** The last queue time /metrics measured, to tell a growing queue from one that drains. */
     private double lastQueue;
+    /** The prefix hit rate this run usually sees; NaN until /metrics has measured one. */
+    private double usualHit = Double.NaN;
     private Light light = Light.UNKNOWN;
     private final ArrayDeque<Object> queue = new ArrayDeque<>();
     private final List<Permit> inFlight = new ArrayList<>();
@@ -237,8 +243,14 @@ public final class DispatchController {
             // Already an average since the first scrape, so it is taken as it is.
             prefillRate = s.prefillRate();
         }
-        light = classify(s, prefillSeconds());
-        if (light == Light.RED && !severe(s) && !queueBuilding(s)) {
+        double usual = usualHit;
+        if (Double.isFinite(s.prefixHitRate())) {
+            usualHit = Double.isNaN(usualHit) ? s.prefixHitRate()
+                    : usualHit + HIT_USUAL_WEIGHT * (s.prefixHitRate() - usualHit);
+        }
+        light = classify(s, prefillSeconds(), usual);
+        boolean severe = severe(s, usual);
+        if (light == Light.RED && !severe && !queueBuilding(s)) {
             // A long queue, but not one the limit builds: the run drains, or nothing waits for the limit.
             light = Light.YELLOW;
         }
@@ -248,7 +260,7 @@ public final class DispatchController {
                 : light == Light.UNKNOWN ? ConcurrencyLimiter.Signal.NONE : ConcurrencyLimiter.Signal.HOLD);
         if (cooldown > 0) {
             cooldown--;
-        } else if (light == Light.RED && severe(s)) {
+        } else if (light == Light.RED && severe) {
             limiter.overload();
             budget = Math.max(minBudget, (long) (budget * 0.75));
             cooldown = COOLDOWN_TICKS;
@@ -284,21 +296,32 @@ public final class DispatchController {
     }
 
     /** What says the server itself is in trouble, not only that requests queue for it. */
-    static boolean severe(Sensors s) {
-        return s.rateLimited() || s.preemptions() > 0 || s.kvUsage() > KV_RED
-                || s.prefixHitRate() < HIT_RED && s.kvUsage() >= KV_YELLOW;
+    static boolean severe(Sensors s, double usualHit) {
+        return s.rateLimited() || s.preemptions() > 0 || s.kvUsage() > KV_RED || thrashing(s, usualHit);
+    }
+
+    /**
+     * The prefix cache evicts what the next turn needs: the hit rate, usually high, has fallen low
+     * while the KV cache fills. A hit rate that was never high says nothing - agents that each
+     * have their own prompt share no prefix, and their KV cache fills with work, not with churn.
+     */
+    static boolean thrashing(Sensors s, double usualHit) {
+        return usualHit >= HIT_RED && s.prefixHitRate() < HIT_RED && s.kvUsage() >= KV_YELLOW;
     }
 
     static Light classify(Sensors s) {
-        return classify(s, 0);
+        return classify(s, 0, Double.NaN);
     }
 
-    /** @param prefillSeconds the part of the queue time that prefill explains, see {@link #prefillSeconds} */
-    static Light classify(Sensors s, double prefillSeconds) {
+    /**
+     * @param prefillSeconds the part of the queue time that prefill explains, see {@link #prefillSeconds}
+     * @param usualHit       the prefix hit rate usually seen, NaN when none was measured yet
+     */
+    static Light classify(Sensors s, double prefillSeconds, double usualHit) {
         if (s.rateLimited()) return Light.RED;
         if (!s.available()) return Light.UNKNOWN;
         boolean highKv = s.kvUsage() > KV_RED;
-        boolean thrashing = s.prefixHitRate() < HIT_RED && s.kvUsage() >= KV_YELLOW;
+        boolean thrashing = thrashing(s, usualHit);
         double queue = s.queueSeconds() - prefillSeconds;
         if (s.preemptions() > 0 || highKv || queue > QUEUE_RED_SECONDS || thrashing) {
             return Light.RED;

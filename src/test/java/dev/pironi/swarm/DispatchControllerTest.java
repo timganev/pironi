@@ -357,8 +357,33 @@ class DispatchControllerTest {
     @Test
     void thrashingIsReadAsRed() {
         // A falling hit rate at high KV use is the cache evicting what the next turn needs.
+        DispatchController c = controller(4, 64, 16_000);
+        for (int i = 0; i < 5; i++) c.onTick(new Sensors(true, 0.3, 0, 0, 0.1, 0.9, Double.NaN, false));
+        int before = c.window();
         Sensors s = new Sensors(true, 0.7, 0, 0, 0.1, 0.3, Double.NaN, false);
-        assertEquals(DispatchController.Light.RED, DispatchController.classify(s));
+        assertEquals(DispatchController.Light.RED, c.onTick(s));
+        assertEquals(Math.max(1, before / 2), c.window());
+    }
+
+    @Test
+    void aHitRateThatWasNeverHighIsNotThrashing() {
+        // Agents with prompts of their own share no prefix: the hit rate is low from the start,
+        // and a KV cache filling with their work is no reason to halve the limit (qwen38, 07.11).
+        DispatchController c = controller(5, 64, 16_000);
+        DispatchController.Light last = null;
+        for (int i = 0; i < 10; i++) last = c.onTick(new Sensors(true, 0.7, 0, 0, 0.1, 0.02, Double.NaN, false));
+        assertEquals(DispatchController.Light.YELLOW, last);
+        assertEquals(5, c.window());
+    }
+
+    @Test
+    void oneHighReadingDoesNotMakeAHighUsualHitRate() {
+        DispatchController c = controller(5, 64, 16_000);
+        c.onTick(new Sensors(true, 0.3, 0, 0, 0.1, 0.0, Double.NaN, false));
+        c.onTick(new Sensors(true, 0.3, 0, 0, 0.1, 0.8, Double.NaN, false));
+        assertEquals(DispatchController.Light.YELLOW,
+                c.onTick(new Sensors(true, 0.7, 0, 0, 0.1, 0.0, Double.NaN, false)));
+        assertEquals(5, c.window());
     }
 
     @Test

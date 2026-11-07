@@ -30,7 +30,7 @@ import java.util.stream.Stream;
  * <pre>
  * java -cp pironi.jar dev.pironi.swarm.SwarmStress --base-url http://127.0.0.1:8000/v1 --model qwen36
  *      --key-env PIRONI_LOCAL_KEY --src DIR --agents 16 --turns 3 --scenario U --swarm on
- *      --thinking 2048 --out result.json [--log swarm.log]
+ *      --thinking 2048 --out result.json [--log swarm.log] [--max-parallel N --fixed on]
  * </pre>
  * Scenario S: every agent starts from the same 12k-token context (a fork); U: each from its own.
  */
@@ -62,6 +62,10 @@ public final class SwarmStress {
                 a.containsKey("log") ? Path.of(a.get("log")) : null,
                 a.containsKey("profile") ? Path.of(a.get("profile")) : null);
         ModelClient client = DispatchingModelClient.wrap(plain, settings, base, key, model);
+        // --fixed on: the limit stays at --max-parallel, to measure what each limit gives.
+        if (a.getOrDefault("fixed", "off").equals("on") && client instanceof DispatchingModelClient d) {
+            d.controller().fixLimit();
+        }
 
         String salt = Long.toHexString(System.nanoTime());
         int slice = 12_000 * 4;  // ~12k tokens of Java
