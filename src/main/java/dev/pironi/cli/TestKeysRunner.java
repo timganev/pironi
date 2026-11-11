@@ -132,7 +132,8 @@ public final class TestKeysRunner {
                 testShellCommands(),
                 status::idle,
                 theme,
-                themeStore
+                themeStore,
+                () -> TEST_CLIPBOARD
         );
 
         Thread shellThread = Thread.ofVirtual().start(() -> {
@@ -298,6 +299,8 @@ public final class TestKeysRunner {
     }
 
     private static final String BUILT_IN_SCENARIOS = "/keys/built-in.txt";
+    /** What Ctrl+V finds in the scenarios; the desktop clipboard is never read by a test. */
+    private static final String TEST_CLIPBOARD = "Едно, две, три.";
 
     private static String readResource(String resource) throws IOException {
         try (var stream = TestKeysRunner.class.getResourceAsStream(resource)) {

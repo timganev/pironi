@@ -65,11 +65,30 @@ public final class InteractiveShell {
             ThemeSettings theme,
             ThemeStore themeStore
     ) {
+        this(terminal, output, runner, modelCommands, shellCommands, promptRendered, theme,
+                themeStore, SystemClipboard::read);
+    }
+
+    /** @param clipboard what Ctrl+V inserts; the keyboard tests supply a fixed text */
+    InteractiveShell(
+            Terminal terminal,
+            PrintStream output,
+            Runner runner,
+            ModelCommands modelCommands,
+            ShellCommands shellCommands,
+            Runnable promptRendered,
+            ThemeSettings theme,
+            ThemeStore themeStore,
+            java.util.function.Supplier<String> clipboard
+    ) {
         this.terminal = terminal;
         this.theme = theme;
         this.themeStore = themeStore;
         this.lineReader = createLineReader(terminal, theme);
-        if (this.lineReader != null) collapsePastedBlocks(this.lineReader, this.pastes);
+        if (this.lineReader != null) {
+            collapsePastedBlocks(this.lineReader, this.pastes);
+            pasteClipboardOnControlV(this.lineReader, this.pastes, clipboard);
+        }
         this.fallbackInput = null;
         this.output = output;
         this.runner = runner;
@@ -733,6 +752,30 @@ public final class InteractiveShell {
         for (String keyMapName : List.of(LineReader.MAIN, LineReader.EMACS, LineReader.VIINS)) {
             KeyMap<org.jline.reader.Binding> keyMap = reader.getKeyMaps().get(keyMapName);
             if (keyMap != null) keyMap.bind(binding, "\033[200~");
+        }
+    }
+
+    /**
+     * Makes Ctrl+V insert the clipboard, where JLine's default is quoted-insert.
+     *
+     * <p>A terminal that pastes on Ctrl+Shift+V passes a bare Ctrl+V through, and a dictation tool
+     * that types by pressing it got silence. Worse, quoted-insert then took the ESC of the next
+     * bracketed paste literally, and the prompt showed the markers: {@code [200~text[201~}. With
+     * no readable clipboard the key does nothing, which still leaves the next paste intact.
+     */
+    private static void pasteClipboardOnControlV(
+            LineReader reader, PastedBlocks pastes, java.util.function.Supplier<String> clipboard
+    ) {
+        String widget = "pironi-clipboard-paste";
+        reader.getWidgets().put(widget, () -> {
+            String text = clipboard.get();
+            if (text != null && !text.isEmpty()) reader.getBuffer().write(pastes.collapse(text));
+            return true;
+        });
+        Reference binding = new Reference(widget);
+        for (String keyMapName : List.of(LineReader.MAIN, LineReader.EMACS, LineReader.VIINS)) {
+            KeyMap<org.jline.reader.Binding> keyMap = reader.getKeyMaps().get(keyMapName);
+            if (keyMap != null) keyMap.bind(binding, KeyMap.ctrl('V'));
         }
     }
 

@@ -125,3 +125,14 @@
 @require Session closed.
 @forbid Unknown command:
 @task wrap
+
+@scenario Ctrl+V inserts the clipboard and leaves the next bracketed paste intact
+[ctrl+v]          \x16
+[bracketed paste] \e[200~ четири\e[201~
+[send]            \r
+[exit]            /exit\r
+@require Session closed.
+@forbid 200~
+@forbid 201~
+@forbid Unknown command:
+@task Едно, две, три. четири
