@@ -116,6 +116,42 @@ class SystemPromptCacheOrderTest {
         assertFalse(second.getFirst().content().contains("second-skill-marker"));
     }
 
+    /**
+     * The same, across processes: {@code --continue} reads the conversation back from a checkpoint,
+     * and the checkpoint masks secret-looking text, so the stored system message no longer matched
+     * the live one ("Bearer PIRONI_API_KEY" in http_get came back as "Bearer [REDACTED]"). It was
+     * rebuilt with a new clock on every step and the server re-read the whole history. Measured on
+     * vLLM 2026-10-27: 37-41% of a 20k-token prompt cached on a one-request step, the system
+     * prompt's stable part and nothing after it.
+     */
+    @Test
+    void resumedSessionKeepsTheLiveSystemMessageAlthoughTheCheckpointMaskedIt() throws Exception {
+        CapturingModel model = new CapturingModel();
+        PersistingMemory memory = new PersistingMemory();
+        AgentContext context = new AgentContext("soul-marker", "user-marker", "claude-md-marker");
+        dev.pironi.tool.Tool tool = describedTool("http_get",
+                "Auth headers use placeholders (e.g. \"Bearer PIRONI_API_KEY\").");
+        AgentLoop.Settings settings = AgentLoop.Settings.defaults().withMemory(memory);
+        AgentLoop first = new AgentLoop(model, new DecisionParser(objectMapper), objectMapper,
+                new ToolRegistry(List.of(tool)), (t, a) -> ApprovalDecision.ALLOW, new NoOpTraceWriter(),
+                context, new NoOpStatusReporter(), new NoOpVerificationGate(), 5, 2, settings);
+        assertTrue(first.run("first task").success());
+        assertTrue(memory.carried.getFirst().content().contains("Bearer [REDACTED]"),
+                "the stand-in store must mask like the real one, or this test proves nothing");
+
+        Thread.sleep(1100); // the time section has second resolution
+        AgentLoop resumed = new AgentLoop(model, new DecisionParser(objectMapper), objectMapper,
+                new ToolRegistry(List.of(tool)), (t, a) -> ApprovalDecision.ALLOW, new NoOpTraceWriter(),
+                context, new NoOpStatusReporter(), new NoOpVerificationGate(), 5, 2, settings);
+        assertTrue(resumed.run("second task").success());
+
+        List<ChatMessage> before = model.requests.getFirst();
+        List<ChatMessage> after = model.requests.getLast();
+        assertEquals(before.getFirst().content(), after.getFirst().content(),
+                "the resumed request must start with the system message the server already cached");
+        assertTrue(after.getLast().content().contains(AgentLoop.CONTEXT_UPDATE_HEADING));
+    }
+
     /** Tools reach the registry in a different order on every start; the prompt must not follow it. */
     @Test
     void toolListIsSortedByName() throws Exception {
@@ -147,6 +183,29 @@ class SystemPromptCacheOrderTest {
             public boolean mutating() { return false; }
             public dev.pironi.tool.ToolResult execute(JsonNode arguments) { return dev.pironi.tool.ToolResult.success(""); }
         };
+    }
+
+    private static dev.pironi.tool.Tool describedTool(String name, String description) {
+        return new dev.pironi.tool.Tool() {
+            public String name() { return name; }
+            public String description() { return description; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return false; }
+            public dev.pironi.tool.ToolResult execute(JsonNode arguments) { return dev.pironi.tool.ToolResult.success(""); }
+        };
+    }
+
+    /** Stands in for the checkpoint on disk: what comes back is masked, as SessionStore writes it. */
+    private static final class PersistingMemory implements AgentMemory {
+        List<ChatMessage> carried = List.of();
+
+        @Override public List<ChatMessage> begin(String task) { return carried; }
+        @Override public void checkpoint(List<ChatMessage> messages, String task) {
+            carried = messages.stream()
+                    .map(m -> new ChatMessage(m.role(), dev.pironi.session.SecretRedactor.redact(m.content())))
+                    .toList();
+        }
+        @Override public String persistedForm(String text) { return dev.pironi.session.SecretRedactor.redact(text); }
     }
 
     private static final class CarryingMemory implements AgentMemory {

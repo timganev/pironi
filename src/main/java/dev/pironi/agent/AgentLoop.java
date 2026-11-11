@@ -251,7 +251,19 @@ public final class AgentLoop {
                 // The system prompt heads every request, so rewriting it for the clock or a new skill
                 // made the server re-read the whole conversation on each follow-up. While its stable
                 // part still holds, keep it and hand the volatile sections over with the task instead.
-                if (messages.getFirst().content().startsWith(stableSystemPrompt())) {
+                String stored = messages.getFirst().content();
+                String stable = stableSystemPrompt();
+                // A resumed session comes back from a checkpoint with secret-looking text masked, and
+                // the stable part has some (http_get describes "Bearer PIRONI_API_KEY"). Compared raw,
+                // every --continue rebuilt the system message with a new clock and the server re-read
+                // all of the history: 8k of 20k prompt tokens cached on a one-request step (27.10).
+                // The live text goes back in, so the request matches the one the server has cached.
+                String persistedStable = memory.persistedForm(stable);
+                if (stored.startsWith(stable) || stored.startsWith(persistedStable)) {
+                    if (!stored.startsWith(stable)) {
+                        messages.set(0, ChatMessage.system(
+                                stable + stored.substring(persistedStable.length())));
+                    }
                     taskMessage = task + "\n\n" + CONTEXT_UPDATE_HEADING + volatileContext();
                 } else {
                     messages.set(0, ChatMessage.system(buildSystemPrompt()));

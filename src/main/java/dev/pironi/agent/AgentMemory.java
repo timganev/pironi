@@ -16,6 +16,8 @@ public interface AgentMemory {
     default String compressionPrompt(List<ChatMessage> messages, String task) { return null; }
     default String storeSummary(String summary) { return summary; }
     default void checkpoint(List<ChatMessage> messages, String task) {}
+    /** How text reads after a checkpoint round trip; a store that masks secrets masks them here too. */
+    default String persistedForm(String text) { return text; }
     default String promptContext() { return ""; }
     default String activeSkillName() { return ""; }
     /** Outcome of skill selection for the current task: reason first, then per-skill scores. */
