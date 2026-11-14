@@ -122,6 +122,26 @@ public final class FindingsLedger {
         return ledger.toString();
     }
 
+    /**
+     * Only what is new since {@code shown} was put in front of the model. The whole ledger rode on
+     * every tool result and was a fifth of their text (audit 14.11); what was shown earlier is still
+     * in the history, so repeating it adds tokens and nothing else.
+     */
+    public static String findingsSince(List<String> findings, List<String> shown) {
+        List<String> fresh = findings.stream().filter(f -> !shown.contains(f)).toList();
+        if (fresh.isEmpty()) return "";
+        StringBuilder ledger = new StringBuilder();
+        ledger.append(System.lineSeparator()).append("Also established now (do not re-derive):");
+        int dropped = append(ledger, fresh, MAX_LEDGER_CHARACTERS);
+        if (dropped > 0) {
+            ledger.append(System.lineSeparator())
+                    .append("- (").append(dropped)
+                    .append(" further findings not shown: the ledger is over its budget. ")
+                    .append("/findings lists them all.)");
+        }
+        return ledger.toString();
+    }
+
     /** @return how many were left out for want of room */
     private static int append(StringBuilder ledger, List<String> findings, int room) {
         int written = 0;

@@ -28,6 +28,7 @@ import java.time.Duration;
 import java.io.IOException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AgentLoopTest {
@@ -730,10 +731,42 @@ class AgentLoopTest {
         AgentResult result = loop(model, List.of(probe)).run("find the mail store");
 
         assertTrue(result.success(), result.output());
+        String first = model.requests.get(1).getLast().content();
+        assertTrue(first.contains("Established so far (do not re-derive):"), first);
+        assertTrue(first.contains("- Outlook.sqlite Mail table is empty"), first);
+        // later results carry only what is new; the earlier entries are still in the history above
         String last = model.requests.get(2).getLast().content();
-        assertTrue(last.contains("Established so far (do not re-derive):"), last);
-        assertTrue(last.contains("- Outlook.sqlite Mail table is empty"), last);
+        assertTrue(last.contains("Also established now (do not re-derive):"), last);
         assertTrue(last.contains("- olk15Main files are OLE binaries"), last);
+        assertFalse(last.contains("Outlook.sqlite"), last);
+        assertTrue(model.requests.get(2).stream().anyMatch(m -> m.content().contains("- Outlook.sqlite Mail table is empty")));
+    }
+
+    /**
+     * After a cut the messages that carried the ledger may be gone, so the next result carries all
+     * of it again; until then nothing is repeated, and a turn that learned nothing adds no ledger.
+     */
+    @Test
+    void theLedgerIsSentWholeOnceAndThenOnlyWhatIsNew() throws Exception {
+        String step = "{\"thought\":\"look\",\"finding\":\"%s\","
+                + "\"toolCalls\":[{\"name\":\"read\",\"arguments\":{}}],\"finalAnswer\":null}";
+        RecordingModelClient model = new RecordingModelClient(
+                step.formatted("the archive holds 12 monthly folders"),
+                step.formatted("the archive holds 12 monthly folders"),
+                step.formatted("March is missing from the archive folders"),
+                "{\"thought\":\"stop\",\"toolCalls\":[],\"finalAnswer\":\"done\"}");
+
+        AgentResult result = loop(model, List.of(readTool()), new NoOpVerificationGate(), AgentMemory.none(), 10)
+                .run("check the archive");
+
+        assertTrue(result.success(), result.output());
+        assertTrue(model.requests.get(1).getLast().content().contains("- the archive holds 12 monthly folders"));
+        String nothingNew = model.requests.get(2).getLast().content();
+        assertFalse(nothingNew.contains("established"), nothingNew);
+        assertFalse(nothingNew.contains("Established"), nothingNew);
+        String third = model.requests.get(3).getLast().content();
+        assertTrue(third.contains("- March is missing from the archive folders"), third);
+        assertFalse(third.contains("12 monthly folders"), third);
     }
 
     @Test

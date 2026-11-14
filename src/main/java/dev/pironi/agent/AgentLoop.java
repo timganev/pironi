@@ -292,6 +292,9 @@ public final class AgentLoop {
             List<String> inherited = List.copyOf(memory.priorFindings());
             findings.addAll(inherited);
             int pinnedFindings = findings.size();
+            // The ledger as the model last saw it in full or in part; null until the first tool result,
+            // and again after a cut, when the messages that carried it may be gone.
+            List<String> ledgerShown = null;
             String lastFinding = "";
             int repeatedFindings = 0;
             for (int turn = 1; turn <= maxTurns; turn++) {
@@ -304,8 +307,10 @@ public final class AgentLoop {
                 if (subagentEligible) {
                     drainSubagentResults(messages);
                 }
-                compressIfNeeded(messages, task, currentTask, successfulMutations, findings);
-                truncateHistory(messages, currentTask);
+                if (compressIfNeeded(messages, task, currentTask, successfulMutations, findings)) {
+                    ledgerShown = new ArrayList<>(findings);   // the carried summary has it all
+                }
+                if (truncateHistory(messages, currentTask)) ledgerShown = null;
                 ModelResponse response = callModel(turn, messages);
                 messages.add(ChatMessage.assistant(response.content()));
                 memory.record(ChatMessage.assistant(response.content()),
@@ -396,8 +401,12 @@ public final class AgentLoop {
                             + "Send at most " + MAX_TOOL_CALLS_PER_TURN
                             + " tool calls per response and read the results before asking for more.";
                     // The tool output is already traced; only the harness's own words are new.
+                    String ledger = ledgerShown == null
+                            ? FindingsLedger.findingsLedger(findings, pinnedFindings)
+                            : FindingsLedger.findingsSince(findings, ledgerShown);
+                    ledgerShown = new ArrayList<>(findings);
                     String guidance = missingFinding + stuckFinding + overflow
-                            + FindingsLedger.findingsLedger(findings, pinnedFindings) + exhaustedApproachLedger();
+                            + ledger + exhaustedApproachLedger();
                     if (!guidance.isBlank()) traceWriter.harnessNote(turn, "guidance", guidance);
                     messages.add(ChatMessage.user(result.userMessage() + guidance));
                     if (subagentEligible && !asyncSubagents && subagentGateway.activeCount() > 0) {
@@ -987,12 +996,13 @@ public final class AgentLoop {
         ).strip();
     }
 
-    private void compressIfNeeded(List<ChatMessage> messages, String task, ChatMessage currentTask,
+    /** @return true when the history was replaced by a summary */
+    private boolean compressIfNeeded(List<ChatMessage> messages, String task, ChatMessage currentTask,
             List<String> successfulMutations, List<String> findings)
             throws IOException, InterruptedException {
-        if (!memory.shouldCompress()) return;
+        if (!memory.shouldCompress()) return false;
         String prompt = memory.compressionPrompt(messages, task);
-        if (prompt == null) return;
+        if (prompt == null) return false;
         ModelResponse summary;
         try {
             summary = modelClient.chatText(List.of(
@@ -1007,7 +1017,7 @@ public final class AgentLoop {
             traceWriter.harnessNote(0, "compression-skipped", "Compression was skipped after "
                     + e.getClass().getSimpleName() + ": " + e.getMessage()
                     + ". The conversation continues uncompressed and will be tried again.");
-            return;
+            return false;
         }
         String compressed = memory.storeSummary(summary.content());
         int from = turnStart(messages, Math.max(1, messages.size() - 4));
@@ -1023,6 +1033,7 @@ public final class AgentLoop {
         messages.add(ChatMessage.user(carried));
         messages.addAll(tail);
         memory.checkpoint(messages, task);
+        return true;
     }
 
     /**
@@ -1051,9 +1062,9 @@ public final class AgentLoop {
      * and whole turns after it. The task is passed in: in a resumed session the first user message
      * is an older task, and tool results are user messages too.
      */
-    static void truncateHistory(List<ChatMessage> messages, ChatMessage currentTask) {
+    static boolean truncateHistory(List<ChatMessage> messages, ChatMessage currentTask) {
         if (messages.size() <= MAX_HISTORY) {
-            return;
+            return false;
         }
         ChatMessage systemMessage = messages.getFirst();
         int taskAt = currentTask == null ? -1 : messages.lastIndexOf(currentTask);
@@ -1063,6 +1074,7 @@ public final class AgentLoop {
         messages.add(systemMessage);
         if (taskAt > 0 && taskAt < from) messages.add(currentTask);
         messages.addAll(tail);
+        return true;
     }
 
     /** The first index at or after {@code from} where a turn begins: a tool result without its call is noise. */

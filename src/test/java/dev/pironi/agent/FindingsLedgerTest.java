@@ -179,4 +179,16 @@ class FindingsLedgerTest {
         assertTrue(!ledger.contains("not shown"), ledger);
         assertTrue(ledger.contains("zero rows") && ledger.contains("surefire"), ledger);
     }
+
+    @Test
+    void findingsSinceListsOnlyTheNewEntries() {
+        List<String> shown = List.of("the log has 2600 lines");
+        List<String> now = List.of("the log has 2600 lines", "E1042 is the most frequent code");
+
+        String delta = FindingsLedger.findingsSince(now, shown);
+
+        assertTrue(delta.contains("- E1042 is the most frequent code"), delta);
+        assertFalse(delta.contains("2600"), delta);
+        assertEquals("", FindingsLedger.findingsSince(shown, shown));
+    }
 }
