@@ -143,8 +143,10 @@ def metrics(base_url):
 
 
 def resets():
-    """Engine resets so far, when the kernel log is readable without a password; else None."""
-    r = subprocess.run(["sudo", "-n", "dmesg"], capture_output=True, text=True)
+    """Engine resets since boot, from the kernel journal; None when it cannot be read.
+
+    Not dmesg: the ring buffer drops old lines, and a count that fell from 1 to 0 once read as a change."""
+    r = subprocess.run(["journalctl", "-k", "-b", "--no-pager", "-q"], capture_output=True, text=True)
     return len(re.findall(r"Engine reset|CAT error", r.stdout)) if r.returncode == 0 else None
 
 
