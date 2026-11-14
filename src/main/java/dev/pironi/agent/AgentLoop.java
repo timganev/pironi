@@ -705,7 +705,7 @@ public final class AgentLoop {
             traceWriter.toolResult(turn, call.name(), call.arguments(), result);
             memory.recordTool(call.name(), call.arguments(), result.output());
             if (tool != null && tool.requiresVerification() && result.success()) {
-                verificationGate.markChanged();
+                verificationGate.markChanged(changedPaths(call.arguments()));
             }
             results.addObject()
                     .put("name", call.name())
@@ -925,6 +925,17 @@ public final class AgentLoop {
 
                 Inspect the failure, apply a targeted patch, and try again.
                 """.formatted(result.command(), result.output());
+    }
+
+    /** The workspace paths a file tool names: where it wrote, and for a move where it took from. */
+    private static List<String> changedPaths(com.fasterxml.jackson.databind.JsonNode arguments) {
+        List<String> paths = new ArrayList<>();
+        if (arguments == null) return paths;
+        for (String field : List.of("path", "destination", "source")) {
+            com.fasterxml.jackson.databind.JsonNode value = arguments.get(field);
+            if (value != null && value.isTextual()) paths.add(value.textValue());
+        }
+        return paths;
     }
 
     /** Hands the system prompt to the model client to read ahead of the first task. */

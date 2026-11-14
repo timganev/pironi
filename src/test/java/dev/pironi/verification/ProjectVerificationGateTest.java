@@ -7,6 +7,8 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -63,5 +65,38 @@ class ProjectVerificationGateTest {
         assertEquals("", gate.command());
         assertFalse(gate.required());
         assertFalse(gate.verifyIfRequired().attempted());
+    }
+
+    @Test
+    void runsTheProjectsTestsOnlyAfterACodeFileOfItsBuildChanged() throws Exception {
+        Files.writeString(workspaceRoot.resolve("pom.xml"), "<project/>");
+        ProjectVerificationGate gate = new ProjectVerificationGate(
+                new Workspace(workspaceRoot), "", Duration.ofSeconds(5));
+
+        gate.markChanged(List.of("notes/todo.md"));
+        gate.markChanged(List.of("tmp/scratch.txt"));
+        assertFalse(gate.required(), "a note or a temp file is nothing a test can judge");
+
+        gate.markChanged(List.of("src/main/java/App.java"));
+        assertTrue(gate.required());
+        assertEquals("mvn", gate.detect().command().split(" ")[0]);
+    }
+
+    @Test
+    void findsPytestAndNpmByTheirOwnFiles() throws Exception {
+        Files.writeString(workspaceRoot.resolve("pyproject.toml"), "[tool.pytest.ini_options]\n");
+        ProjectVerificationGate gate = new ProjectVerificationGate(
+                new Workspace(workspaceRoot), "", Duration.ofSeconds(5));
+        assertEquals("python3 -m pytest -q", gate.detect().command());
+        gate.markChanged(List.of("app/main.js"));
+        assertFalse(gate.required());
+        gate.markChanged(List.of("app/main.py"));
+        assertTrue(gate.required());
+
+        Files.delete(workspaceRoot.resolve("pyproject.toml"));
+        Files.writeString(workspaceRoot.resolve("package.json"), "{\"scripts\": {\"build\": \"x\", \"test\": \"jest\"}}");
+        assertEquals("npm test --silent", gate.detect().command());
+        Files.writeString(workspaceRoot.resolve("package.json"), "{\"scripts\": {\"build\": \"x\"}}");
+        assertNull(gate.detect());
     }
 }
