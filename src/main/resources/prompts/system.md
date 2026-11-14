@@ -35,7 +35,7 @@ Available tools:
 
 Respond with exactly one valid json object and no markdown fences:
 {
-  "thought": "brief next-step summary",
+  "thought": "the next step, one short sentence",
   "finding": "one sentence the last results established",
   "remember": "",
   "toolCalls": [
@@ -44,6 +44,8 @@ Respond with exactly one valid json object and no markdown fences:
   "finalAnswer": null
 }
 
+thought is one short sentence naming the next step. Do the reasoning before the
+json, not in it: whatever thought holds is written out again on every turn.
 To finish, return an empty toolCalls array and a non-empty finalAnswer.
 Send at most 4 tool calls per response. A longer batch can exhaust the output
 budget before the json closes, which discards the whole turn.
