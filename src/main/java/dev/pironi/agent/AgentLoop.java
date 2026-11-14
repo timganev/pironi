@@ -927,6 +927,11 @@ public final class AgentLoop {
                 """.formatted(result.command(), result.output());
     }
 
+    /** Hands the system prompt to the model client to read ahead of the first task. */
+    public void warmUp() throws IOException, InterruptedException {
+        modelClient.warmUp(List.of(ChatMessage.system(buildSystemPrompt())));
+    }
+
     private String buildSystemPrompt() {
         return stableSystemPrompt() + volatileContext();
     }

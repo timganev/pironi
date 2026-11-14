@@ -13,6 +13,13 @@ public interface ModelClient {
         return chat(messages);
     }
 
+    /**
+     * Has the server read {@code prefix} ahead of the first real request, where that costs nothing
+     * but a local server's idle time. The default does nothing.
+     */
+    default void warmUp(List<ChatMessage> prefix) throws IOException, InterruptedException {
+    }
+
     default ModelResponse chatStreaming(
             List<ChatMessage> messages,
             Consumer<String> contentChunk

@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -200,6 +201,34 @@ class OpenAiCompatibleClientTest {
         } finally {
             server.stop(0);
         }
+    }
+
+    @Test
+    void warmUpAsksALocalServerForOneTokenAfterThePrefix() throws Exception {
+        List<JsonNode> requests = new java.util.concurrent.CopyOnWriteArrayList<>();
+        HttpServer server = scriptedServer(requests, List.of("""
+                {"choices":[{"finish_reason":"length","message":{"role":"assistant","content":"x"}}]}
+                """));
+        try {
+            URI endpoint = URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/v1/chat/completions");
+            new OpenAiCompatibleClient(HttpClient.newHttpClient(), objectMapper, endpoint, "test-model", "k",
+                    Duration.ofSeconds(5), 8192).warmUp(List.of(ChatMessage.system("the system prompt")));
+
+            assertEquals(1, requests.size());
+            JsonNode body = requests.getFirst();
+            assertEquals(1, body.path("max_tokens").asInt());
+            assertEquals("the system prompt", body.path("messages").get(0).path("content").asText());
+            assertTrue(body.path("response_format").isMissingNode(), body.toString());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void warmUpLeavesARemoteProviderAlone() {
+        assertTrue(OpenAiCompatibleClient.loopback(URI.create("http://127.0.0.1:8000/v1/chat/completions")));
+        assertTrue(OpenAiCompatibleClient.loopback(URI.create("http://localhost:11434/v1/chat/completions")));
+        assertFalse(OpenAiCompatibleClient.loopback(URI.create("https://api.deepseek.com/chat/completions")));
     }
 
     private HttpServer scriptedServer(List<JsonNode> requests, List<String> replies) throws Exception {

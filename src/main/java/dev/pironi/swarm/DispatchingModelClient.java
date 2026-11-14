@@ -142,6 +142,11 @@ public final class DispatchingModelClient implements ModelClient, AutoCloseable 
     }
 
     @Override
+    public void warmUp(List<ChatMessage> prefix) throws IOException, InterruptedException {
+        delegate.warmUp(prefix);
+    }
+
+    @Override
     public ModelResponse chatStreaming(List<ChatMessage> messages, Consumer<String> contentChunk)
             throws IOException, InterruptedException {
         return dispatch(messages, () -> delegate.chatStreaming(messages, contentChunk));

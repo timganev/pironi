@@ -31,6 +31,11 @@ public final class SwitchableModelClient implements ModelClient {
         return delegate.chatStreaming(messages, contentChunk);
     }
 
+    @Override
+    public void warmUp(List<ChatMessage> prefix) throws IOException, InterruptedException {
+        delegate.warmUp(prefix);
+    }
+
     public String model() {
         return model;
     }

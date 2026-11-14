@@ -676,6 +676,14 @@ public final class PironiMain {
                         status::outputStarted,
                         status::outputFinished
                 ));
+                // The server reads the system prompt while the first question is being typed.
+                Thread.ofVirtual().name("warm-up").start(() -> {
+                    try {
+                        loop.warmUp();
+                    } catch (Exception ignored) {
+                        // Only a head start; the first task reads the prompt itself if this fails.
+                    }
+                });
                 int exitCode = shell.onShutdown(() -> {
                     if (finalSubagentManager != null) {
                         finalSubagentManager.shutdownGracefully(Duration.ofSeconds(10));

@@ -176,6 +176,38 @@ public final class OpenAiCompatibleClient implements ModelClient {
     }
 
     /**
+     * One output token after the prefix, so a local server caches the system prompt while the user
+     * is still typing; the first real request then reads only the question (14.11: the system prompt
+     * alone is ~7.4k tokens, ~3.7 s of reading on a B70 with Qwen3.8). Only a server on this machine:
+     * a paid provider would bill the whole prompt for nothing.
+     */
+    @Override
+    public void warmUp(List<ChatMessage> prefix) throws IOException, InterruptedException {
+        if (!loopback(endpoint)) return;
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("model", model);
+        payload.put("stream", false);
+        payload.put("max_tokens", 1);
+        ArrayNode messageArray = payload.putArray("messages");
+        for (ChatMessage message : prefix) {
+            messageArray.addObject().put("role", message.role()).put("content", message.content());
+        }
+        messageArray.addObject().put("role", "user").put("content", ".");
+        HttpRequest.Builder request = HttpRequest.newBuilder(endpoint)
+                .timeout(timeout)
+                .header("Content-Type", "application/json");
+        if (apiKey != null && !apiKey.isBlank()) request.header("Authorization", "Bearer " + apiKey);
+        httpClient.send(request.POST(HttpRequest.BodyPublishers.ofString(
+                objectMapper.writeValueAsString(payload))).build(), HttpResponse.BodyHandlers.discarding());
+    }
+
+    static boolean loopback(URI endpoint) {
+        String host = endpoint.getHost();
+        return host != null && (host.equals("localhost") || host.equals("127.0.0.1") || host.equals("[::1]")
+                || host.equals("::1"));
+    }
+
+    /**
      * Whether this call asks for a json_schema, re-arming it once the countdown from the last
      * rejection has run out.
      */
