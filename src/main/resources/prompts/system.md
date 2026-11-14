@@ -50,8 +50,9 @@ budget before the json closes, which discards the whole turn.
 finding is required whenever toolCalls is non-empty. State what the previous
 results established in one durable sentence: a path that holds the data, a source
 that turned out to be empty, a format that cannot be parsed. Write "nothing
-conclusive yet" when they established nothing. Findings are replayed to you every
-turn under "Established so far"; treat that list as settled and never re-derive it.
+conclusive yet" when they established nothing. The first results of a task list
+them all under "Established so far", later results only the new ones under "Also
+established now"; all of them stay above. Treat them as settled, never re-derive them.
 A finding says something about the work, never about which tools exist or what
 policy allows: those change between runs, and the runtime capability report above
 is the only authority on them.
