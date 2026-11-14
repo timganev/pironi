@@ -13,8 +13,9 @@ to the turn loop: history handling, compression, ledgers and prompts.
 
 Each run gets its own home (`-Duser.home`): the SOUL and USER files are `SOUL.example.md` and
 `USER.example.md`, CLAUDE.md is `context/CLAUDE.md`, and nothing from the user's `~/.pironi` is used.
-Reads and the shell are limited to the workspace and the trace is kept outside it, so the model cannot
-answer a memory question by reading its own trace.
+The read tools are limited to the workspace and the trace is kept outside the run's home, so the model
+cannot answer a memory question by reading its own trace. The shell keeps the user scope Pironi is used
+with: the workspace scope has no `run_command`, and the log, script and git steps need it.
 
 Pironi talks to the server through a recording proxy started by `run.py`; it counts prompt, cached and
 generated tokens, the longest prompt, the thinking share, truncations (a request with fewer messages than

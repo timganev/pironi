@@ -383,9 +383,12 @@ def main():
     subprocess.run([sys.executable, "-I", os.path.join(HERE, "fixture.py"), ws, ans], check=True)
     answers = json.load(open(ans))
     checks = Checks(ws, answers)
-    # The trace and the sessions stay outside what the model may read: a trace in the workspace once
-    # answered the memory question by being read back, and a wider read scope let it look into other runs.
-    trace = os.path.join(home, "trace.jsonl")
+    # The trace stays out of the workspace: kept there it once answered the memory question by being
+    # read back. The read tools stay in the workspace too. The shell keeps the user scope Pironi is used
+    # with; the workspace scope has no run_command at all, and the log, script and git steps need it.
+    trace = os.path.join(a.work, f"{a.label}.trace.jsonl")
+    if os.path.exists(trace):
+        os.remove(trace)
 
     rec = Recorder()
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), make_proxy(a.base_url.rstrip("/"), rec))
@@ -417,7 +420,7 @@ def main():
         cmd = [a.java, f"-Duser.home={home}", "-jar", jar, "--provider", "openai-compatible", "--base-url", proxy,
                "--api-key-env", "PIRONI_BENCH_KEY", "--model", a.model, "--context", a.context,
                "--max-output-tokens", "8192", "--max-turns", str(max_turns), "--activity", "auto",
-               "--shell-scope", "workspace", "--read-scope", "workspace", "--trace", trace,
+               "--shell-scope", "user", "--read-scope", "workspace", "--trace", trace,
                "--status", "never", "--no-interactive", "--task-file", task_file, "--workspace", ws] + a.extra.split() + (["--continue"] if session == sess else [])
         session = sess
         rec.step = i
