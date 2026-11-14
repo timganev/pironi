@@ -935,16 +935,76 @@ class AgentLoopTest {
         List<ChatMessage> messages = new ArrayList<>();
         messages.add(ChatMessage.system("system"));
         messages.add(ChatMessage.user("export the mailbox and report hours per project"));
-        for (int i = 0; i < 60; i++) {
+        for (int i = 0; i < 500; i++) {
             messages.add(ChatMessage.assistant("step " + i));
         }
 
-        AgentLoop.truncateHistory(messages);
+        AgentLoop.truncateHistory(messages, messages.get(1));
 
-        assertEquals(24, messages.size());
+        assertEquals(240, messages.size());
         assertEquals("system", messages.getFirst().content());
         assertEquals("export the mailbox and report hours per project", messages.get(1).content());
-        assertEquals("step 59", messages.getLast().content());
+        assertEquals("step 499", messages.getLast().content());
+    }
+
+    /**
+     * In a resumed session the first user message is the oldest task, not the current one, and tool
+     * results are user messages too. Keeping "the first user message" kept a task finished long ago
+     * and dropped the one being worked on once it ran past a dozen turns (seen 14.11: the agent went
+     * back to answering the session's first question in the middle of following a trail of files).
+     */
+    @Test
+    void truncationInAResumedSessionKeepsTheCurrentTask() throws Exception {
+        List<ChatMessage> earlier = new ArrayList<>();
+        earlier.add(ChatMessage.system("system"));
+        earlier.add(ChatMessage.user("count the rows of stock.csv"));
+        for (int i = 0; i < 8; i++) {
+            earlier.add(ChatMessage.assistant("earlier step " + i));
+            earlier.add(ChatMessage.user("earlier result " + i));
+        }
+        earlier.add(ChatMessage.assistant("{\"thought\":\"done\",\"toolCalls\":[],\"finalAnswer\":\"17 rows\"}"));
+        AgentMemory memory = new AgentMemory() {
+            @Override public List<ChatMessage> begin(String task) { return earlier; }
+        };
+        String[] responses = new String[211];
+        for (int i = 0; i < 210; i++) {
+            responses[i] = "{\"thought\":\"next file\",\"finding\":\"fragment " + i + " read\","
+                    + "\"toolCalls\":[{\"name\":\"read\",\"arguments\":{}}],\"finalAnswer\":null}";
+        }
+        responses[210] = "{\"thought\":\"done\",\"toolCalls\":[],\"finalAnswer\":\"trail written\"}";
+        RecordingModelClient model = new RecordingModelClient(responses);
+
+        AgentResult result = loop(model, List.of(readTool()), new NoOpVerificationGate(), memory, 220)
+                .run("follow the trail and write the fragments in reverse order");
+
+        assertTrue(result.success(), result.output());
+        List<ChatMessage> last = model.requests.getLast();
+        assertTrue(last.size() < earlier.size() + 2 + 420, "the history was never truncated");
+        assertTrue(last.stream().anyMatch(m -> m.role().equals("user")
+                        && m.content().startsWith("follow the trail and write the fragments in reverse order")),
+                "the current task fell out of the history");
+    }
+
+    /**
+     * A tool result read without the call that asked for it is an answer to nothing. A history whose
+     * length does not pair up - a subagent result arrives as a message of its own - used to be cut
+     * with a result at the head of the kept part.
+     */
+    @Test
+    void truncationKeepsWholeTurns() {
+        List<ChatMessage> messages = new ArrayList<>();
+        messages.add(ChatMessage.system("system"));
+        messages.add(ChatMessage.user("task"));
+        for (int i = 0; i < 250; i++) {
+            messages.add(ChatMessage.assistant("call " + i));
+            messages.add(ChatMessage.user("result " + i));
+        }
+        messages.add(ChatMessage.user("subagent result"));
+
+        AgentLoop.truncateHistory(messages, messages.get(1));
+
+        assertEquals("task", messages.get(1).content());
+        assertEquals("assistant", messages.get(2).role(), "kept part starts with " + messages.get(2).content());
     }
 
     @Test
@@ -952,16 +1012,16 @@ class AgentLoopTest {
         List<ChatMessage> messages = new ArrayList<>();
         messages.add(ChatMessage.system("system"));
         messages.add(ChatMessage.user("task"));
-        for (int i = 0; i < 60; i++) {
+        for (int i = 0; i < 500; i++) {
             messages.add(ChatMessage.assistant("step " + i));
         }
-        AgentLoop.truncateHistory(messages);
+        AgentLoop.truncateHistory(messages, messages.get(1));
         List<ChatMessage> kept = List.copyOf(messages);
 
         // a prefix cache only hits while the start of the conversation stays the same
-        for (int i = 60; i < 70; i++) {
+        for (int i = 500; i < 510; i++) {
             messages.add(ChatMessage.assistant("step " + i));
-            AgentLoop.truncateHistory(messages);
+            AgentLoop.truncateHistory(messages, messages.get(1));
         }
 
         assertEquals(kept, messages.subList(0, kept.size()));
@@ -971,15 +1031,15 @@ class AgentLoopTest {
     void truncationWithoutATaskStillKeepsTheSystemPrompt() {
         List<ChatMessage> messages = new ArrayList<>();
         messages.add(ChatMessage.system("system"));
-        for (int i = 0; i < 60; i++) {
+        for (int i = 0; i < 500; i++) {
             messages.add(ChatMessage.assistant("step " + i));
         }
 
-        AgentLoop.truncateHistory(messages);
+        AgentLoop.truncateHistory(messages, null);
 
-        assertEquals(24, messages.size());
+        assertEquals(240, messages.size());
         assertEquals("system", messages.getFirst().content());
-        assertEquals("step 59", messages.getLast().content());
+        assertEquals("step 499", messages.getLast().content());
     }
 
     @Test
@@ -1013,10 +1073,48 @@ class AgentLoopTest {
                 .run("weekly report");
 
         assertTrue(result.success());
-        String afterCompression = model.requests.getLast().get(1).content();
+        String afterCompression = model.requests.getLast().stream().map(ChatMessage::content)
+                .filter(c -> c.contains("compact summary")).findFirst().orElse("");
         assertTrue(afterCompression.contains("compact summary"));
         assertTrue(afterCompression.contains("Already completed in this session"));
         assertTrue(afterCompression.contains("export: mail.txt"));
+    }
+
+    /**
+     * The summary is the model's retelling of the conversation and kept only the last four messages
+     * verbatim, so in a session that had run for a while the task being worked on was left to the
+     * summary to remember.
+     */
+    @Test
+    void compressionKeepsTheCurrentTaskVerbatim() throws Exception {
+        String step = "{\"thought\":\"next\",\"finding\":\"read one more file\","
+                + "\"toolCalls\":[{\"name\":\"read\",\"arguments\":{}}],\"finalAnswer\":null}";
+        RecordingModelClient model = new RecordingModelClient(step, step, step, step, "compact summary",
+                "{\"thought\":\"done\",\"toolCalls\":[],\"finalAnswer\":\"answer\"}");
+        AgentMemory memory = new AgentMemory() {
+            private int calls;
+            @Override public List<ChatMessage> begin(String task) {
+                return List.of(ChatMessage.system("system"), ChatMessage.user("an older task"),
+                        ChatMessage.assistant("{\"thought\":\"done\",\"toolCalls\":[],\"finalAnswer\":\"old\"}"));
+            }
+            @Override public boolean shouldCompress() { return ++calls == 5; }
+            @Override public String compressionPrompt(List<ChatMessage> messages, String task) {
+                return "compress this";
+            }
+        };
+
+        AgentResult result = loop(model, List.of(readTool()), new NoOpVerificationGate(), memory, 10)
+                .run("follow the trail");
+
+        assertTrue(result.success(), result.output());
+        List<ChatMessage> after = model.requests.getLast();
+        assertTrue(after.stream().anyMatch(m -> m.content().startsWith("follow the trail")),
+                "the current task went into the summary only");
+        assertTrue(after.stream().anyMatch(m -> m.content().contains("compact summary")));
+        int firstAssistant = 0;
+        while (!after.get(firstAssistant).role().equals("assistant")) firstAssistant++;
+        assertTrue(after.get(firstAssistant - 1).content().contains("compact summary"),
+                "the recent part starts with a whole turn");
     }
 
     /**
@@ -1153,6 +1251,16 @@ class AgentLoopTest {
             changed = false;
             return new VerificationResult(true, true, "mvn test", "exitCode=0");
         }
+    }
+
+    private static Tool readTool() {
+        return new Tool() {
+            public String name() { return "read"; }
+            public String description() { return "read"; }
+            public String argumentSchema() { return "{}"; }
+            public boolean mutating() { return false; }
+            public ToolResult execute(JsonNode arguments) { return ToolResult.success("fragment and the next file name"); }
+        };
     }
 
     private static final class RecordingModelClient implements ModelClient {

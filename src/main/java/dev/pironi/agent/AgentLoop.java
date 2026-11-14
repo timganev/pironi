@@ -37,13 +37,18 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public final class AgentLoop {
-    private static final int MAX_HISTORY = 40;
+    /**
+     * A far safety net, not the working limit. Compression by tokens keeps the history inside the
+     * context window; at 40 messages this cut came at about 20k tokens of a 131k window, re-read the
+     * whole history on the next request and dropped work the task still needed (14.11).
+     */
+    private static final int MAX_HISTORY = 400;
     /**
      * Where truncation cuts back to once MAX_HISTORY is passed. Cutting to MAX_HISTORY itself slid
      * the window by one message every turn, so the history after the task changed on every request
      * and a prefix cache never hit again; cutting deeper keeps it stable for the next several turns.
      */
-    private static final int TRUNCATE_TO = 24;
+    private static final int TRUNCATE_TO = 240;
     static final String CONTEXT_UPDATE_HEADING =
             "## Context update (replaces the skill, runtime session and time sections of the system prompt)";
     private static final int MAX_LEDGER_ENTRIES = 20;
@@ -271,7 +276,8 @@ public final class AgentLoop {
             } else {
                 messages.addFirst(ChatMessage.system(buildSystemPrompt()));
             }
-            messages.add(ChatMessage.user(taskMessage));
+            ChatMessage currentTask = ChatMessage.user(taskMessage);
+            messages.add(currentTask);
             memory.record(ChatMessage.user(task), 0, 0);
             if (subagentEligible) {
                 drainSubagentResults(messages);
@@ -298,8 +304,8 @@ public final class AgentLoop {
                 if (subagentEligible) {
                     drainSubagentResults(messages);
                 }
-                compressIfNeeded(messages, task, successfulMutations, findings);
-                truncateHistory(messages);
+                compressIfNeeded(messages, task, currentTask, successfulMutations, findings);
+                truncateHistory(messages, currentTask);
                 ModelResponse response = callModel(turn, messages);
                 messages.add(ChatMessage.assistant(response.content()));
                 memory.record(ChatMessage.assistant(response.content()),
@@ -981,7 +987,7 @@ public final class AgentLoop {
         ).strip();
     }
 
-    private void compressIfNeeded(List<ChatMessage> messages, String task,
+    private void compressIfNeeded(List<ChatMessage> messages, String task, ChatMessage currentTask,
             List<String> successfulMutations, List<String> findings)
             throws IOException, InterruptedException {
         if (!memory.shouldCompress()) return;
@@ -1004,11 +1010,13 @@ public final class AgentLoop {
             return;
         }
         String compressed = memory.storeSummary(summary.content());
-        List<ChatMessage> tail = new ArrayList<>(messages.subList(
-                Math.max(1, messages.size() - 4), messages.size()
-        ));
+        int from = turnStart(messages, Math.max(1, messages.size() - 4));
+        boolean taskInTail = messages.lastIndexOf(currentTask) >= from;
+        List<ChatMessage> tail = new ArrayList<>(messages.subList(from, messages.size()));
         messages.clear();
         messages.add(ChatMessage.system(buildSystemPrompt()));
+        // The summary is the model's own retelling; the task it is working on goes on verbatim.
+        if (!taskInTail) messages.add(currentTask);
         String carried = compressed + artifactLedger(successfulMutations) + FindingsLedger.findingsLedger(findings)
                 + exhaustedApproachLedger();
         traceWriter.harnessNote(0, "compressed", carried);
@@ -1038,28 +1046,31 @@ public final class AgentLoop {
         }
     }
 
-    /** Drops the middle of a long conversation, keeping the system prompt and the task. */
-    static void truncateHistory(List<ChatMessage> messages) {
+    /**
+     * Drops the middle of a long conversation, keeping the system prompt, the task being worked on
+     * and whole turns after it. The task is passed in: in a resumed session the first user message
+     * is an older task, and tool results are user messages too.
+     */
+    static void truncateHistory(List<ChatMessage> messages, ChatMessage currentTask) {
         if (messages.size() <= MAX_HISTORY) {
             return;
         }
         ChatMessage systemMessage = messages.getFirst();
-        ChatMessage taskMessage = firstUserMessage(messages);
-        int reserved = taskMessage == null ? 1 : 2;
-        List<ChatMessage> tail = new ArrayList<>(messages.subList(
-                messages.size() - (TRUNCATE_TO - reserved), messages.size()
-        ));
+        int taskAt = currentTask == null ? -1 : messages.lastIndexOf(currentTask);
+        int from = turnStart(messages, messages.size() - (TRUNCATE_TO - (taskAt > 0 ? 2 : 1)));
+        List<ChatMessage> tail = new ArrayList<>(messages.subList(from, messages.size()));
         messages.clear();
         messages.add(systemMessage);
-        if (taskMessage != null) messages.add(taskMessage);
+        if (taskAt > 0 && taskAt < from) messages.add(currentTask);
         messages.addAll(tail);
     }
 
-    private static ChatMessage firstUserMessage(List<ChatMessage> messages) {
-        for (ChatMessage message : messages) {
-            if (message.role().equals("user")) return message;
+    /** The first index at or after {@code from} where a turn begins: a tool result without its call is noise. */
+    private static int turnStart(List<ChatMessage> messages, int from) {
+        for (int i = from; i < messages.size(); i++) {
+            if (messages.get(i).role().equals("assistant")) return i;
         }
-        return null;
+        return from;
     }
 
     private static String protocolRepairMessage(ProtocolException error) {
